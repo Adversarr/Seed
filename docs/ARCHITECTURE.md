@@ -74,17 +74,18 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │                   Application Layer                      │   │
 │  │                                                          │   │
 │  │  UseCases:                                               │
-│  │  - PostTask: 创建任务                                    │
+│  │  - PostTask: 创建任务（直接发送给默认 Agent）           │
 │  │  - ClaimTask: Agent 认领任务                             │
 │  │  - PostPlan: 发布修改计划                                │
 │  │  - ProposePatch: 提议补丁                                │
 │  │  - AcceptPatch: 接受并应用补丁                           │
+│  │  - RejectPatch: 拒绝补丁（附带理由）                     │
+│  │  - PostFeedback: 发布反馈（针对计划或补丁）             │
 │  │  - ReplayEvents: 事件回放                                │
 │  │                                                          │
 │  │  Services:                                               │
 │  │  - ContextBuilder: 构建 Agent 上下文                     │
 │  │  - DriftDetector: 检测文件漂移                           │
-│  │  - Router: 任务路由策略                                  │
 │  │  - Scheduler: 任务调度策略                               │
 │  └────────────────────────────┬────────────────────────────┘   │
 │                               │                                 │
@@ -109,7 +110,6 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │  - LLMClient: LLM 调用接口                               │
 │  │                                                          │
 │  │  Policies (Pure Functions):                              │
-│  │  - RouterPolicy: 任务分配规则                            │
 │  │  - SchedulerPolicy: 执行优先级规则                       │
 │  │  - RebasePolicy: 漂移处理规则                            │
 │  └────────────────────────────┬────────────────────────────┘   │
@@ -140,8 +140,12 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │  - ConcurrencyControl: 并发控制（写作类任务单并发=1）    │
 │  │                                                          │
 │  │  Agents:                                                 │
-│  │  - DefaultCoAuthorAgent: V0 默认 Agent                   │
-│  │  - [Future] ReviewerAgent, InterviewerAgent, etc.        │
+│  │  - DefaultCoAuthorAgent: V0 默认通用 Agent               │
+│  │  - [V1] OrchestratorAgent: 可创建子任务调度其他 Agent    │
+│  │  - [V1] SpecialistAgents: 专业领域 Agent                 │
+│  │                                                          │
+│  │  V0 设计：用户 → Billboard → 默认 Agent（类似 chat）    │
+│  │  V1 扩展：OrchestratorAgent 可创建子任务分发给其他 Agent │
 │  │                                                          │
 │  │  Agent 只依赖 Ports，不直接调用 Infra 实现               │
 │  └─────────────────────────────────────────────────────────┘   │
@@ -173,11 +177,12 @@ type ActorCapability =
   | 'run_latex_build'  // 可运行 LaTeX 编译
   | 'read_assets'      // 可读取资产
   | 'create_task'      // 可创建任务
+  | 'claim_task'       // 可认领任务（Agent 特有）
 ```
 
 ### 3.2 Task（任务）
 
-Task 是统一的任务载体。不做强类型细分，通过 `assignedTo` + Agent workflow 决定行为。
+Task 是统一的任务载体。V0 不做强类型细分，不做路由——所有任务直接发送给默认 Agent。
 
 ```typescript
 type TaskStatus = 
@@ -193,8 +198,9 @@ type TaskPriority = 'foreground' | 'normal' | 'background'
 
 type Task = {
   taskId: string
+  title: string            // 任务标题（展示用，必填）
   createdBy: string        // ActorId
-  assignedTo?: string      // ActorId，可空表示待路由
+  assignedTo?: string      // 当前处理者（Agent 认领后赋值）
   priority: TaskPriority
   status: TaskStatus
   intent: string           // 用户意图（自由文本）
@@ -202,6 +208,7 @@ type Task = {
   baseRevisions?: Record<string, string>  // 创建时的文件版本快照
   threadId: string         // 讨论串 ID
   createdAt: string
+  parentTaskId?: string    // V1 预留：父任务 ID（子任务支持）
 }
 ```
 
@@ -360,7 +367,6 @@ src/
 │   ├── artifact.ts         # Artifact 类型定义
 │   ├── events.ts           # DomainEvent Zod schemas
 │   ├── policies/           # 纯函数策略
-│   │   ├── router.ts      # RouterPolicy
 │   │   └── scheduler.ts   # SchedulerPolicy
 │   └── ports/              # 端口接口定义
 │       ├── eventStore.ts  # EventStore 接口
@@ -443,7 +449,9 @@ Interfaces → Application → Domain ← Infrastructure
 | "User = Reviewer/PI" | Actor.kind = 'human' + capabilities |
 | "LLM = Co-author/Postdoc" | Actor.kind = 'agent' |
 | "Billboard" | EventStore + Projector + RxJS |
-| "Task 不细分类" | Task.intent 是自由文本，路由靠 Agent.canHandle |
+| "Task 不细分类" | Task.intent 是自由文本 |
 | "Plan-first + Patch-first" | Agent workflow 标准骨架 |
 | "用户手改感知" | DriftDetector + baseRevisions |
 | "CLI 只是 Adapter" | Interfaces 层分离 |
+| "V0 单 Agent" | 所有 Task 直接发送给默认 Agent |
+| "V1 多 Agent" | OrchestratorAgent 可创建子任务 |

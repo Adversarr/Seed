@@ -28,12 +28,12 @@
   - `events`：包含 `id`, `streamId`, `seq`, `type`, `payload`, `createdAt`。
   - `projections`：包含 `name`, `cursorEventId`, `stateJson`。
 - **特性：**
-  - 接口定义在 [src/core/eventStore.ts](src/core/eventStore.ts)。
+  - 接口定义在 [src/domain/ports/eventStore.ts](src/domain/ports/eventStore.ts)。
   - 核心逻辑不再依赖具体的数据库驱动。
   - 统一的 ID 生成与流序列号管理。
 
 #### 投影系统
-- **位置：** [src/core/projections.ts](src/core/projections.ts)
+- **位置：** [src/application/projector.ts](src/application/projector.ts) 和各服务中的投影逻辑
 - **架构：** 事件 → Reducer → 状态 (函数式 CQRS 模式)
 - **实现：**
   - **TasksProjection：** 列出所有任务，跟踪当前打开的任务
@@ -115,7 +115,7 @@ graph TB
     end
     
     subgraph Application["应用层 (Application)"]
-        UC["用例 (Use Cases)<br/>(src/core/operations.ts)"]
+        UC["用例 (Use Cases)<br/>(application/ 层)"]
         UC1["createTask()"]
         UC2["acceptPatch()"]
         UC3["proposePatch()"]
@@ -124,13 +124,13 @@ graph TB
     end
     
     subgraph Domain["领域层 (Domain)"]
-        Events["领域事件<br/>(src/core/domain.ts)"]
-        Proj["投影系统<br/>(src/core/projections.ts)"]
-        Projector["投影运行器<br/>(src/core/projector.ts)"]
+        Events["领域事件<br/>(src/domain/events.ts)"]
+        Proj["投影系统<br/>(src/application/)"]
+        Projector["投影运行器<br/>(src/application/projector.ts)"]
     end
     
     subgraph Infrastructure["基础设施层 (Infrastructure)"]
-        Store["EventStore Interface<br/>(src/core/eventStore.ts)"]
+        Store["EventStore Interface<br/>(src/domain/ports/eventStore.ts)"]
         JSONL["JSONL Adapter<br/>(infra/jsonlEventStore.ts)"]
         SQL["SQLite Adapter<br/>(infra/sqliteEventStore.ts)"]
         Patch["补丁引擎<br/>(src/patch/applyUnifiedPatch.ts)"]
@@ -167,12 +167,9 @@ graph TB
 **2. 应用层 (Application)**
 - **职责：** 编排领域逻辑，协调各层交互
 - **实现：**
-  - `src/core/operations.ts`: 所有用例的入口点
-    - `createTask()`: 创建任务并追加 TaskCreated 事件
-    - `proposePatch()`: 从 stdin 读取 diff，追加 PatchProposed 事件
-    - `acceptPatch()`: 查找提议、应用补丁、追加 PatchApplied 事件
-    - `listTasks()`: 运行 TasksProjection 获取当前任务列表
-    - `replayEvents()`: 从事件存储回放审计日志
+  - `src/application/`: 应用层服务
+    - `TaskService`, `PatchService`, `EventService`: 业务用例封装
+    - `projector.ts`: 投影运行器
 - **关键特性：**
   - 持久化保证（SQLite 版支持 ACID 事务；JSONL 版支持原子追加）
   - 不包含 UI 逻辑或基础设施细节
@@ -180,13 +177,12 @@ graph TB
 **3. 领域层 (Domain)**
 - **职责：** 定义核心业务概念和规则（纯函数、无副作用）
 - **实现：**
-  - `src/core/domain.ts`: 
+  - `src/domain/events.ts`: 
     - Zod 模式定义所有领域事件（TaskCreated, PatchProposed, PatchApplied 等）
     - 类型安全的事件 payload 验证
-  - `src/core/projections.ts`:
-    - `TasksProjection`: 事件 → 任务列表的 reducer（纯函数）
+  - `src/application/threadProjection.ts`:
     - `ThreadProjection`: 事件 → 任务线程视图的 reducer
-  - `src/core/projector.ts`:
+  - `src/application/projector.ts`:
     - 通用投影运行器，实现增量状态重建
     - 检查点机制（cursor-based）
 - **关键特性：**
@@ -208,7 +204,7 @@ graph TB
 
 #### 1. Actor 一等公民（预留设计）
 虽然 M0 尚未实现完整的 Actor 系统，但架构已为此预留：
-- 事件 payload 中的 `actorId` 字段（`src/core/domain.ts`）
+- 事件 payload 中的 `authorActorId` 字段（`src/domain/events.ts`）
 - 未来可通过 `TaskRouted` 和 `TaskClaimed` 事件实现 Actor 协作
 - 当前默认 Actor 为执行命令的用户（CLI 进程）
 

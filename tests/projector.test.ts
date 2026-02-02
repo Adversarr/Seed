@@ -3,9 +3,43 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
-import { runProjection } from '../src/core/projector.js'
-import { defaultTasksProjectionState, reduceTasksProjection } from '../src/core/projections.js'
+import { runProjection } from '../src/application/projector.js'
 import { DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+
+// Use TaskService's projection instead of the deprecated one
+type DeprecatedTasksProjectionState = {
+  tasks: Array<{
+    taskId: string
+    title: string
+    createdAt: string
+  }>
+  currentTaskId: string | null
+}
+
+const defaultTasksProjectionState: DeprecatedTasksProjectionState = {
+  tasks: [],
+  currentTaskId: null
+}
+
+function reduceTasksProjection(state: DeprecatedTasksProjectionState, event: any): DeprecatedTasksProjectionState {
+  switch (event.type) {
+    case 'TaskCreated': {
+      if (state.tasks.some((t) => t.taskId === event.payload.taskId)) return state
+      return {
+        ...state,
+        tasks: [
+          ...state.tasks,
+          { taskId: event.payload.taskId, title: event.payload.title, createdAt: event.createdAt }
+        ]
+      }
+    }
+    case 'ThreadOpened': {
+      return { ...state, currentTaskId: event.payload.taskId }
+    }
+    default:
+      return state
+  }
+}
 
 describe('Projection', () => {
   test('tasks projection advances cursor and is idempotent', async () => {

@@ -2,7 +2,7 @@
 // Handles unified diff application with base revision checking
 
 import { nanoid } from 'nanoid'
-import type { EventStore, StoredEvent } from '../domain/index.js'
+import type { EventStore } from '../domain/index.js'
 import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
 import { applyUnifiedPatchToFile } from '../patch/applyUnifiedPatch.js'
 

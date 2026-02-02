@@ -46,18 +46,7 @@ type TaskCreatedEvent = {
   }
 }
 
-// 任务路由（分配给某个 Agent）
-type TaskRoutedEvent = {
-  type: 'TaskRouted'
-  payload: {
-    taskId: string
-    assignedTo: string                // AgentId
-    routedBy: string                  // 路由策略或 ActorId
-    authorActorId: string
-  }
-}
-
-// 任务被 Agent 认领
+// 任务被 Agent 认领（V0: 默认 Agent 自动认领）
 type TaskClaimedEvent = {
   type: 'TaskClaimed'
   payload: {
@@ -257,7 +246,6 @@ type TaskRebasedEvent = {
 type DomainEvent =
   // 任务生命周期
   | TaskCreatedEvent
-  | TaskRoutedEvent
   | TaskClaimedEvent
   | TaskStartedEvent
   | TaskCompletedEvent
@@ -277,6 +265,9 @@ type DomainEvent =
   | ArtifactChangedEvent
   | TaskNeedsRebaseEvent
   | TaskRebasedEvent
+  // V1: 子任务事件
+  // | SubtaskCreatedEvent
+  // | SubtaskCompletedEvent
 
 type EventType = DomainEvent['type']
 ```
@@ -375,13 +366,14 @@ export const TaskSchema = z.object({
   title: z.string().min(1),
   intent: z.string(),
   createdBy: z.string().min(1),           // ActorId
-  assignedTo: z.string().optional(),       // ActorId
   priority: TaskPrioritySchema,
   status: TaskStatusSchema,
   artifactRefs: z.array(ArtifactRefSchema).optional(),
   baseRevisions: z.record(z.string()).optional(),
   threadId: z.string().min(1),
-  createdAt: z.string().min(1)
+  createdAt: z.string().min(1),
+  // V1: 子任务支持
+  parentTaskId: z.string().optional()
 })
 
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
@@ -467,19 +459,23 @@ export type TaskView = {
   title: string
   intent: string
   createdBy: string
-  assignedTo?: string
+  assignedTo?: string      // Agent 认领后赋值
   priority: TaskPriority
   status: TaskStatus
   artifactRefs?: ArtifactRef[]
   baseRevisions?: Record<string, string>
   
-  // 派生字段
+  // 派生字段（从事件流投影）
   currentPlanId?: string
   pendingProposals: string[]
   appliedProposals: string[]
   
+  // V1 预留：子任务支持
+  parentTaskId?: string
+  childTaskIds?: string[]
+  
   createdAt: string
-  updatedAt: string
+  updatedAt: string        // 最后事件时间
 }
 ```
 
@@ -522,22 +518,51 @@ export type ProjectionReducer<TState> = (
 
 Policy 是纯函数，用于决策逻辑。不依赖外部状态。
 
-### 4.1 RouterPolicy
+### 4.1 V0 任务分发模型
 
+V0 采用 **单 Agent 直连模型**，无需路由：
+
+```
+用户 → Billboard (TaskCreated) → 默认 Agent 自动认领 → 执行 workflow
+```
+
+这类似于 chat 模式，但任务经过 Billboard 形成可审计的 Task thread。
+
+**V1 扩展：Orchestrator 子任务模型**
+
+V1 将支持 OrchestratorAgent 在执行过程中创建子任务：
+
+```
+用户 → Billboard → OrchestratorAgent
+                        │
+                        ├─ 分析任务 → 创建 SubTask1 → SpecialistAgent A
+                        ├─ 创建 SubTask2 → SpecialistAgent B
+                        └─ 汇总结果 → 完成原任务
+```
+
+子任务事件设计（V1）：
 ```typescript
-export type RouterPolicy = (
-  task: TaskView,
-  availableAgents: Actor[]
-) => string | null  // 返回 AgentId 或 null（无法路由）
+// V1: 创建子任务
+type SubtaskCreatedEvent = {
+  type: 'SubtaskCreated'
+  payload: {
+    parentTaskId: string
+    subtaskId: string
+    intent: string
+    targetAgentHint?: string          // 建议的目标 Agent
+    authorActorId: string             // 创建者（通常是 Orchestrator）
+  }
+}
 
-// V0 默认实现
-export const defaultRouterPolicy: RouterPolicy = (task, agents) => {
-  // 如果已指定 assignedTo，直接返回
-  if (task.assignedTo) return task.assignedTo
-  
-  // 否则返回第一个可用的 agent
-  const defaultAgent = agents.find(a => a.kind === 'agent')
-  return defaultAgent?.id ?? null
+// V1: 子任务完成
+type SubtaskCompletedEvent = {
+  type: 'SubtaskCompleted'
+  payload: {
+    parentTaskId: string
+    subtaskId: string
+    result?: string
+    authorActorId: string
+  }
 }
 ```
 
@@ -548,7 +573,7 @@ export type SchedulerPolicy = (
   tasks: TaskView[]
 ) => TaskView[]  // 返回排序后的任务列表
 
-// V0 默认实现
+// V0 默认实现：按优先级和创建时间排序
 export const defaultSchedulerPolicy: SchedulerPolicy = (tasks) => {
   const priorityOrder = { foreground: 0, normal: 1, background: 2 }
   

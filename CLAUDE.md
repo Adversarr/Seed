@@ -134,7 +134,7 @@ docs/                     # Documentation
 - Read models are built via projections that fold events into state
 
 **Domain Events (18 types):**
-- Task lifecycle: `TaskCreated`, `TaskRouted`, `TaskClaimed`, `TaskStarted`, `TaskCompleted`, `TaskFailed`, `TaskCanceled`, `TaskBlocked`
+- Task lifecycle: `TaskCreated`, `TaskClaimed`, `TaskStarted`, `TaskCompleted`, `TaskFailed`, `TaskCanceled`, `TaskBlocked`
 - Plan & Patch: `AgentPlanPosted`, `PatchProposed`, `PatchAccepted`, `PatchRejected`, `PatchApplied`
 - Feedback & Interaction: `UserFeedbackPosted`, `ThreadOpened`
 - Artifact & File: `ArtifactChanged`, `TaskNeedsRebase`, `TaskRebased`
@@ -181,7 +181,7 @@ When adding new domain events:
 2. Add to `EventTypeSchema` enum
 3. Add to `DomainEventSchema` discriminated union
 4. Add to `DomainEvent` union type
-5. Update projection reducers if needed in `src/core/projections.ts`
+5. Update projection reducers if needed in application services (`TaskService.#buildTasksProjection`)
 6. Add service method in appropriate `src/application/*.ts`
 7. Add CLI command in `src/cli/run.ts` if user-facing
 

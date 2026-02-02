@@ -23,13 +23,7 @@ export const TaskCreatedPayloadSchema = z.object({
   ...withAuthor
 })
 
-export const TaskRoutedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  assignedTo: z.string().min(1),
-  routedBy: z.string().min(1),
-  ...withAuthor
-})
-
+// V0: 默认 Agent 自动认领，无需路由
 export const TaskClaimedPayloadSchema = z.object({
   taskId: z.string().min(1),
   claimedBy: z.string().min(1),
@@ -168,7 +162,6 @@ export const TaskRebasedPayloadSchema = z.object({
 export const EventTypeSchema = z.enum([
   // Task lifecycle
   'TaskCreated',
-  'TaskRouted',
   'TaskClaimed',
   'TaskStarted',
   'TaskCompleted',
@@ -197,7 +190,6 @@ export type EventType = z.infer<typeof EventTypeSchema>
 // ============================================================================
 
 export type TaskCreatedPayload = z.infer<typeof TaskCreatedPayloadSchema>
-export type TaskRoutedPayload = z.infer<typeof TaskRoutedPayloadSchema>
 export type TaskClaimedPayload = z.infer<typeof TaskClaimedPayloadSchema>
 export type TaskStartedPayload = z.infer<typeof TaskStartedPayloadSchema>
 export type TaskCompletedPayload = z.infer<typeof TaskCompletedPayloadSchema>
@@ -217,14 +209,13 @@ export type TaskRebasedPayload = z.infer<typeof TaskRebasedPayloadSchema>
 export type Plan = z.infer<typeof PlanSchema>
 
 // ============================================================================
-// Domain Event Union - all 18 event types
+// Domain Event Union - 17 event types (V0: no TaskRouted)
 // ============================================================================
 
 // Complete event union: all state transitions in the system
 export type DomainEvent =
   // Task lifecycle
   | { type: 'TaskCreated'; payload: TaskCreatedPayload }
-  | { type: 'TaskRouted'; payload: TaskRoutedPayload }
   | { type: 'TaskClaimed'; payload: TaskClaimedPayload }
   | { type: 'TaskStarted'; payload: TaskStartedPayload }
   | { type: 'TaskCompleted'; payload: TaskCompletedPayload }
@@ -264,7 +255,6 @@ export type StoredEvent = DomainEvent & {
 export const DomainEventSchema = z.discriminatedUnion('type', [
   // Task lifecycle
   z.object({ type: z.literal('TaskCreated'), payload: TaskCreatedPayloadSchema }),
-  z.object({ type: z.literal('TaskRouted'), payload: TaskRoutedPayloadSchema }),
   z.object({ type: z.literal('TaskClaimed'), payload: TaskClaimedPayloadSchema }),
   z.object({ type: z.literal('TaskStarted'), payload: TaskStartedPayloadSchema }),
   z.object({ type: z.literal('TaskCompleted'), payload: TaskCompletedPayloadSchema }),
@@ -295,26 +285,3 @@ export function parseDomainEvent(input: unknown): DomainEvent {
   return DomainEventSchema.parse(input)
 }
 
-// ============================================================================
-// V0 Compatibility: Re-export legacy types for backward compatibility
-// ============================================================================
-
-/** @deprecated Use TaskCreatedPayload instead */
-export type LegacyTaskCreatedPayload = { taskId: string; title: string }
-
-/** @deprecated Use PatchProposedPayload instead */
-export type LegacyPatchProposedPayload = {
-  taskId: string
-  proposalId: string
-  targetPath: string
-  patchText: string
-}
-
-/** @deprecated Use PatchAppliedPayload instead */
-export type LegacyPatchAppliedPayload = {
-  taskId: string
-  proposalId: string
-  targetPath: string
-  patchText: string
-  appliedAt: string
-}

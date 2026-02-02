@@ -1,42 +1,10 @@
+/**
+ * Thread/Patch Projection - tracks patch proposals and their application status.
+ * Used by PatchService for querying patch states.
+ */
+
 import type { StoredEvent } from '../domain/events.js'
 
-// Read model: tasks list projection
-export type TasksProjectionState = {
-  tasks: Array<{
-    taskId: string
-    title: string
-    createdAt: string
-  }>
-  currentTaskId: string | null
-}
-
-export const defaultTasksProjectionState: TasksProjectionState = {
-  tasks: [],
-  currentTaskId: null
-}
-
-// Fold task events into read model state
-export function reduceTasksProjection(state: TasksProjectionState, event: StoredEvent): TasksProjectionState {
-  switch (event.type) {
-    case 'TaskCreated': {
-      if (state.tasks.some((t) => t.taskId === event.payload.taskId)) return state
-      return {
-        ...state,
-        tasks: [
-          ...state.tasks,
-          { taskId: event.payload.taskId, title: event.payload.title, createdAt: event.createdAt }
-        ]
-      }
-    }
-    case 'ThreadOpened': {
-      return { ...state, currentTaskId: event.payload.taskId }
-    }
-    default:
-      return state
-  }
-}
-
-// Read model: thread/patch proposals projection
 export type ThreadProjectionState = {
   threads: Record<
     string,
@@ -57,7 +25,9 @@ export const defaultThreadProjectionState: ThreadProjectionState = {
   threads: {}
 }
 
-// Fold patch events into thread projection
+/**
+ * Thread projection reducer: tracks patch proposals and their lifecycle.
+ */
 export function reduceThreadProjection(state: ThreadProjectionState, event: StoredEvent): ThreadProjectionState {
   switch (event.type) {
     case 'PatchProposed': {
@@ -105,4 +75,3 @@ export function reduceThreadProjection(state: ThreadProjectionState, event: Stor
       return state
   }
 }
-
