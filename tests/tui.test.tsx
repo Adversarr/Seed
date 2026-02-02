@@ -7,7 +7,7 @@ import { render } from 'ink-testing-library'
 import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
 import { MainTui } from '../src/tui/main.js'
 import { TaskService, PatchService, EventService } from '../src/application/index.js'
-import { DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
 
 describe('TUI', () => {
   test('renders tasks list', async () => {
@@ -22,6 +22,7 @@ describe('TUI', () => {
         title: 'hello',
         intent: '',
         priority: 'foreground' as const,
+        agentId: DEFAULT_AGENT_ACTOR_ID,
         authorActorId: DEFAULT_USER_ACTOR_ID 
       } 
     }])

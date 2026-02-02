@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
 import { TaskService } from '../src/application/taskService.js'
-import { DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
 
 describe('TaskService projection checkpoint', () => {
   test('listTasks uses and advances projection cursor', () => {
@@ -18,7 +18,7 @@ describe('TaskService projection checkpoint', () => {
     store.append('t1', [
       {
         type: 'TaskCreated',
-        payload: { taskId: 't1', title: 'T1', intent: '', priority: 'foreground', authorActorId: DEFAULT_USER_ACTOR_ID }
+        payload: { taskId: 't1', title: 'T1', intent: '', priority: 'foreground', agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID }
       }
     ])
 

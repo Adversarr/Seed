@@ -54,7 +54,7 @@ export function MainTui(props: Props) {
 
       if (commandLine.startsWith('task create ')) {
         const title = commandLine.slice('task create '.length).trim()
-        await app.taskService.createTask(title)
+        await app.taskService.createTask({ title, agentId: app.agent.id })
         await refresh()
         setStatus('')
         return

@@ -4,10 +4,9 @@ import { z } from 'zod'
 // Task Types
 // ============================================================================
 
-// Task state machine: open → claimed → in_progress → done/blocked/canceled
+// Task state machine: open → in_progress → done/blocked/canceled
 export const TaskStatusSchema = z.enum([
   'open',
-  'claimed',
   'in_progress',
   'awaiting_review',
   'done',

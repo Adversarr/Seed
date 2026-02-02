@@ -19,12 +19,35 @@ export async function runCli(opts: {
       (y: Argv) =>
         y
           .positional('action', { type: 'string', choices: ['create', 'list'] as const, demandOption: true })
-          .positional('args', { type: 'string', array: true }),
+          .positional('args', { type: 'string', array: true })
+          .option('file', { type: 'string' })
+          .option('lines', { type: 'string' }),
       async (args: Arguments) => {
         const action = String(args.action)
         if (action === 'create') {
           const title = ((args.args as unknown as string[] | undefined) ?? []).join(' ').trim()
-          const { taskId } = app.taskService.createTask(title)
+          const file = args.file ? String(args.file) : ''
+          const lines = args.lines ? String(args.lines) : ''
+          const hasRef = Boolean(file || lines)
+          if (hasRef && (!file || !lines)) {
+            throw new Error('task create 使用 --file 时必须同时提供 --lines，例如：--lines 10-20')
+          }
+
+          const artifactRefs =
+            file && lines
+              ? (() => {
+                  const m = /^(\d+)-(\d+)$/.exec(lines)
+                  if (!m) throw new Error('lines 格式错误，应为 <start>-<end>，例如 10-20')
+                  const lineStart = Number(m[1])
+                  const lineEnd = Number(m[2])
+                  if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart <= 0 || lineEnd <= 0 || lineEnd < lineStart) {
+                    throw new Error('lines 必须为正整数区间且 end >= start')
+                  }
+                  return [{ kind: 'file_range' as const, path: file, lineStart, lineEnd }]
+                })()
+              : undefined
+
+          const { taskId } = app.taskService.createTask({ title, artifactRefs, agentId: app.agent.id })
           io.stdout(`${taskId}\n`)
           return
         }
@@ -121,8 +144,43 @@ export async function runCli(opts: {
           const taskId = String(args.taskId ?? '')
           if (!taskId) throw new Error('agent handle 需要提供 taskId')
           const res = await app.agentRuntime.handleTask(taskId)
-          io.stdout(`${res.planId}\n`)
-          io.stdout(`${JSON.stringify(res.plan, null, 2)}\n`)
+          const plan = app.agentRuntime.getLastPlan(res.events)
+          if (plan) {
+            io.stdout(`${plan.planId}\n`)
+            io.stdout(`${JSON.stringify(plan.plan, null, 2)}\n`)
+          } else {
+            io.stdout(`No plan generated. Events: ${res.events.length}\n`)
+          }
+        }
+      }
+    )
+    .command(
+      'feedback <action> <taskId>',
+      '用户反馈相关操作',
+      (y: Argv) =>
+        y
+          .positional('action', { type: 'string', choices: ['post'] as const, demandOption: true })
+          .positional('taskId', { type: 'string', demandOption: true })
+          .option('text', { type: 'string', demandOption: true })
+          .option('proposal', { type: 'string' }),
+      async (args: Arguments) => {
+        const taskId = String(args.taskId)
+        const text = String(args.text ?? '')
+        const proposal = args.proposal ? String(args.proposal) : undefined
+        app.taskService.postFeedback(taskId, text, proposal)
+        io.stdout('posted\n')
+      }
+    )
+    .command(
+      'watch <action>',
+      '文件监听相关操作（轮询）',
+      (y: Argv) => y.positional('action', { type: 'string', choices: ['poll'] as const, demandOption: true }),
+      async (args: Arguments) => {
+        const action = String(args.action)
+        if (action === 'poll') {
+          const res = app.fileWatcher.pollOnce()
+          const drift = app.driftDetector.processNewEvents()
+          io.stdout(`changed=${res.changed} emitted=${drift.emitted}\n`)
         }
       }
     )

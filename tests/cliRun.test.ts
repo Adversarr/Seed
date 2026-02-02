@@ -55,5 +55,45 @@ describe('CLI smoke', () => {
     expect(replay).toMatch(/PatchProposed/)
     expect(replay).toMatch(/PatchApplied/)
   })
-})
 
+  test('task create --file/--lines + feedback post + watch poll drift', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
+    await writeFile(join(baseDir, 'doc.tex'), 'hello\nworld\n', 'utf8')
+
+    const io1 = createTestIO({})
+    await runCli({
+      argv: ['task', 'create', 'Improve', '--file', 'doc.tex', '--lines', '1-2'],
+      baseDir,
+      io: io1.io
+    })
+    const taskId = io1.out.join('').trim()
+
+    const io2 = createTestIO({})
+    await runCli({ argv: ['feedback', 'post', taskId, '--text', 'LGTM'], baseDir, io: io2.io })
+    expect(io2.out.join('')).toMatch(/posted/)
+
+    const patchText = [
+      '--- a/doc.tex',
+      '+++ b/doc.tex',
+      '@@ -1,2 +1,2 @@',
+      '-hello',
+      '+HELLO',
+      ' world',
+      ''
+    ].join('\n')
+
+    const io3 = createTestIO({ stdinText: patchText })
+    await runCli({ argv: ['patch', 'propose', taskId, 'doc.tex'], baseDir, io: io3.io })
+
+    await writeFile(join(baseDir, 'doc.tex'), 'hello\nWORLD\n', 'utf8')
+    const io4 = createTestIO({})
+    await runCli({ argv: ['watch', 'poll'], baseDir, io: io4.io })
+    expect(io4.out.join('')).toMatch(/changed=/)
+
+    const io5 = createTestIO({})
+    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io5.io })
+    const replay = io5.out.join('')
+    expect(replay).toMatch(/UserFeedbackPosted/)
+    expect(replay).toMatch(/TaskNeedsRebase/)
+  })
+})

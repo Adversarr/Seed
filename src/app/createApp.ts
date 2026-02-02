@@ -3,10 +3,16 @@ import type { EventStore } from '../domain/ports/eventStore.js'
 import { JsonlEventStore } from '../infra/jsonlEventStore.js'
 import { TaskService, PatchService, EventService } from '../application/index.js'
 import { ContextBuilder } from '../application/contextBuilder.js'
+import { FileWatcher } from '../application/fileWatcher.js'
+import { DriftDetector } from '../application/driftDetector.js'
 import { AgentRuntime } from '../agents/runtime.js'
+import { DefaultCoAuthorAgent } from '../agents/defaultAgent.js'
 import { FakeLLMClient } from '../infra/fakeLLMClient.js'
-import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
+import { OpenAILLMClient } from '../infra/openaiLLMClient.js'
+import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
 import type { LLMClient } from '../domain/ports/llmClient.js'
+import type { Agent } from '../agents/agent.js'
+import { loadAppConfig, type AppConfig } from '../config/appConfig.js'
 
 // App container: holds EventStore and Application Services
 export type App = {
@@ -19,7 +25,10 @@ export type App = {
   eventService: EventService
   contextBuilder: ContextBuilder
   llm: LLMClient
+  agent: Agent
   agentRuntime: AgentRuntime
+  fileWatcher: FileWatcher
+  driftDetector: DriftDetector
 }
 
 // Create app: initialize EventStore + wire up services
@@ -28,12 +37,13 @@ export function createApp(opts: {
   eventsPath?: string
   projectionsPath?: string
   currentActorId?: string
-  agentActorId?: string
+  agent?: Agent
   llm?: LLMClient
+  config?: AppConfig
 }): App {
   const baseDir = opts.baseDir
   const currentActorId = opts.currentActorId ?? DEFAULT_USER_ACTOR_ID
-  const agentActorId = opts.agentActorId ?? DEFAULT_AGENT_ACTOR_ID
+  const config = opts.config ?? loadAppConfig(process.env)
 
   const eventsPath = opts.eventsPath ?? join(baseDir, '.coauthor', 'events.jsonl')
   const store = new JsonlEventStore({ eventsPath, projectionsPath: opts.projectionsPath })
@@ -46,8 +56,33 @@ export function createApp(opts: {
   const patchService = new PatchService(store, baseDir, currentActorId)
   const eventService = new EventService(store)
   const contextBuilder = new ContextBuilder(baseDir)
-  const llm = opts.llm ?? new FakeLLMClient()
-  const agentRuntime = new AgentRuntime({ store, taskService, contextBuilder, llm, agentActorId })
+  const llm =
+    opts.llm ??
+    (config.llm.provider === 'openai'
+      ? new OpenAILLMClient({
+          apiKey: config.llm.openai.apiKey,
+          baseURL: config.llm.openai.baseURL,
+          modelByProfile: config.llm.openai.modelByProfile
+        })
+      : new FakeLLMClient())
 
-  return { baseDir, storePath, store, taskService, patchService, eventService, contextBuilder, llm, agentRuntime }
+  // Create default agent
+  const agent = opts.agent ?? new DefaultCoAuthorAgent({ contextBuilder })
+
+  const agentRuntime = new AgentRuntime({
+    store,
+    taskService,
+    agent,
+    llm,
+    baseDir
+  })
+  const fileWatcher = new FileWatcher({
+    store,
+    baseDir,
+    includePaths: config.watch.includePaths,
+    includeExtensions: config.watch.includeExtensions
+  })
+  const driftDetector = new DriftDetector({ store })
+
+  return { baseDir, storePath, store, taskService, patchService, eventService, contextBuilder, llm, agent, agentRuntime, fileWatcher, driftDetector }
 }

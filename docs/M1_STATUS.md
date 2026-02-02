@@ -1,132 +1,104 @@
 # 里程碑 1 (M1) 状态报告：LLM 集成准备阶段
 
 **日期：** 2026年2月2日  
-**状态：** ✅ **准备阶段完成（Phase 3: M1 准备）**  
-**测试覆盖率：** 11/11 测试通过 (100%)
+**状态：** ✅ **M1 已完成（Ready for M2）**  
+**测试覆盖率：** 29/29 测试通过 (100%)
 
 ---
 
 ## 执行摘要
 
-M1 的“准备阶段”（对应 [M0_STATUS.md](M0_STATUS.md) 的 Phase 3 清单）已完成并验证。系统在不引入外部 LLM API 依赖的前提下，补齐了可持续演进到 M2 的关键底座：**投影 checkpoint 真正生效**、**Patch 并发控制（baseRevision 乐观锁）**、**LLMClient 端口**与**规则化 FakeLLM**、以及可手动触发的 **AgentRuntime + ContextBuilder**。
+M1 阶段的目标是“不引入外部 LLM API 依赖，补齐系统底座”。经过全面的代码审查和重构，系统已完全符合 [ARCHITECTURE.md](ARCHITECTURE.md) 的各项要求。底座设施（EventSourcing + RxJS, Checkpoint, Persistence）已经稳固，Agent 抽象层已定型，可以平滑进入 M2（端到端 LLM 协作）。
 
 ---
 
-## M1（准备阶段）需求验证
+## M1 需求验证
 
-### ✅ 1) 添加投影 checkpoint（TD-3）
+### ✅ 1) 投影 Checkpoint 与增量计算 (TD-3)
 
 **状态：** 完成  
 **实现：**
-- 通用投影运行器：`src/application/projector.ts`
-- Tasks 投影改为走增量 checkpoint：`src/application/taskService.ts`
-- JSONL 持久化：`src/infra/jsonlEventStore.ts`（`projections.jsonl` 追加写入）
+- **增量更新**：Tasks 投影列表仅在启动时全量重放，之后维持内存状态并追加写入 checkpoints。
+- **文件重写**：为防止 `projections.jsonl` 无限增长，实现了 `saveProjection` 时对文件的覆写优化（Snapshotting）。
+- **验证**：`tests/taskServiceProjection.test.ts` 验证了 cursor 推进和计算正确性。
 
-**验证：**
-- `tests/taskServiceProjection.test.ts`：验证 `listTasks()` 会推进 projection cursor 且重复调用不会重复全量 reduce。
-
----
-
-### ✅ 2) 添加并发控制（TD-4：baseRevision 乐观锁 + newRevision 记录）
+### ✅ 2) 并发控制与防漂移 (TD-4)
 
 **状态：** 完成  
 **实现：**
-- Patch propose 默认自动记录 `baseRevision`：`src/application/patchService.ts`
-- Patch apply 前校验 `baseRevision`，不匹配则拒绝并写入：
-  - `PatchRejected`
-  - `TaskNeedsRebase`
-- Patch apply 成功写入 `newRevision`：`PatchApplied.payload.newRevision`
+- **Optimistic Locking**：`patch propose` 自动捕获 `baseRevision`。
+- **Rebase Policy**：`patch apply` 时严格校验文件版本。若版本不匹配（用户中途改了文件），拒绝 Apply 并抛出 `PatchRejected` / `TaskNeedsRebase`。
+- **Persistent Revision**：`FileWatcher` 实现了文件快照的持久化（`.coauthor/file-snapshot.json`），确保重启后不会误判文件漂移。
+- **验证**：`tests/patchConcurrency.test.ts` 和 `tests/fileWatcher.test.ts`。
 
-**验证：**
-- `tests/patchConcurrency.test.ts`：
-  - baseRevision mismatch 时拒绝 apply 且文件不变
-  - apply 成功时 PatchApplied 带 newRevision
-
----
-
-### ✅ 3) 实现 LLMClient 端口 + 规则化 FakeLLM（稳定测试/验收）
+### ✅ 3) LLMClient 端口与 FakeLLM
 
 **状态：** 完成  
 **实现：**
-- LLMClient Port：`src/domain/ports/llmClient.ts`
-- FakeLLMClient（规则匹配 + 默认稳定输出）：`src/infra/fakeLLMClient.ts`
+- **Port Definition**：`src/domain/ports/llmClient.ts` 定义了标准接口。
+- **Mock Implementation**：`src/infra/fakeLLMClient.ts` 提供了确定性的、基于规则的响应，用于开发和测试。
+- **验证**：所有集成测试均通过 FakeLLM 运行，保证了 CI/CD 的稳定性。
 
-**验证：**
-- FakeLLMClient 在 AgentRuntime 单测中被使用（见下一节）。
-
----
-
-### ✅ 4) 实现 AgentRuntime（最小可用）+ ContextBuilder
+### ✅ 4) AgentRuntime 与标准 Agent 接口
 
 **状态：** 完成  
 **实现：**
-- ContextBuilder：`src/application/contextBuilder.ts`
-  - 支持 `artifactRefs` 的 `file_range` 片段读取并注入上下文
-- AgentRuntime：`src/agents/runtime.ts`
-  - `handleTask(taskId)`：构建上下文 → 调用 LLMClient → 解析/降级为 Plan → 写入 `AgentPlanPosted`
-
-**验证：**
-- `tests/agentRuntime.test.ts`：验证 `handleTask()` 写入 `AgentPlanPosted` 并更新任务投影的 `currentPlanId`。
+- **Strict Interface**：在 `src/agents/agent.ts` 中定义了符合架构文档的 `Agent` 接口 (`canHandle`, `run`, `resume`)。
+- **Reactive Runtime**：`AgentRuntime` (`src/agents/runtime.ts`) 重构为基于 RxJS 的响应式运行时，订阅 `events$` 流而不是轮询。
+- **Default Agent**：`DefaultCoAuthorAgent` 实现了标准的 Claim -> Context -> Plan 工作流。
+- **验证**：
+  - `tests/agentRuntime.test.ts` 验证了任务分发、执行循环和状态更新。
+  - `npm run dev -- agent handle <taskId>` 可手动触发完整流程。
 
 ---
 
-## CLI 验收路径（准备阶段）
+## 架构与代码质量审查总结
 
-### 1) 创建任务
+在 M1 结束前的最终审查中，我们进行了以下关键重构以对齐架构文档：
+
+1.  **引入 RxJS 响应式流**：
+    - `EventStore` 现在暴露 `events$` Observable。
+    - `AgentRuntime` 和 `Projector` 通过订阅流来响应事件，消除了低效的轮询代码。
+
+2.  **Hexagonal Architecture 边界强化**：
+    - 明确分离了 `AgentRuntime`（基础设施/调度器）与 `Agent`（业务逻辑）。
+    - Runtime 只负责“怎么跑”，Agent 只负责“跑什么”。
+
+3.  **持久化增强**：
+    - 解决了 `FileWatcher` 在重启丢失基准版本的问题。
+    - 优化了 Projections 的存储格式。
+
+---
+
+## CLI 验收路径 (Updated)
+
+目前系统处于 M1 完成态，可通过以下命令验证核心链路：
 
 ```bash
-npm run dev -- task create "Test task"
-```
+# 1. 创建任务 (带上下文引用)
+npm run dev -- task create "Refactor class X" --file src/index.ts --lines 10-20
 
-### 2) 手动触发 Agent 生成计划（使用 FakeLLM）
-
-```bash
+# 2. 启动 Agent 处理 (使用 FakeLLM)
+# 将生成一个 Plan 并写入 EventStore
 npm run dev -- agent handle <taskId>
-```
 
-**预期：**
-- 输出一个 `plan_<id>` 与 JSON 计划内容
-- `log replay <taskId>` 可看到 `AgentPlanPosted`
+# 3. 查看生成的 Plan
+npm run dev -- log replay | grep AgentPlanPosted
 
-### 3) 验证并发控制（baseRevision）
-
-```bash
-# 提交 patch proposal（自动记录 baseRevision）
-npm run dev -- patch propose <taskId> <targetPath> < patch.diff
-
-# 在 apply 前手动改动文件，模拟 drift
-# 再 accept 应被拒绝，并提示 baseRevision mismatch
+# 4. 模拟并发冲突
+# 先 Propose Patch
+npm run dev -- patch propose <taskId> src/index.ts < my.patch
+# 手动修改文件 src/index.ts
+echo "change" >> src/index.ts
+# 尝试 Apply (应失败)
 npm run dev -- patch accept <taskId> latest
 ```
 
 ---
 
-## 架构映射（新增/变化点）
+## 下一步：M2 (End-to-End LLM Workflow)
 
-### 新增端口与适配器
-
-- **Domain/Ports**
-  - `LLMClient`：`src/domain/ports/llmClient.ts`
-- **Infrastructure**
-  - `FakeLLMClient`：`src/infra/fakeLLMClient.ts`（测试与验收用）
-
-### 新增应用服务与运行时
-
-- **Application**
-  - `ContextBuilder`：`src/application/contextBuilder.ts`
-- **Agents**
-  - `AgentRuntime`：`src/agents/runtime.ts`
-
-### 系统组装与入口
-
-- `createApp()` 现在会组装：
-  - `contextBuilder`, `llm`, `agentRuntime`（默认 FakeLLM）
-  - 入口：`src/app/createApp.ts`
-- CLI 增加 `agent start/stop/handle`：
-  - 入口：`src/cli/run.ts`
-
----
-
-## 结论
-
-M1 准备阶段已具备“可稳定测试、可持续演进”的基础设施。下一步进入 M1 后续 / M2 时，可以在保持端口不变的情况下替换 FakeLLM 为真实 LLM 适配器，并将 `AgentRuntime` 从“手动触发”演进为“订阅任务池的工作流运行器”。
+M1 已打好一切基础。M2 的工作重点将是：
+1.  **接入真实 LLM**：实现 `OpenAILLMClient` / `AnthropicLLMClient`。
+2.  **完善 Agent 能力**：实现 `Generate Patch` 步骤（目前只到 Plan）。
+3.  **Prompt Engineering**：优化 System Prompt 和 Context 组装策略。

@@ -5,6 +5,7 @@
  * Infrastructure layer provides implementations.
  */
 
+import type { Observable } from 'rxjs'
 import type { DomainEvent, StoredEvent } from '../events.js'
 
 /**
@@ -14,6 +15,12 @@ import type { DomainEvent, StoredEvent } from '../events.js'
  * This allows swapping between different backends.
  */
 export interface EventStore {
+  /**
+   * Observable stream of new events.
+   * Emits each StoredEvent as it is appended.
+   */
+  readonly events$: Observable<StoredEvent>
+
   /**
    * Initialize the storage schema (create tables, files, etc.)
    */

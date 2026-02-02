@@ -20,14 +20,7 @@ export const TaskCreatedPayloadSchema = z.object({
   intent: z.string().default(''),
   priority: TaskPrioritySchema.default('foreground'),
   artifactRefs: z.array(ArtifactRefSchema).optional(),
-  ...withAuthor
-})
-
-// V0: 默认 Agent 自动认领，无需路由
-export const TaskClaimedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  claimedBy: z.string().min(1),
-  baseRevisions: z.record(z.string()).optional(),
+  agentId: z.string().min(1),
   ...withAuthor
 })
 
@@ -162,7 +155,6 @@ export const TaskRebasedPayloadSchema = z.object({
 export const EventTypeSchema = z.enum([
   // Task lifecycle
   'TaskCreated',
-  'TaskClaimed',
   'TaskStarted',
   'TaskCompleted',
   'TaskFailed',
@@ -190,7 +182,6 @@ export type EventType = z.infer<typeof EventTypeSchema>
 // ============================================================================
 
 export type TaskCreatedPayload = z.infer<typeof TaskCreatedPayloadSchema>
-export type TaskClaimedPayload = z.infer<typeof TaskClaimedPayloadSchema>
 export type TaskStartedPayload = z.infer<typeof TaskStartedPayloadSchema>
 export type TaskCompletedPayload = z.infer<typeof TaskCompletedPayloadSchema>
 export type TaskFailedPayload = z.infer<typeof TaskFailedPayloadSchema>
@@ -216,7 +207,6 @@ export type Plan = z.infer<typeof PlanSchema>
 export type DomainEvent =
   // Task lifecycle
   | { type: 'TaskCreated'; payload: TaskCreatedPayload }
-  | { type: 'TaskClaimed'; payload: TaskClaimedPayload }
   | { type: 'TaskStarted'; payload: TaskStartedPayload }
   | { type: 'TaskCompleted'; payload: TaskCompletedPayload }
   | { type: 'TaskFailed'; payload: TaskFailedPayload }
@@ -255,7 +245,6 @@ export type StoredEvent = DomainEvent & {
 export const DomainEventSchema = z.discriminatedUnion('type', [
   // Task lifecycle
   z.object({ type: z.literal('TaskCreated'), payload: TaskCreatedPayloadSchema }),
-  z.object({ type: z.literal('TaskClaimed'), payload: TaskClaimedPayloadSchema }),
   z.object({ type: z.literal('TaskStarted'), payload: TaskStartedPayloadSchema }),
   z.object({ type: z.literal('TaskCompleted'), payload: TaskCompletedPayloadSchema }),
   z.object({ type: z.literal('TaskFailed'), payload: TaskFailedPayloadSchema }),

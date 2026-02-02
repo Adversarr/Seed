@@ -16,9 +16,9 @@ export type TaskView = {
   title: string
   intent: string
   createdBy: string
-  assignedTo?: string
+  agentId: string
   priority: TaskPriority
-  status: 'open' | 'claimed' | 'in_progress' | 'awaiting_review' | 'done' | 'blocked' | 'canceled'
+  status: 'open' | 'in_progress' | 'awaiting_review' | 'done' | 'blocked' | 'canceled'
   artifactRefs?: ArtifactRef[]
   currentPlanId?: string
   pendingProposals: string[]
@@ -37,9 +37,11 @@ export type TasksProjectionState = {
 // ============================================================================
 
 export type CreateTaskOptions = {
+  title: string
   intent?: string
   priority?: TaskPriority
   artifactRefs?: ArtifactRef[]
+  agentId: string
 }
 
 export class TaskService {
@@ -52,17 +54,18 @@ export class TaskService {
   }
 
   // Create new task event
-  createTask(title: string, opts?: CreateTaskOptions): { taskId: string } {
+  createTask(opts: CreateTaskOptions): { taskId: string } {
     const taskId = nanoid()
     this.#store.append(taskId, [
       {
         type: 'TaskCreated',
         payload: {
           taskId,
-          title,
-          intent: opts?.intent ?? '',
-          priority: opts?.priority ?? 'foreground',
-          artifactRefs: opts?.artifactRefs,
+          title: opts.title,
+          intent: opts.intent ?? '',
+          priority: opts.priority ?? 'foreground',
+          artifactRefs: opts.artifactRefs,
+          agentId: opts.agentId,
           authorActorId: this.#currentActorId
         }
       }
@@ -151,6 +154,7 @@ export class TaskService {
           title: event.payload.title,
           intent: event.payload.intent ?? '',
           createdBy: event.payload.authorActorId,
+          agentId: event.payload.agentId,
           priority: event.payload.priority ?? 'foreground',
           status: 'open',
           artifactRefs: event.payload.artifactRefs,
@@ -163,15 +167,6 @@ export class TaskService {
       }
       case 'ThreadOpened': {
         state.currentTaskId = event.payload.taskId
-        return state
-      }
-      case 'TaskClaimed': {
-        const idx = findTaskIndex(event.payload.taskId)
-        if (idx === -1) return state
-        const task = tasks[idx]!
-        task.status = 'claimed'
-        task.assignedTo = event.payload.claimedBy
-        task.updatedAt = event.createdAt
         return state
       }
       case 'TaskStarted': {

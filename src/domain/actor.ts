@@ -11,8 +11,7 @@ export const ActorCapabilitySchema = z.enum([
   'apply_patch',
   'run_latex_build',
   'read_assets',
-  'create_task',
-  'claim_task'
+  'create_task'
 ])
 
 export const ActorSchema = z.object({
@@ -67,6 +66,6 @@ export function createAgentActor(opts: {
     id: opts.id,
     kind: 'agent',
     displayName: opts.displayName,
-    capabilities: opts.capabilities ?? ['claim_task', 'read_assets']
+    capabilities: opts.capabilities ?? ['read_assets']
   }
 }

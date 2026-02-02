@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
 import { runProjection } from '../src/application/projector.js'
-import { DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
 import type { StoredEvent } from '../src/domain/events.js'
 
 // Use TaskService's projection instead of the deprecated one
@@ -53,11 +53,11 @@ describe('Projection', () => {
 
     store.append('t1', [{ 
       type: 'TaskCreated', 
-      payload: { taskId: 't1', title: 'T1', intent: '', priority: 'foreground' as const, authorActorId: DEFAULT_USER_ACTOR_ID } 
+      payload: { taskId: 't1', title: 'T1', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
     store.append('t2', [{ 
       type: 'TaskCreated', 
-      payload: { taskId: 't2', title: 'T2', intent: '', priority: 'foreground' as const, authorActorId: DEFAULT_USER_ACTOR_ID } 
+      payload: { taskId: 't2', title: 'T2', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
 
     const s1 = runProjection({

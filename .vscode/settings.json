@@ -10,6 +10,7 @@
             "matchCommandLine": true
         },
         "npx tsc": true,
-        "npx eslint": true
+        "npx eslint": true,
+        "npm list": true
     }
 }

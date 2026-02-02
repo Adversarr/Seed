@@ -2,16 +2,12 @@
 // Handles unified diff application with base revision checking
 
 import { nanoid } from 'nanoid'
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { EventStore } from '../domain/index.js'
 import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
 import { applyUnifiedPatchToFile } from '../patch/applyUnifiedPatch.js'
-
-function computeRevision(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
-}
+import { computeRevision } from './revision.js'
 
 function tryReadText(path: string): string | null {
   try {
