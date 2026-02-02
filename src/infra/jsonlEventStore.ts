@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import { parseDomainEvent, type DomainEvent, type StoredEvent } from '../domain/events.js'
 import type { EventStore } from '../domain/ports/eventStore.js'
 
+// JSONL row format for events
 type JsonlEventRow = {
   id: number
   streamId: string
@@ -12,6 +13,7 @@ type JsonlEventRow = {
   createdAt: string
 }
 
+// JSONL row format for projections
 type JsonlProjectionRow = {
   name: string
   cursorEventId: number
@@ -19,6 +21,7 @@ type JsonlProjectionRow = {
   updatedAt: string
 }
 
+// Event store adapter: append-only log in JSONL format
 export class JsonlEventStore implements EventStore {
   readonly #eventsPath: string
   readonly #projectionsPath: string

@@ -1,8 +1,5 @@
-/**
- * Application Layer - Patch Service
- *
- * Encapsulates patch-related use cases.
- */
+// Patch service: encapsulates patch use cases (propose, accept, reject, apply)
+// Handles unified diff application with base revision checking
 
 import { nanoid } from 'nanoid'
 import type { EventStore, StoredEvent } from '../domain/index.js'

@@ -1,5 +1,6 @@
 import type { StoredEvent } from '../domain/events.js'
 
+// Read model: tasks list projection
 export type TasksProjectionState = {
   tasks: Array<{
     taskId: string
@@ -14,6 +15,7 @@ export const defaultTasksProjectionState: TasksProjectionState = {
   currentTaskId: null
 }
 
+// Fold task events into read model state
 export function reduceTasksProjection(state: TasksProjectionState, event: StoredEvent): TasksProjectionState {
   switch (event.type) {
     case 'TaskCreated': {
@@ -34,6 +36,7 @@ export function reduceTasksProjection(state: TasksProjectionState, event: Stored
   }
 }
 
+// Read model: thread/patch proposals projection
 export type ThreadProjectionState = {
   threads: Record<
     string,
@@ -54,6 +57,7 @@ export const defaultThreadProjectionState: ThreadProjectionState = {
   threads: {}
 }
 
+// Fold patch events into thread projection
 export function reduceThreadProjection(state: ThreadProjectionState, event: StoredEvent): ThreadProjectionState {
   switch (event.type) {
     case 'PatchProposed': {

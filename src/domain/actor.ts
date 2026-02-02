@@ -4,6 +4,7 @@ import { z } from 'zod'
 // Actor Types
 // ============================================================================
 
+// Actor: source of all state changes (who did the action)
 export const ActorKindSchema = z.enum(['human', 'agent'])
 
 export const ActorCapabilitySchema = z.enum([

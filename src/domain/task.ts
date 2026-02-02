@@ -4,6 +4,7 @@ import { z } from 'zod'
 // Task Types
 // ============================================================================
 
+// Task state machine: open → claimed → in_progress → done/blocked/canceled
 export const TaskStatusSchema = z.enum([
   'open',
   'claimed',
@@ -24,6 +25,7 @@ export const TaskPrioritySchema = z.enum([
 // Artifact Reference Types
 // ============================================================================
 
+// Discriminated union: points to specific parts of documents/assets
 export const FileRangeRefSchema = z.object({
   kind: z.literal('file_range'),
   path: z.string().min(1),

@@ -1,9 +1,5 @@
-/**
- * Application Layer - Task Service
- *
- * Encapsulates task-related use cases.
- * CLI and other adapters should use this service instead of calling EventStore directly.
- */
+// Task service: encapsulates task use cases (create, list, open thread, etc.)
+// Adapters should call services, not EventStore directly
 
 import { nanoid } from 'nanoid'
 import type { EventStore, StoredEvent, TaskPriority, ArtifactRef } from '../domain/index.js'
@@ -13,6 +9,7 @@ import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
 // Projection Types
 // ============================================================================
 
+// Read model: denormalized task data for fast queries
 export type TaskView = {
   taskId: string
   title: string
@@ -53,9 +50,7 @@ export class TaskService {
     this.#currentActorId = currentActorId
   }
 
-  /**
-   * Create a new task.
-   */
+  // Create new task event
   createTask(title: string, opts?: CreateTaskOptions): { taskId: string } {
     const taskId = nanoid()
     this.#store.append(taskId, [
@@ -74,9 +69,7 @@ export class TaskService {
     return { taskId }
   }
 
-  /**
-   * List all tasks with their current state.
-   */
+  // Build tasks projection from events
   listTasks(): TasksProjectionState {
     const { state } = this.#store.getProjection<TasksProjectionState>('tasks_v2', {
       tasks: [],
@@ -88,17 +81,13 @@ export class TaskService {
     return this.#buildTasksProjection(events, state)
   }
 
-  /**
-   * Get a specific task by ID.
-   */
+  // Get task by ID from projection
   getTask(taskId: string): TaskView | null {
     const state = this.listTasks()
     return state.tasks.find(t => t.taskId === taskId) ?? null
   }
 
-  /**
-   * Open a thread (set current task).
-   */
+  // Set current task (open thread)
   openThread(taskId: string): void {
     this.#store.append(taskId, [
       {

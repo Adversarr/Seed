@@ -2,6 +2,7 @@ import yargs, { type Argv, type Arguments } from 'yargs'
 import { createApp } from '../app/createApp.js'
 import type { IO } from './io.js'
 
+// CLI adapter: parse commands → call application services
 export async function runCli(opts: {
   argv: string[]
   baseDir: string

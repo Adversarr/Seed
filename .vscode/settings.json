@@ -1,8 +1,14 @@
 {
+    "eslint.useFlatConfig": true,
     "chat.tools.terminal.autoApprove": {
         "/^npx tsc --noEmit && npm test 2>&1$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "/^npx tsc --noEmit && npm test 2>&1 \\| tail -20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "npx tsc": true
     }
 }

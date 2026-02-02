@@ -1,8 +1,10 @@
 import type { StoredEvent } from '../domain/events.js'
 import type { EventStore } from '../domain/ports/eventStore.js'
 
+// Projection reducer: fold event into state
 export type ProjectionReducer<TState> = (state: TState, event: StoredEvent) => TState
 
+// Run projection: load cursor → read events → fold → save cursor
 export async function runProjection<TState>(opts: {
   store: EventStore
   name: string

@@ -5,7 +5,7 @@ import { ArtifactRefSchema, TaskPrioritySchema } from './task.js'
 // Shared Payload Components
 // ============================================================================
 
-/** All events must have authorActorId */
+// Audit: All events require actor attribution
 const withAuthor = {
   authorActorId: z.string().min(1)
 }
@@ -217,9 +217,10 @@ export type TaskRebasedPayload = z.infer<typeof TaskRebasedPayloadSchema>
 export type Plan = z.infer<typeof PlanSchema>
 
 // ============================================================================
-// Domain Event Union
+// Domain Event Union - all 18 event types
 // ============================================================================
 
+// Complete event union: all state transitions in the system
 export type DomainEvent =
   // Task lifecycle
   | { type: 'TaskCreated'; payload: TaskCreatedPayload }
@@ -259,6 +260,7 @@ export type StoredEvent = DomainEvent & {
 // Domain Event Schema (for validation)
 // ============================================================================
 
+// Runtime validation schema for events - ensures type safety on deserialization
 export const DomainEventSchema = z.discriminatedUnion('type', [
   // Task lifecycle
   z.object({ type: z.literal('TaskCreated'), payload: TaskCreatedPayloadSchema }),
@@ -288,6 +290,7 @@ export const DomainEventSchema = z.discriminatedUnion('type', [
 // Parser Function
 // ============================================================================
 
+// Parse and validate raw event data
 export function parseDomainEvent(input: unknown): DomainEvent {
   return DomainEventSchema.parse(input)
 }

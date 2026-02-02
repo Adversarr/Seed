@@ -6,6 +6,7 @@ import { SqliteEventStore } from '../infra/sqliteEventStore.js'
 import { TaskService, PatchService, EventService } from '../application/index.js'
 import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
 
+// App container: holds EventStore and Application Services
 export type App = {
   baseDir: string
   storePath: string
@@ -16,6 +17,7 @@ export type App = {
   eventService: EventService
 }
 
+// Create app: initialize EventStore + wire up services
 export function createApp(opts: {
   baseDir: string
   dbPath?: string
