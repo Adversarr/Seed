@@ -49,77 +49,58 @@ export const TaskCanceledPayloadSchema = z.object({
 })
 
 // ============================================================================
-// Plan & Patch Events
+// UIP (Universal Interaction Protocol) Events
 // ============================================================================
 
-export const PlanSchema = z.object({
-  goal: z.string().min(1),
-  issues: z.array(z.string()).optional(),
-  strategy: z.string().min(1),
-  scope: z.string().min(1),
-  risks: z.array(z.string()).optional(),
-  questions: z.array(z.string()).optional()
+export const InteractionKindSchema = z.enum(['Select', 'Confirm', 'Input', 'Composite'])
+
+export const InteractionPurposeSchema = z.enum([
+  'confirm_task',
+  'choose_strategy',
+  'request_info',
+  'confirm_risky_action',
+  'assign_subtask',  // V1: Orchestrator 子任务分配
+  'generic'
+])
+
+export const ContentKindSchema = z.enum(['PlainText', 'Json', 'Diff', 'Table'])
+
+export const InteractionOptionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  style: z.enum(['primary', 'danger', 'default']).optional(),
+  isDefault: z.boolean().optional()
 })
 
-export const AgentPlanPostedPayloadSchema = z.object({
+export const InteractionDisplaySchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  content: z.unknown().optional(),
+  contentKind: ContentKindSchema.optional()
+})
+
+export const InteractionValidationSchema = z.object({
+  regex: z.string().optional(),
+  required: z.boolean().optional()
+})
+
+export const UserInteractionRequestedPayloadSchema = z.object({
+  interactionId: z.string().min(1),
   taskId: z.string().min(1),
-  planId: z.string().min(1),
-  plan: PlanSchema,
+  kind: InteractionKindSchema,
+  purpose: InteractionPurposeSchema,
+  display: InteractionDisplaySchema,
+  options: z.array(InteractionOptionSchema).optional(),
+  validation: InteractionValidationSchema.optional(),
   ...withAuthor
 })
 
-export const PatchProposedPayloadSchema = z.object({
+export const UserInteractionRespondedPayloadSchema = z.object({
+  interactionId: z.string().min(1),
   taskId: z.string().min(1),
-  proposalId: z.string().min(1),
-  targetPath: z.string().min(1),
-  patchText: z.string().min(1),
-  baseRevision: z.string().optional(),
-  ...withAuthor
-})
-
-export const PatchAcceptedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  proposalId: z.string().min(1),
-  ...withAuthor
-})
-
-export const PatchRejectedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  proposalId: z.string().min(1),
-  reason: z.string().optional(),
-  ...withAuthor
-})
-
-export const PatchAppliedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  proposalId: z.string().min(1),
-  targetPath: z.string().min(1),
-  patchText: z.string().min(1),
-  appliedAt: z.string().min(1),
-  newRevision: z.string().optional(),
-  ...withAuthor
-})
-
-// ============================================================================
-// Feedback & Interaction Events
-// ============================================================================
-
-export const UserFeedbackPostedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  feedback: z.string().min(1),
-  targetProposalId: z.string().optional(),
-  ...withAuthor
-})
-
-// ============================================================================
-// Conflict Events
-// ============================================================================
-
-export const PatchConflictedPayloadSchema = z.object({
-  taskId: z.string().min(1),
-  proposalId: z.string().min(1),
-  targetPath: z.string().min(1),
-  reason: z.string().min(1),
+  selectedOptionId: z.string().optional(),
+  inputValue: z.string().optional(),
+  comment: z.string().optional(),
   ...withAuthor
 })
 
@@ -134,16 +115,9 @@ export const EventTypeSchema = z.enum([
   'TaskCompleted',
   'TaskFailed',
   'TaskCanceled',
-  // Plan & Patch
-  'AgentPlanPosted',
-  'PatchProposed',
-  'PatchAccepted',
-  'PatchRejected',
-  'PatchApplied',
-  // Feedback
-  'UserFeedbackPosted',
-  // Conflict
-  'PatchConflicted'
+  // UIP
+  'UserInteractionRequested',
+  'UserInteractionResponded'
 ])
 
 export type EventType = z.infer<typeof EventTypeSchema>
@@ -157,20 +131,23 @@ export type TaskStartedPayload = z.infer<typeof TaskStartedPayloadSchema>
 export type TaskCompletedPayload = z.infer<typeof TaskCompletedPayloadSchema>
 export type TaskFailedPayload = z.infer<typeof TaskFailedPayloadSchema>
 export type TaskCanceledPayload = z.infer<typeof TaskCanceledPayloadSchema>
-export type AgentPlanPostedPayload = z.infer<typeof AgentPlanPostedPayloadSchema>
-export type PatchProposedPayload = z.infer<typeof PatchProposedPayloadSchema>
-export type PatchAcceptedPayload = z.infer<typeof PatchAcceptedPayloadSchema>
-export type PatchRejectedPayload = z.infer<typeof PatchRejectedPayloadSchema>
-export type PatchAppliedPayload = z.infer<typeof PatchAppliedPayloadSchema>
-export type UserFeedbackPostedPayload = z.infer<typeof UserFeedbackPostedPayloadSchema>
-export type PatchConflictedPayload = z.infer<typeof PatchConflictedPayloadSchema>
-export type Plan = z.infer<typeof PlanSchema>
+export type UserInteractionRequestedPayload = z.infer<typeof UserInteractionRequestedPayloadSchema>
+export type UserInteractionRespondedPayload = z.infer<typeof UserInteractionRespondedPayloadSchema>
+
+// UIP sub-types
+export type InteractionKind = z.infer<typeof InteractionKindSchema>
+export type InteractionPurpose = z.infer<typeof InteractionPurposeSchema>
+export type ContentKind = z.infer<typeof ContentKindSchema>
+export type InteractionOption = z.infer<typeof InteractionOptionSchema>
+export type InteractionDisplay = z.infer<typeof InteractionDisplaySchema>
+export type InteractionValidation = z.infer<typeof InteractionValidationSchema>
 
 // ============================================================================
-// Domain Event Union - 12 event types (V0)
+// Domain Event Union - 7 event types (V1 - UIP Architecture)
 // ============================================================================
 
 // Complete event union: all state transitions in the system
+// Note: File modifications and tool calls are logged in AuditLog, not DomainEvents
 export type DomainEvent =
   // Task lifecycle
   | { type: 'TaskCreated'; payload: TaskCreatedPayload }
@@ -178,16 +155,9 @@ export type DomainEvent =
   | { type: 'TaskCompleted'; payload: TaskCompletedPayload }
   | { type: 'TaskFailed'; payload: TaskFailedPayload }
   | { type: 'TaskCanceled'; payload: TaskCanceledPayload }
-  // Plan & Patch
-  | { type: 'AgentPlanPosted'; payload: AgentPlanPostedPayload }
-  | { type: 'PatchProposed'; payload: PatchProposedPayload }
-  | { type: 'PatchAccepted'; payload: PatchAcceptedPayload }
-  | { type: 'PatchRejected'; payload: PatchRejectedPayload }
-  | { type: 'PatchApplied'; payload: PatchAppliedPayload }
-  // Feedback
-  | { type: 'UserFeedbackPosted'; payload: UserFeedbackPostedPayload }
-  // Conflict
-  | { type: 'PatchConflicted'; payload: PatchConflictedPayload }
+  // UIP (Universal Interaction Protocol)
+  | { type: 'UserInteractionRequested'; payload: UserInteractionRequestedPayload }
+  | { type: 'UserInteractionResponded'; payload: UserInteractionRespondedPayload }
 
 // ============================================================================
 // Stored Event (with persistence metadata)
@@ -212,16 +182,9 @@ export const DomainEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('TaskCompleted'), payload: TaskCompletedPayloadSchema }),
   z.object({ type: z.literal('TaskFailed'), payload: TaskFailedPayloadSchema }),
   z.object({ type: z.literal('TaskCanceled'), payload: TaskCanceledPayloadSchema }),
-  // Plan & Patch
-  z.object({ type: z.literal('AgentPlanPosted'), payload: AgentPlanPostedPayloadSchema }),
-  z.object({ type: z.literal('PatchProposed'), payload: PatchProposedPayloadSchema }),
-  z.object({ type: z.literal('PatchAccepted'), payload: PatchAcceptedPayloadSchema }),
-  z.object({ type: z.literal('PatchRejected'), payload: PatchRejectedPayloadSchema }),
-  z.object({ type: z.literal('PatchApplied'), payload: PatchAppliedPayloadSchema }),
-  // Feedback
-  z.object({ type: z.literal('UserFeedbackPosted'), payload: UserFeedbackPostedPayloadSchema }),
-  // Conflict
-  z.object({ type: z.literal('PatchConflicted'), payload: PatchConflictedPayloadSchema })
+  // UIP
+  z.object({ type: z.literal('UserInteractionRequested'), payload: UserInteractionRequestedPayloadSchema }),
+  z.object({ type: z.literal('UserInteractionResponded'), payload: UserInteractionRespondedPayloadSchema })
 ])
 
 // ============================================================================

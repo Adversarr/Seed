@@ -1,57 +1,130 @@
 import { join } from 'node:path'
 import type { EventStore } from '../domain/ports/eventStore.js'
+import type { ToolRegistry, ToolExecutor } from '../domain/ports/tool.js'
+import type { AuditLog } from '../domain/ports/auditLog.js'
+import type { ConversationStore } from '../domain/ports/conversationStore.js'
+import type { LLMClient } from '../domain/ports/llmClient.js'
+import type { Agent } from '../agents/agent.js'
 import { JsonlEventStore } from '../infra/jsonlEventStore.js'
-import { TaskService, PatchService, EventService } from '../application/index.js'
+import { JsonlAuditLog } from '../infra/jsonlAuditLog.js'
+import { JsonlConversationStore } from '../infra/jsonlConversationStore.js'
+import { DefaultToolRegistry } from '../infra/toolRegistry.js'
+import { registerBuiltinTools } from '../infra/tools/index.js'
+import { DefaultToolExecutor } from '../infra/toolExecutor.js'
+import { TaskService, EventService, InteractionService } from '../application/index.js'
 import { ContextBuilder } from '../application/contextBuilder.js'
 import { AgentRuntime } from '../agents/runtime.js'
 import { DefaultCoAuthorAgent } from '../agents/defaultAgent.js'
 import { FakeLLMClient } from '../infra/fakeLLMClient.js'
 import { OpenAILLMClient } from '../infra/openaiLLMClient.js'
 import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
-import type { LLMClient } from '../domain/ports/llmClient.js'
-import type { Agent } from '../agents/agent.js'
 import { loadAppConfig, type AppConfig } from '../config/appConfig.js'
 
-// App container: holds EventStore and Application Services
+// ============================================================================
+// App Container
+// ============================================================================
+
+/**
+ * App container: holds all wired-up services.
+ * 
+ * Infrastructure:
+ * - store: EventStore for domain events (User ↔ Agent decisions)
+ * - auditLog: AuditLog for tool call tracing (Agent ↔ Tools/Files)
+ * - conversationStore: ConversationStore for LLM context (Agent ↔ LLM)
+ * - toolRegistry: Tool definitions
+ * - toolExecutor: Tool execution with audit logging
+ * 
+ * Application Services:
+ * - taskService: Task CRUD
+ * - eventService: Event replay
+ * - interactionService: UIP handling
+ * - contextBuilder: LLM context building
+ * 
+ * Agent:
+ * - agent: Agent implementation
+ * - agentRuntime: Agent orchestration
+ */
 export type App = {
   baseDir: string
   storePath: string
+  auditLogPath: string
+  conversationsPath: string
+  
+  // Infrastructure
   store: EventStore
+  auditLog: AuditLog
+  conversationStore: ConversationStore
+  toolRegistry: ToolRegistry
+  toolExecutor: ToolExecutor
+  llm: LLMClient
+  
   // Application Services
   taskService: TaskService
-  patchService: PatchService
   eventService: EventService
+  interactionService: InteractionService
   contextBuilder: ContextBuilder
-  llm: LLMClient
+  
+  // Agent
   agent: Agent
   agentRuntime: AgentRuntime
 }
 
-// Create app: initialize EventStore + wire up services
-export function createApp(opts: {
+// ============================================================================
+// Create App
+// ============================================================================
+
+export type CreateAppOptions = {
   baseDir: string
   eventsPath?: string
+  auditLogPath?: string
+  conversationsPath?: string
   projectionsPath?: string
   currentActorId?: string
   agent?: Agent
   llm?: LLMClient
+  toolRegistry?: ToolRegistry
+  conversationStore?: ConversationStore
   config?: AppConfig
-}): App {
+}
+
+/**
+ * Create and wire up the application.
+ * 
+ * This is the composition root where all dependencies are assembled.
+ */
+export function createApp(opts: CreateAppOptions): App {
   const baseDir = opts.baseDir
   const currentActorId = opts.currentActorId ?? DEFAULT_USER_ACTOR_ID
   const config = opts.config ?? loadAppConfig(process.env)
 
+  // === Infrastructure Layer ===
+  
+  // Event Store (User ↔ Agent decisions)
   const eventsPath = opts.eventsPath ?? join(baseDir, '.coauthor', 'events.jsonl')
   const store = new JsonlEventStore({ eventsPath, projectionsPath: opts.projectionsPath })
-  const storePath = eventsPath
-
   store.ensureSchema()
 
-  // Create application services
-  const taskService = new TaskService(store, currentActorId)
-  const patchService = new PatchService(store, baseDir, currentActorId)
-  const eventService = new EventService(store)
-  const contextBuilder = new ContextBuilder(baseDir)
+  // Audit Log (Agent ↔ Tools/Files)
+  const auditLogPath = opts.auditLogPath ?? join(baseDir, '.coauthor', 'audit.jsonl')
+  const auditLog = new JsonlAuditLog({ auditPath: auditLogPath })
+
+  // Conversation Store (Agent ↔ LLM context persistence)
+  const conversationsPath = opts.conversationsPath ?? join(baseDir, '.coauthor', 'conversations.jsonl')
+  const conversationStore = opts.conversationStore ?? new JsonlConversationStore({ conversationsPath })
+  if (!opts.conversationStore) {
+    conversationStore.ensureSchema()
+  }
+
+  // Tool Registry
+  const toolRegistry = opts.toolRegistry ?? new DefaultToolRegistry()
+  if (!opts.toolRegistry) {
+    registerBuiltinTools(toolRegistry as DefaultToolRegistry)
+  }
+
+  // Tool Executor
+  const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
+
+  // LLM Client
   const llm =
     opts.llm ??
     (config.llm.provider === 'openai'
@@ -62,16 +135,48 @@ export function createApp(opts: {
         })
       : new FakeLLMClient())
 
-  // Create default agent
+  // === Application Layer ===
+  
+  const taskService = new TaskService(store, currentActorId)
+  const eventService = new EventService(store)
+  const interactionService = new InteractionService(store, currentActorId)
+  const contextBuilder = new ContextBuilder(baseDir)
+
+  // === Agent Layer ===
+  
   const agent = opts.agent ?? new DefaultCoAuthorAgent({ contextBuilder })
 
   const agentRuntime = new AgentRuntime({
     store,
+    conversationStore,
     taskService,
+    interactionService,
     agent,
     llm,
+    toolRegistry,
+    toolExecutor,
     baseDir
   })
 
-  return { baseDir, storePath, store, taskService, patchService, eventService, contextBuilder, llm, agent, agentRuntime }
+  return {
+    baseDir,
+    storePath: eventsPath,
+    auditLogPath,
+    conversationsPath,
+    // Infrastructure
+    store,
+    auditLog,
+    conversationStore,
+    toolRegistry,
+    toolExecutor,
+    llm,
+    // Application Services
+    taskService,
+    eventService,
+    interactionService,
+    contextBuilder,
+    // Agent
+    agent,
+    agentRuntime
+  }
 }

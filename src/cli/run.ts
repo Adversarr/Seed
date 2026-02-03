@@ -2,7 +2,18 @@ import yargs, { type Argv, type Arguments } from 'yargs'
 import { createApp } from '../app/createApp.js'
 import type { IO } from './io.js'
 
-// CLI adapter: parse commands → call application services
+/**
+ * CLI adapter: parse commands → call application services
+ * 
+ * Commands:
+ * - task create <title> [--file <path> --lines <start-end>]
+ * - task list
+ * - interact respond <taskId> <choice> [--text <message>]
+ * - interact pending [taskId]
+ * - agent start | stop | run <taskId>
+ * - log replay [streamId]
+ * - ui
+ */
 export async function runCli(opts: {
   argv: string[]
   baseDir: string
@@ -15,7 +26,7 @@ export async function runCli(opts: {
     .scriptName('coauthor')
     .command(
       'task <action> [args..]',
-      '任务相关操作',
+      'Task operations',
       (y: Argv) =>
         y
           .positional('action', { type: 'string', choices: ['create', 'list'] as const, demandOption: true })
@@ -30,18 +41,18 @@ export async function runCli(opts: {
           const lines = args.lines ? String(args.lines) : ''
           const hasRef = Boolean(file || lines)
           if (hasRef && (!file || !lines)) {
-            throw new Error('task create 使用 --file 时必须同时提供 --lines，例如：--lines 10-20')
+            throw new Error('task create with --file requires --lines, e.g.: --lines 10-20')
           }
 
           const artifactRefs =
             file && lines
               ? (() => {
                   const m = /^(\d+)-(\d+)$/.exec(lines)
-                  if (!m) throw new Error('lines 格式错误，应为 <start>-<end>，例如 10-20')
+                  if (!m) throw new Error('lines format error, should be <start>-<end>, e.g. 10-20')
                   const lineStart = Number(m[1])
                   const lineEnd = Number(m[2])
                   if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart <= 0 || lineEnd <= 0 || lineEnd < lineStart) {
-                    throw new Error('lines 必须为正整数区间且 end >= start')
+                    throw new Error('lines must be positive integers with end >= start')
                   }
                   return [{ kind: 'file_range' as const, path: file, lineStart, lineEnd }]
                 })()
@@ -55,46 +66,91 @@ export async function runCli(opts: {
         if (action === 'list') {
           const state = app.taskService.listTasks()
           for (const t of state.tasks) {
-            io.stdout(`  ${t.taskId} ${t.title}\n`)
+            const statusIcon = getStatusIcon(t.status)
+            io.stdout(`  ${statusIcon} ${t.taskId} [${t.status}] ${t.title}\n`)
           }
           return
         }
       }
     )
     .command(
-      'patch <action> <taskId> [arg1] [arg2]',
-      'patch propose/accept',
+      'interact <action> [taskId] [choice]',
+      'User interaction operations',
       (y: Argv) =>
         y
-          .positional('action', { type: 'string', choices: ['propose', 'accept'] as const, demandOption: true })
-          .positional('taskId', { type: 'string', demandOption: true })
-          .positional('arg1', { type: 'string' })
-          .positional('arg2', { type: 'string' }),
+          .positional('action', { type: 'string', choices: ['respond', 'pending'] as const, demandOption: true })
+          .positional('taskId', { type: 'string' })
+          .positional('choice', { type: 'string' })
+          .option('text', { type: 'string' }),
       async (args: Arguments) => {
         const action = String(args.action)
-        const taskId = String(args.taskId)
 
-        if (action === 'propose') {
-          const targetPath = String(args.arg1 ?? '')
-          if (!targetPath) throw new Error('patch propose 需要提供 targetPath')
-          const patchText = (await io.readStdin()).trimEnd()
-          if (!patchText) throw new Error('未从 stdin 读取到 patch 文本')
-          const { proposalId } = app.patchService.proposePatch(taskId, targetPath, patchText)
-          io.stdout(`${proposalId}\n`)
+        if (action === 'respond') {
+          const taskId = String(args.taskId ?? '')
+          const choice = String(args.choice ?? '')
+          if (!taskId) throw new Error('interact respond requires taskId')
+          if (!choice) throw new Error('interact respond requires choice (option id)')
+          
+          // Get the pending interaction to get the interactionId
+          const pending = app.interactionService.getPendingInteraction(taskId)
+          if (!pending) {
+            throw new Error(`No pending interaction for task ${taskId}`)
+          }
+          
+          const text = args.text ? String(args.text) : undefined
+          app.interactionService.respondToInteraction(taskId, pending.interactionId, {
+            selectedOptionId: choice,
+            inputValue: text
+          })
+          io.stdout('responded\n')
           return
         }
 
-        if (action === 'accept') {
-          const proposalIdOrLatest = String(args.arg1 ?? 'latest')
-          const res = await app.patchService.acceptAndApplyPatch(taskId, proposalIdOrLatest)
-          io.stdout(`applied ${res.proposalId} -> ${res.targetPath}\n`)
+        if (action === 'pending') {
+          const taskId = args.taskId ? String(args.taskId) : undefined
+          
+          if (taskId) {
+            // Get pending interaction for specific task
+            const pending = app.interactionService.getPendingInteraction(taskId)
+            if (pending) {
+              io.stdout(`Pending interaction for task ${taskId}:\n`)
+              io.stdout(`  ID: ${pending.interactionId}\n`)
+              io.stdout(`  Kind: ${pending.kind}\n`)
+              io.stdout(`  Purpose: ${pending.purpose}\n`)
+              io.stdout(`  Title: ${pending.display.title}\n`)
+              if (pending.display.description) {
+                io.stdout(`  Description: ${pending.display.description}\n`)
+              }
+              if (pending.options) {
+                const optionLabels = pending.options.map(o => o.label).join(', ')
+                io.stdout(`  Options: ${optionLabels}\n`)
+              }
+            } else {
+              io.stdout(`No pending interaction for task ${taskId}\n`)
+            }
+          } else {
+            // List all pending interactions
+            const tasks = app.taskService.listTasks().tasks
+            const awaitingTasks = tasks.filter(t => t.status === 'awaiting_user')
+            if (awaitingTasks.length === 0) {
+              io.stdout('No pending interactions\n')
+            } else {
+              io.stdout('Pending interactions:\n')
+              for (const t of awaitingTasks) {
+                const pending = app.interactionService.getPendingInteraction(t.taskId)
+                if (pending) {
+                  io.stdout(`  ${t.taskId}: [${pending.kind}] ${pending.display.title}\n`)
+                }
+              }
+            }
+          }
           return
         }
       }
     )
     .command(
       'log <action> [streamId]',
-      '日志与回放',
+      'Log and replay operations',
       (y: Argv) =>
         y
           .positional('action', { type: 'string', choices: ['replay'] as const, demandOption: true })
@@ -109,10 +165,10 @@ export async function runCli(opts: {
     )
     .command(
       'agent <action> [taskId]',
-      'Agent 相关操作',
+      'Agent operations',
       (y: Argv) =>
         y
-          .positional('action', { type: 'string', choices: ['start', 'stop', 'handle'] as const, demandOption: true })
+          .positional('action', { type: 'string', choices: ['start', 'stop', 'run'] as const, demandOption: true })
           .positional('taskId', { type: 'string' }),
       async (args: Arguments) => {
         const action = String(args.action)
@@ -126,38 +182,49 @@ export async function runCli(opts: {
           io.stdout('agent stopped\n')
           return
         }
-        if (action === 'handle') {
+        if (action === 'run') {
           const taskId = String(args.taskId ?? '')
-          if (!taskId) throw new Error('agent handle 需要提供 taskId')
-          const res = await app.agentRuntime.handleTask(taskId)
-          const plan = app.agentRuntime.getLastPlan(res.events)
-          if (plan) {
-            io.stdout(`${plan.planId}\n`)
-            io.stdout(`${JSON.stringify(plan.plan, null, 2)}\n`)
+          if (!taskId) throw new Error('agent run requires taskId')
+          
+          io.stdout(`Running agent on task ${taskId}...\n`)
+          
+          // Execute task with spinner feedback
+          const res = await app.agentRuntime.executeTask(taskId)
+          
+          // Check final task state
+          const task = app.taskService.getTask(taskId)
+          if (!task) {
+            io.stdout('Task not found after execution\n')
+            return
+          }
+
+          if (task.status === 'awaiting_user') {
+            const pending = app.interactionService.getPendingInteraction(taskId)
+            if (pending) {
+              io.stdout(`\nAwaiting user input:\n`)
+              io.stdout(`  Kind: ${pending.kind}\n`)
+              io.stdout(`  Title: ${pending.display.title}\n`)
+              if (pending.display.description) {
+                io.stdout(`  Description: ${pending.display.description}\n`)
+              }
+              if (pending.options) {
+                const optionLabels = pending.options.map(o => `${o.id}(${o.label})`).join(', ')
+                io.stdout(`  Options: ${optionLabels}\n`)
+              }
+              io.stdout(`\nRespond with: coauthor interact respond ${taskId} <option_id>\n`)
+            }
+          } else if (task.status === 'done') {
+            io.stdout(`\nTask completed successfully.\n`)
+            io.stdout(`Events emitted: ${res.events.length}\n`)
+          } else if (task.status === 'failed') {
+            io.stdout(`\nTask failed.\n`)
           } else {
-            io.stdout(`No plan generated. Events: ${res.events.length}\n`)
+            io.stdout(`\nTask status: ${task.status}\n`)
           }
         }
       }
     )
-    .command(
-      'feedback <action> <taskId>',
-      '用户反馈相关操作',
-      (y: Argv) =>
-        y
-          .positional('action', { type: 'string', choices: ['post'] as const, demandOption: true })
-          .positional('taskId', { type: 'string', demandOption: true })
-          .option('text', { type: 'string', demandOption: true })
-          .option('proposal', { type: 'string' }),
-      async (args: Arguments) => {
-        const taskId = String(args.taskId)
-        const text = String(args.text ?? '')
-        const proposal = args.proposal ? String(args.proposal) : undefined
-        app.taskService.postFeedback(taskId, text, proposal)
-        io.stdout('posted\n')
-      }
-    )
-    .command('ui', '启动 Ink UI', () => {}, async () => {
+    .command('ui', 'Start Ink UI', () => {}, async () => {
       const { runMainTui } = await import('../tui/run.js')
       await runMainTui(app)
     })
@@ -176,5 +243,17 @@ export async function runCli(opts: {
   } catch (err) {
     io.stderr(`${err instanceof Error ? err.message : String(err)}\n`)
     return 1
+  }
+}
+
+function getStatusIcon(status: string): string {
+  switch (status) {
+    case 'open': return '○'
+    case 'in_progress': return '◐'
+    case 'awaiting_user': return '◇'
+    case 'done': return '●'
+    case 'failed': return '✗'
+    case 'canceled': return '⊘'
+    default: return '?'
   }
 }

@@ -10,21 +10,31 @@ import { runProjection } from './projector.js'
 // Projection Types
 // ============================================================================
 
-// Read model: denormalized task data for fast queries
+/**
+ * TaskView - Read model for fast task queries.
+ * Projected from DomainEvents via reducer.
+ */
 export type TaskView = {
   taskId: string
   title: string
   intent: string
   createdBy: string
-  agentId: string
+  agentId: string                 // V0: 创建时直接指定的处理 Agent
   priority: TaskPriority
-  status: 'open' | 'in_progress' | 'awaiting_review' | 'done' | 'canceled'
+  status: 'open' | 'in_progress' | 'awaiting_user' | 'done' | 'failed' | 'canceled'
   artifactRefs?: ArtifactRef[]
-  currentPlanId?: string
-  pendingProposals: string[]
-  appliedProposals: string[]
+  baseRevisions?: Record<string, string>  // 创建时的文件版本快照
+  
+  // UIP 交互状态
+  pendingInteractionId?: string   // 当前等待响应的交互 ID
+  lastInteractionId?: string      // 最后一次交互的 ID
+  
+  // V1 预留：子任务支持
+  parentTaskId?: string
+  childTaskIds?: string[]
+  
   createdAt: string
-  updatedAt: string
+  updatedAt: string               // 最后事件时间
 }
 
 export type TasksProjectionState = {
@@ -89,23 +99,6 @@ export class TaskService {
   }
 
   /**
-   * Post user feedback on a task.
-   */
-  postFeedback(taskId: string, feedback: string, targetProposalId?: string): void {
-    this.#store.append(taskId, [
-      {
-        type: 'UserFeedbackPosted',
-        payload: {
-          taskId,
-          feedback,
-          targetProposalId,
-          authorActorId: this.#currentActorId
-        }
-      }
-    ])
-  }
-
-  /**
    * Cancel a task.
    */
   cancelTask(taskId: string, reason?: string): void {
@@ -144,8 +137,11 @@ export class TaskService {
           priority: event.payload.priority ?? 'foreground',
           status: 'open',
           artifactRefs: event.payload.artifactRefs,
-          pendingProposals: [],
-          appliedProposals: [],
+          baseRevisions: undefined,  // TODO: 从 artifactRefs 中提取初始版本
+          pendingInteractionId: undefined,
+          lastInteractionId: undefined,
+          parentTaskId: undefined,
+          childTaskIds: undefined,
           createdAt: event.createdAt,
           updatedAt: event.createdAt
         })
@@ -159,45 +155,26 @@ export class TaskService {
         task.updatedAt = event.createdAt
         return state
       }
-      case 'AgentPlanPosted': {
+      case 'UserInteractionRequested': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
-        task.currentPlanId = event.payload.planId
+        task.status = 'awaiting_user'
+        task.pendingInteractionId = event.payload.interactionId
+        task.lastInteractionId = event.payload.interactionId
         task.updatedAt = event.createdAt
         return state
       }
-      case 'PatchProposed': {
+      case 'UserInteractionResponded': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
-        if (!task.pendingProposals.includes(event.payload.proposalId)) {
-          task.pendingProposals.push(event.payload.proposalId)
+        // Only clear if this response is for the pending interaction
+        if (task.pendingInteractionId === event.payload.interactionId) {
+          task.status = 'in_progress'
+          task.pendingInteractionId = undefined
         }
-        task.status = 'awaiting_review'
-        task.updatedAt = event.createdAt
-        return state
-      }
-      case 'PatchAccepted':
-      case 'PatchApplied': {
-        const idx = findTaskIndex(event.payload.taskId)
-        if (idx === -1) return state
-        const task = tasks[idx]!
-        const pendingIdx = task.pendingProposals.indexOf(event.payload.proposalId)
-        if (pendingIdx !== -1) task.pendingProposals.splice(pendingIdx, 1)
-        if (event.type === 'PatchApplied' && !task.appliedProposals.includes(event.payload.proposalId)) {
-          task.appliedProposals.push(event.payload.proposalId)
-        }
-        task.updatedAt = event.createdAt
-        return state
-      }
-      case 'PatchRejected': {
-        const idx = findTaskIndex(event.payload.taskId)
-        if (idx === -1) return state
-        const task = tasks[idx]!
-        const pendingIdx = task.pendingProposals.indexOf(event.payload.proposalId)
-        if (pendingIdx !== -1) task.pendingProposals.splice(pendingIdx, 1)
-        task.status = 'in_progress'
+        task.lastInteractionId = event.payload.interactionId
         task.updatedAt = event.createdAt
         return state
       }
@@ -206,6 +183,7 @@ export class TaskService {
         if (idx === -1) return state
         const task = tasks[idx]!
         task.status = 'done'
+        task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
         return state
       }
@@ -213,7 +191,8 @@ export class TaskService {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
-        task.status = 'done'
+        task.status = 'failed'
+        task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
         return state
       }
@@ -222,6 +201,7 @@ export class TaskService {
         if (idx === -1) return state
         const task = tasks[idx]!
         task.status = 'canceled'
+        task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
         return state
       }

@@ -4,13 +4,13 @@ import { z } from 'zod'
 // Task Types
 // ============================================================================
 
-// Task state machine: open → in_progress → done/blocked/canceled
+// Task state machine: open → in_progress → awaiting_user → done/failed/canceled
 export const TaskStatusSchema = z.enum([
   'open',
   'in_progress',
-  'awaiting_review',
+  'awaiting_user',
   'done',
-  'blocked',
+  'failed',
   'canceled'
 ])
 
@@ -63,12 +63,13 @@ export const TaskSchema = z.object({
   title: z.string().min(1),
   intent: z.string(),
   createdBy: z.string().min(1),
-  assignedTo: z.string().optional(),
+  agentId: z.string().min(1),           // V0: 创建时直接指定处理 Agent
   priority: TaskPrioritySchema,
   status: TaskStatusSchema,
   artifactRefs: z.array(ArtifactRefSchema).optional(),
   baseRevisions: z.record(z.string()).optional(),
-  createdAt: z.string().min(1)
+  createdAt: z.string().min(1),
+  parentTaskId: z.string().optional()   // V1: 子任务支持
 })
 
 // ============================================================================

@@ -34,7 +34,7 @@ function reduceTasksProjection(state: DeprecatedTasksProjectionState, event: Sto
         ]
       }
     }
-    case 'ThreadOpened': {
+    case 'TaskStarted': {
       return { ...state, currentTaskId: event.payload.taskId }
     }
     default:

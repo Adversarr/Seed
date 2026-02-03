@@ -1,10 +1,12 @@
 # CoAuthor 架构设计文档
 
-> 版本：V0  
-> 最后更新：2026-02-02  
+> 版本：V0.1  
+> 最后更新：2026-02-03  
 > 状态：规范文档（Normative）
 
 本文档定义 CoAuthor 的架构设计原则、分层结构、核心概念。是系统设计的"宪法"，所有实现必须遵守。
+
+本规范已按 [ARCHITECTURE_DISCUSSION_2026-02-03.md](ARCHITECTURE_DISCUSSION_2026-02-03.md) 的方向重设进行更新：不再以 Plan/Patch 事件作为协作协议；Task 事件只描述协作与决策，具体文件修改与命令执行走独立的工具审计链路。
 
 ---
 
@@ -14,21 +16,24 @@
 
 无论用户通过 CLI chat、斜杠命令、未来的 TODO comment、还是 Overleaf 插件发起请求，都统一封装为 **Task**。
 
-所有产出（plan、patch、反馈、状态变化）都作为 **TaskEvent** 写入事件流，形成可审计链路。
+所有“协作与决策”产出（任务生命周期、交互请求/回应、关键选择）都作为 **DomainEvent** 写入事件流，形成可回放的协作历史。
 
-### 1.2 Plan-first + Patch-first + Review-first
+文件修改、命令执行等“执行细节”不进入 DomainEvent，而是通过 Tool Use 完成，并写入独立的 **AuditLog**（工具审计日志）。
+Agent 与 LLM 的对话历史（执行上下文）存储在独立的 **ConversationStore**，支持跨 UIP 暂停、程序重启的状态恢复。
 
-这是 CoAuthor 区别于一般写作工具的核心协议：
+三层存储职责分离：
+- **EventStore**：User ↔ Agent 协作决策
+- **AuditLog**：Agent ↔ Tools/Files 执行审计
+- **ConversationStore**：Agent ↔ LLM 对话上下文
+### 1.2 UIP：通用交互协议优先
 
-1. **Plan-first**：Agent 在修改任何文本前，必须先输出"修改计划/要点"供用户审阅
-2. **Patch-first**：所有文本变更以 patch（diff）形式呈现，而非直接覆盖
-3. **Review-first**：Patch 必须经过 Review（用户确认）后才能 Apply
+用户交互不为某个业务类型（如 plan/patch 这类旧概念或其他）量身定制事件。系统用统一的 UIP 表达两件事：
+1. 系统向用户提出交互请求（`UserInteractionRequested`）
+2. 用户对该请求做出响应（`UserInteractionResponded`）
 
 ### 1.3 用户随手改文件不会被覆盖
 
-系统必须感知用户对文件的手动修改（通过 baseRevision 校验机制）。
-
-当 apply 时发现文件已被用户修改（revision 不匹配），系统拒绝 apply 并发出 `PatchConflicted` 事件。
+系统必须避免“盲写覆盖”。对高风险/不可逆的 Tool Use（写文件、批量替换、执行会修改环境的命令等）必须先取得明确的 UIP 确认（`purpose=confirm_risky_action`），并在工具审计日志中完整记录请求与结果。
 
 ### 1.4 CLI 只是一个适配器
 
@@ -48,7 +53,7 @@ Task 本身是通用载体。"这个任务是什么"由 **路由到的 Agent + �
 
 User 与 LLM Agent 都是 **Actor**。区别仅在于：
 - 权限/能力（capabilities）
-- 特殊标记（如 User 可最终 Apply Patch）
+- 能否执行某些 Tool Use（例如写文件、执行命令）
 
 ---
 
@@ -76,11 +81,12 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │  UseCases:                                               │
 │  │  - PostTask: 创建任务（直接发送给默认 Agent）           │
 │  │  - ClaimTask: Agent 认领任务                             │
-│  │  - PostPlan: 发布修改计划                                │
-│  │  - ProposePatch: 提议补丁                                │
-│  │  - AcceptPatch: 接受并应用补丁                           │
-│  │  - RejectPatch: 拒绝补丁（附带理由）                     │
-│  │  - PostFeedback: 发布反馈（针对计划或补丁）             │
+│  │  - StartTask: 标记任务开始执行                           │
+│  │  - CompleteTask: 标记任务完成                             │
+│  │  - FailTask: 标记任务失败                                 │
+│  │  - CancelTask: 取消任务                                   │
+│  │  - RequestUserInteraction: 发起 UIP 交互请求             │
+│  │  - RespondUserInteraction: 提交 UIP 交互响应             │
 │  │  - ReplayEvents: 事件回放                                │
 │  │                                                          │
 │  │  Services:                                               │
@@ -104,6 +110,8 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │                                                          │
 │  │  Ports (Interfaces):                                     │
 │  │  - EventStore: 事件存储接口                              │
+│  │  - ConversationStore: 对话历史存储接口                   │
+│  │  - AuditLog: 工具审计日志接口                            │
 │  │  - ArtifactStore: 资产读写接口                           │
 │  │  - LLMClient: LLM 调用接口                               │
 │  │                                                          │
@@ -118,10 +126,12 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │                                                          │   │
 │  │  EventStore Implementations:                             │   │
 │  │  - JsonlEventStore: 当前默认的 JSONL 实现                │
-│  │                                                          │   │
-│  │  Other Adapters:                                         │
+│  │                                                          │   ││  │  ConversationStore Implementations:                      │
+│  │  - JsonlConversationStore: 对话历史 JSONL 存储           │
+│  │                                                          ││  │  Other Adapters:                                         │
 │  │  - LLMProviders: Claude/OpenAI/Local 适配               │
-│  │  - PatchEngine: Unified Diff 应用引擎                    │
+│  │  - ToolRegistry/ToolExecutor: 工具注册与执行             │
+│  │  - AuditLogWriter: 工具审计日志追加写                    │
 │  │  - LatexCompiler: latexmk 适配                          │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
@@ -169,11 +179,13 @@ type Actor = {
 }
 
 type ActorCapability = 
-  | 'apply_patch'      // 可应用补丁到文件
+  | 'tool_read_file'   // 可读取文件/资产
+  | 'tool_edit_file'   // 可修改文件（高风险）
+  | 'tool_run_command' // 可执行命令（高风险）
   | 'run_latex_build'  // 可运行 LaTeX 编译
   | 'read_assets'      // 可读取资产
   | 'create_task'      // 可创建任务
-  | 'claim_task'       // 可认领任务（Agent 特有）
+  // V1: | 'claim_task' // 可认领任务（Agent 特有）
 ```
 
 ### 3.2 Task（任务）
@@ -183,11 +195,10 @@ Task 是统一的任务载体。V0 不做强类型细分，不做路由——所
 ```typescript
 type TaskStatus = 
   | 'open'            // 待处理
-  | 'claimed'         // 已被 Agent 认领
   | 'in_progress'     // 执行中
-  | 'awaiting_review' // 等待用户审阅
+  | 'awaiting_user'   // 等待用户交互（由 UIP 驱动）
   | 'done'            // 完成
-  | 'blocked'         // 被阻塞（如缺少信息）
+  | 'failed'          // 失败（终态）
   | 'canceled'        // 已取消
 
 type TaskPriority = 'foreground' | 'normal' | 'background'
@@ -196,7 +207,7 @@ type Task = {
   taskId: string
   title: string            // 任务标题（展示用，必填）
   createdBy: string        // ActorId
-  assignedTo?: string      // 当前处理者（Agent 认领后赋值）
+  agentId: string          // V0: 创建时直接指定处理 Agent
   priority: TaskPriority
   status: TaskStatus
   intent: string           // 用户意图（自由文本）
@@ -295,14 +306,27 @@ interface Agent {
   readonly id: string
   readonly displayName: string
   
-  // 是否能处理该任务，返回 0-1 的得分
-  canHandle(task: TaskView, context: AgentContext): number
-  
-  // 执行任务，通过 yield 发出事件
-  run(task: TaskView, context: AgentContext): AsyncGenerator<DomainEvent>
-  
-  // 用户回复后继续执行
-  resume(task: TaskView, userReply: UserFeedbackEvent): AsyncGenerator<DomainEvent>
+  // 执行任务，通过 AgentOutput 通知 runtime
+  run(context: AgentContext): AsyncGenerator<AgentOutput>
+}
+
+// Agent 输出类型
+type AgentOutput = 
+  | { kind: 'text'; content: string }
+  | { kind: 'tool_call'; toolCallId: string; toolName: string; args: unknown }
+  | { kind: 'interaction'; request: InteractionRequest }
+  | { kind: 'done'; summary?: string }
+  | { kind: 'failed'; reason: string }
+
+// Agent 上下文
+type AgentContext = {
+  task: TaskView
+  llm: LLMClient
+  tools: ToolDefinition[]
+  conversationHistory: readonly LLMMessage[]  // 从 ConversationStore 加载
+  pendingInteractionResponse?: InteractionResponse
+  toolResults?: Map<string, ToolResult>
+  persistMessage: (message: LLMMessage) => void  // 持久化新消息
 }
 ```
 
@@ -311,14 +335,15 @@ interface Agent {
 所有写作类 Agent 遵循统一骨架：
 
 ```
-1. Claim        → emit TaskClaimed
-2. Load Context → 读取 OUTLINE.md, 相关段落, BRIEF/STYLE
-3. Drift Check  → 对比 baseRevisions vs 当前 revision
-4. Plan         → emit AgentPlanPosted（可审阅的修改计划）
-5. Generate     → emit PatchProposed（diff）
-6. Self-Check   → 可选：LaTeX 编译、引用检查
-7. Wait Review  → 状态变为 awaiting_review
-8. Apply        → 用户 accept 后 emit PatchApplied
+1. Start        → emit TaskStarted
+2. Confirm Task → emit UserInteractionRequested(purpose=confirm_task)
+3. User Reply   → emit UserInteractionResponded
+4. LOOP:
+     - agent 推进任务（调用工具：readFile, editFile, listFiles, runCommand）
+     - 工具调用记录写入 AuditLog（不进 DomainEvent）
+     - 若缺信息/需决策：UserInteractionRequested → UserInteractionResponded
+     - 若即将执行高风险工具动作：UserInteractionRequested(purpose=confirm_risky_action)
+5. Done/Fail/Cancel → emit TaskCompleted | TaskFailed | TaskCanceled
 ```
 
 ### 5.3 LLM Profile 策略
@@ -327,7 +352,7 @@ Agent 内部根据步骤选择不同模型：
 
 - **fast**：路由/摘要/轻量改写
 - **writer**：高质量 LaTeX 文本生成
-- **reasoning**：plan、一致性检查、从代码提取方法描述
+- **reasoning**：策略选择、一致性检查、从代码提取方法描述
 
 ---
 
@@ -339,45 +364,58 @@ src/
 │
 ├── domain/                  # 领域层（纯逻辑）
 │   ├── actor.ts            # Actor 类型定义
-│   ├── task.ts             # Task 类型定义
+│   ├── task.ts             # Task/TaskStatus 类型定义
 │   ├── artifact.ts         # Artifact 类型定义
-│   ├── events.ts           # DomainEvent Zod schemas
-│   ├── policies/           # 纯函数策略
-│   │   └── scheduler.ts   # SchedulerPolicy
+│   ├── events.ts           # DomainEvent Zod schemas (6 事件类型)
 │   └── ports/              # 端口接口定义
-│       ├── eventStore.ts  # EventStore 接口
-│       ├── artifactStore.ts
-│       └── llmClient.ts
+│       ├── eventStore.ts   # EventStore 接口
+│       ├── conversationStore.ts  # ConversationStore 接口
+│       ├── llmClient.ts    # LLMClient 接口
+│       ├── tool.ts         # Tool/ToolRegistry/ToolExecutor 接口
+│       └── auditLog.ts     # AuditLog 接口
 │
-├── application/             # 应用层（用例）
-│   ├── usecases/
-│   │   ├── postTask.ts
-│   │   ├── claimTask.ts
-│   │   ├── proposePatch.ts
-│   │   ├── acceptPatch.ts
-│   │   └── replayEvents.ts
-│   └── services/
-│       └── contextBuilder.ts
+├── application/             # 应用层（用例/服务）
+│   ├── taskService.ts      # Task CRUD + 投影
+│   ├── eventService.ts     # 事件回放
+│   ├── interactionService.ts # UIP 请求/响应
+│   ├── contextBuilder.ts   # Agent 上下文构建
+│   └── projector.ts        # 投影运行器
 │
-├── infrastructure/          # 基础设施层
-│   ├── jsonlEventStore.ts
-│   ├── patchEngine.ts
-│   └── logger.ts
+├── infra/                   # 基础设施层
+│   ├── jsonlEventStore.ts  # JSONL EventStore 实现
+│   ├── jsonlConversationStore.ts  # JSONL ConversationStore 实现
+│   ├── jsonlAuditLog.ts    # JSONL AuditLog 实现
+│   ├── toolRegistry.ts     # DefaultToolRegistry 实现
+│   ├── toolExecutor.ts     # DefaultToolExecutor 实现
+│   ├── fakeLLMClient.ts    # 测试用 LLM 实现
+│   ├── openaiLLMClient.ts  # OpenAI LLM 实现
+│   └── tools/              # 内置工具
+│       ├── readFile.ts
+│       ├── editFile.ts
+│       ├── listFiles.ts
+│       └── runCommand.ts
 │
 ├── agents/                  # Agent 层
-│   ├── runtime.ts          # AgentRuntime
+│   ├── agent.ts            # Agent 接口 + AgentOutput/AgentContext
+│   ├── runtime.ts          # AgentRuntime（UIP+工具循环）
 │   └── defaultAgent.ts     # DefaultCoAuthorAgent
 │
-├── interfaces/              # 接口层（适配器）
-│   ├── cli/
-│   │   ├── run.ts         # CLI 命令解析
-│   │   └── io.ts          # IO 抽象
-│   └── tui/
-│       ├── main.tsx       # Ink TUI
-│       └── run.ts
+├── cli/                     # CLI 接口层
+│   ├── run.ts              # CLI 命令解析
+│   └── io.ts               # IO 抽象
+│
+├── tui/                     # TUI 接口层
+│   ├── main.tsx            # Ink TUI
+│   └── run.ts
+│
+├── config/
+│   └── appConfig.ts        # 配置加载
+│
+├── patch/
+│   └── applyUnifiedPatch.ts # 统一差分应用工具
 │
 └── app/
-    └── createApp.ts        # App 工厂
+    └── createApp.ts        # App 工厂（依赖注入）
 ```
 
 ---
@@ -423,8 +461,8 @@ Interfaces → Application → Domain ← Infrastructure
 | "LLM = Co-author/Postdoc" | Actor.kind = 'agent' |
 | "Billboard" | EventStore + Projector + RxJS |
 | "Task 不细分类" | Task.intent 是自由文本 |
-| "Plan-first + Patch-first" | Agent workflow 标准骨架 |
-| "用户手改感知" | PatchService baseRevision 校验 + PatchConflicted |
+| "UIP（统一交互）" | UserInteractionRequested/Responded + UI 统一渲染 |
+| "工具审计解耦" | ToolRegistry/ToolExecutor + AuditLog（执行细节不进 DomainEvent） |
 | "CLI 只是 Adapter" | Interfaces 层分离 |
 | "V0 单 Agent" | 所有 Task 直接发送给默认 Agent |
 | "V1 多 Agent" | OrchestratorAgent 可创建子任务 |

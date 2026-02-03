@@ -6,3 +6,6 @@
 
 export * from './eventStore.js'
 export * from './llmClient.js'
+export * from './tool.js'
+export * from './auditLog.js'
+export * from './conversationStore.js'

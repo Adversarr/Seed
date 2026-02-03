@@ -8,10 +8,13 @@ import { z } from 'zod'
 export const ActorKindSchema = z.enum(['human', 'agent'])
 
 export const ActorCapabilitySchema = z.enum([
-  'apply_patch',
+  'tool_read_file',
+  'tool_edit_file',
+  'tool_run_command',
   'run_latex_build',
   'read_assets',
   'create_task'
+  // V1: 'claim_task' - Agent 主动认领任务
 ])
 
 export const ActorSchema = z.object({
@@ -52,7 +55,7 @@ export function createUserActor(opts: {
     id: opts.id ?? DEFAULT_USER_ACTOR_ID,
     kind: 'human',
     displayName: opts.displayName,
-    capabilities: ['apply_patch', 'create_task', 'read_assets'],
+    capabilities: ['tool_read_file', 'tool_edit_file', 'tool_run_command', 'create_task', 'read_assets'],
     defaultAgentId: opts.defaultAgentId ?? DEFAULT_AGENT_ACTOR_ID
   }
 }

@@ -1,6 +1,35 @@
-import type { DomainEvent, UserFeedbackPostedPayload } from '../domain/events.js'
+import type { UserInteractionRespondedPayload } from '../domain/events.js'
 import type { TaskView } from '../application/taskService.js'
-import type { LLMClient } from '../domain/ports/llmClient.js'
+import type { LLMClient, LLMMessage } from '../domain/ports/llmClient.js'
+import type { ToolRegistry, ToolCallRequest, ToolResult } from '../domain/ports/tool.js'
+import type { InteractionRequest } from '../application/interactionService.js'
+
+// ============================================================================
+// Agent Interaction Request
+// ============================================================================
+
+/**
+ * Agent interaction request - includes interactionId for tracking.
+ * This is emitted by agents and converted to UIP events by the runtime.
+ */
+export type AgentInteractionRequest = InteractionRequest & {
+  interactionId: string
+}
+
+// ============================================================================
+// Agent Output Types
+// ============================================================================
+
+/**
+ * AgentOutput represents what an Agent yields during execution.
+ * The AgentRuntime interprets these outputs and takes appropriate actions.
+ */
+export type AgentOutput =
+  | { kind: 'text'; content: string }
+  | { kind: 'tool_call'; call: ToolCallRequest }
+  | { kind: 'interaction'; request: AgentInteractionRequest }
+  | { kind: 'done'; summary?: string }
+  | { kind: 'failed'; reason: string }
 
 // ============================================================================
 // Agent Context
@@ -9,10 +38,46 @@ import type { LLMClient } from '../domain/ports/llmClient.js'
 /**
  * Context provided to an Agent when running a task.
  * Contains all dependencies needed for task execution.
+ *
+ * The Runtime manages conversation persistence via ConversationStore.
+ * Agents should use `persistMessage()` to add messages to history,
+ * which ensures they are both persisted and available in `conversationHistory`.
  */
 export type AgentContext = {
-  llm: LLMClient
-  baseDir: string
+  /** LLM client for generating responses */
+  readonly llm: LLMClient
+  
+  /** Tool registry for accessing available tools */
+  readonly tools: ToolRegistry
+  
+  /** Base directory of the workspace */
+  readonly baseDir: string
+  
+  /**
+   * Conversation history for multi-turn interactions.
+   * Pre-loaded from ConversationStore by Runtime on start/resume.
+   * Use `persistMessage()` to add new messages.
+   */
+  readonly conversationHistory: readonly LLMMessage[]
+  
+  /** Response to a pending interaction (if resuming) */
+  readonly pendingInteractionResponse?: UserInteractionRespondedPayload
+  
+  /** Results from tool calls (injected by runtime) */
+  readonly toolResults: Map<string, ToolResult>
+  
+  /**
+   * Confirmed interaction ID for risky tool execution.
+   * Set when resuming after a confirm_risky_action UIP response.
+   */
+  readonly confirmedInteractionId?: string
+
+  /**
+   * Persist a message to conversation history.
+   * Call this after each LLM response or tool result to ensure
+   * the message survives pauses, restarts, and crashes.
+   */
+  persistMessage(message: LLMMessage): void
 }
 
 // ============================================================================
@@ -39,30 +104,16 @@ export interface Agent {
   /**
    * Execute the task workflow.
    *
-   * Yields DomainEvents as the agent progresses through its workflow:
-   * - TaskStarted (optional)
-   * - AgentPlanPosted
-   * - PatchProposed
-   * - TaskCompleted / TaskFailed
+   * Yields AgentOutput as the agent progresses through its workflow.
+   * The AgentRuntime handles each output type:
+   * - 'text': Logged/displayed
+   * - 'tool_call': Executed via ToolExecutor, result injected back
+   * - 'interaction': UIP event emitted, waits for response
+   * - 'done': TaskCompleted event emitted
+   * - 'failed': TaskFailed event emitted
    *
    * @param task - The task to execute
    * @param context - Dependencies and configuration
    */
-  run(task: TaskView, context: AgentContext): AsyncGenerator<DomainEvent>
-
-  /**
-   * Resume execution after user feedback.
-   *
-   * Called when the user provides feedback on a plan or patch,
-   * allowing the agent to adjust and continue.
-   *
-   * @param task - The current task state
-   * @param feedback - The user's feedback
-   * @param context - Dependencies and configuration
-   */
-  resume?(
-    task: TaskView,
-    feedback: UserFeedbackPostedPayload,
-    context: AgentContext
-  ): AsyncGenerator<DomainEvent>
+  run(task: TaskView, context: AgentContext): AsyncGenerator<AgentOutput>
 }

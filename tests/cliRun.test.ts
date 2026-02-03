@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -17,46 +17,30 @@ function createTestIO(opts: { stdinText?: string }) {
 }
 
 describe('CLI smoke', () => {
-  test('create task -> propose patch -> accept patch -> replay log', async () => {
+  test('create task -> list tasks -> replay log', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
     await writeFile(join(baseDir, 'doc.tex'), 'hello\nworld\n', 'utf8')
 
+    // Create a task
     const io1 = createTestIO({})
     await runCli({ argv: ['task', 'create', 'Hello'], baseDir, io: io1.io })
     const taskId = io1.out.join('').trim()
     expect(taskId.length).toBeGreaterThan(5)
 
-    const patchText = [
-      '--- a/doc.tex',
-      '+++ b/doc.tex',
-      '@@ -1,2 +1,2 @@',
-      '-hello',
-      '+HELLO',
-      ' world',
-      ''
-    ].join('\n')
+    // List tasks
+    const io2 = createTestIO({})
+    await runCli({ argv: ['task', 'list'], baseDir, io: io2.io })
+    expect(io2.out.join('')).toContain(taskId)
+    expect(io2.out.join('')).toContain('Hello')
 
-    const io2 = createTestIO({ stdinText: patchText })
-    await runCli({ argv: ['patch', 'propose', taskId, 'doc.tex'], baseDir, io: io2.io })
-    const proposalId = io2.out.join('').trim()
-    expect(proposalId.length).toBeGreaterThan(5)
-
+    // Replay log
     const io3 = createTestIO({})
-    await runCli({ argv: ['patch', 'accept', taskId, 'latest'], baseDir, io: io3.io })
-    expect(io3.out.join('')).toMatch(/applied/)
-
-    const updated = await readFile(join(baseDir, 'doc.tex'), 'utf8')
-    expect(updated).toBe('HELLO\nworld\n')
-
-    const io4 = createTestIO({})
-    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io4.io })
-    const replay = io4.out.join('')
+    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io3.io })
+    const replay = io3.out.join('')
     expect(replay).toMatch(/TaskCreated/)
-    expect(replay).toMatch(/PatchProposed/)
-    expect(replay).toMatch(/PatchApplied/)
   })
 
-  test('task create --file/--lines + feedback post', async () => {
+  test('task create --file/--lines works correctly', async () => {
     const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
     await writeFile(join(baseDir, 'doc.tex'), 'hello\nworld\n', 'utf8')
 
@@ -67,14 +51,27 @@ describe('CLI smoke', () => {
       io: io1.io
     })
     const taskId = io1.out.join('').trim()
+    expect(taskId.length).toBeGreaterThan(5)
 
+    // Verify the task was created with artifact refs
     const io2 = createTestIO({})
-    await runCli({ argv: ['feedback', 'post', taskId, '--text', 'LGTM'], baseDir, io: io2.io })
-    expect(io2.out.join('')).toMatch(/posted/)
+    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io2.io })
+    const replay = io2.out.join('')
+    expect(replay).toMatch(/TaskCreated/)
+    expect(replay).toContain('file_range')
+    expect(replay).toContain('doc.tex')
+  })
 
-    const io5 = createTestIO({})
-    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io5.io })
-    const replay = io5.out.join('')
-    expect(replay).toMatch(/UserFeedbackPosted/)
+  test('interact pending shows no interactions for new task', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
+
+    // Create a task
+    const io1 = createTestIO({})
+    await runCli({ argv: ['task', 'create', 'Test task'], baseDir, io: io1.io })
+
+    // Check pending interactions (should be none for new task)
+    const io2 = createTestIO({})
+    await runCli({ argv: ['interact', 'pending'], baseDir, io: io2.io })
+    expect(io2.out.join('')).toContain('No pending interactions')
   })
 })

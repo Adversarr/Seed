@@ -1,10 +1,28 @@
 # CoAuthor 领域模型规范
 
-> 版本：V0  
-> 最后更新：2026-02-02  
+> 版本：V0.1  
+> 最后更新：2026-02-03  
 > 状态：规范文档（Normative）
 
 本文档定义 CoAuthor 的领域模型：Event Schema、Entity 定义、Policy 规则。所有代码实现必须与本文档保持一致。
+
+本规范已按 [ARCHITECTURE_DISCUSSION_2026-02-03.md](ARCHITECTURE_DISCUSSION_2026-02-03.md) 的方向重设进行更新：DomainEvent 仅表达 Task 生命周期与通用交互（UIP）；工具调用与其结果记录在独立的 AuditLog 中，不以 Plan/Patch 事件表达。
+
+---
+
+## V0/V1 特性边界
+
+| 特性 | V0 状态 | V1 计划 |
+|------|---------|---------|
+| Task 生命周期事件 | ✅ 6 种事件 | 可能新增 SubtaskCreated/Completed |
+| UIP 通用交互 | ✅ 完整实现 | - |
+| Tool Use + AuditLog | ✅ 完整实现 | - |
+| ConversationStore | ✅ 对话历史持久化 | - |
+| 风险工具确认 | ✅ ToolExecutor 强制检查 | - |
+| 任务分配 | 创建时直接指定 agentId | TaskClaimed 事件、claimed 状态、多 Agent 路由 |
+| 子任务 | Schema 预留 parentTaskId | Orchestrator 完整实现 |
+| InteractionPurpose.assign_subtask | 定义但不使用 | Orchestrator 使用 |
+| ArtifactStore Port | TODO（直接使用 fs API） | 完整端口实现 |
 
 ---
 
@@ -41,19 +59,9 @@ type TaskCreatedEvent = {
     title: string
     intent: string                    // 用户原始意图
     priority: 'foreground' | 'normal' | 'background'
+    agentId: string                   // 指定处理的 Agent
     artifactRefs?: ArtifactRef[]      // 关联的文件/位置
     authorActorId: string             // 谁创建的（通常是 user）
-  }
-}
-
-// 任务被 Agent 认领（V0: 默认 Agent 自动认领）
-type TaskClaimedEvent = {
-  type: 'TaskClaimed'
-  payload: {
-    taskId: string
-    claimedBy: string                 // AgentId
-    baseRevisions: Record<string, string>  // 快照相关文件版本
-    authorActorId: string
   }
 }
 
@@ -62,6 +70,7 @@ type TaskStartedEvent = {
   type: 'TaskStarted'
   payload: {
     taskId: string
+    agentId: string                   // 执行任务的 Agent
     authorActorId: string
   }
 }
@@ -97,154 +106,91 @@ type TaskCanceledEvent = {
 }
 ```
 
-> **V0 简化说明**：移除了 `TaskBlocked` 事件，该功能推迟到 V1。
+> **V0.1 说明**：不再使用 Plan/Patch 事件表达协作流程；“等待用户确认/补充信息”等阶段统一用 UIP 表达。
 
-#### 1.3.2 计划与补丁事件
+#### 1.3.2 通用交互事件（UIP）
 
 ```typescript
-// Agent 发布修改计划
-type AgentPlanPostedEvent = {
-  type: 'AgentPlanPosted'
+type UserInteractionRequestedEvent = {
+  type: 'UserInteractionRequested'
   payload: {
+    interactionId: string
     taskId: string
-    planId: string
-    plan: {
-      goal: string                    // 修改目标
-      issues?: string[]               // 识别到的问题
-      strategy: string                // 采取的策略
-      scope: string                   // 改动范围描述
-      risks?: string[]                // 风险提示
-      questions?: string[]            // 阻塞性问题（如需）
+    authorActorId: string
+
+    kind: 'Select' | 'Confirm' | 'Input' | 'Composite'
+
+    purpose:
+      | 'confirm_task'
+      | 'choose_strategy'
+      | 'request_info'
+      | 'confirm_risky_action'
+      | 'assign_subtask'
+      | 'generic'
+
+    display: {
+      title: string
+      description?: string
+      content?: unknown
+      contentKind?: 'PlainText' | 'Json' | 'Diff' | 'Table'
     }
-    authorActorId: string
+
+    options?: Array<{
+      id: string
+      label: string
+      style?: 'primary' | 'danger' | 'default'
+      isDefault?: boolean
+    }>
+
+    validation?: {
+      regex?: string
+      required?: boolean
+    }
   }
 }
 
-// 补丁提议
-type PatchProposedEvent = {
-  type: 'PatchProposed'
+type UserInteractionRespondedEvent = {
+  type: 'UserInteractionResponded'
   payload: {
+    interactionId: string
     taskId: string
-    proposalId: string
-    targetPath: string                // 目标文件路径
-    patchText: string                 // Unified diff 格式
-    baseRevision: string              // 基于哪个版本
     authorActorId: string
-  }
-}
 
-// 补丁被接受
-type PatchAcceptedEvent = {
-  type: 'PatchAccepted'
-  payload: {
-    taskId: string
-    proposalId: string
-    authorActorId: string             // 谁接受的（通常是 user）
-  }
-}
-
-// 补丁被拒绝
-type PatchRejectedEvent = {
-  type: 'PatchRejected'
-  payload: {
-    taskId: string
-    proposalId: string
-    reason?: string
-    authorActorId: string
-  }
-}
-
-// 补丁已应用到文件
-type PatchAppliedEvent = {
-  type: 'PatchApplied'
-  payload: {
-    taskId: string
-    proposalId: string
-    targetPath: string
-    patchText: string
-    appliedAt: string
-    newRevision: string               // 应用后的文件版本
-    authorActorId: string
+    selectedOptionId?: string
+    inputValue?: string
+    comment?: string
   }
 }
 ```
 
-#### 1.3.3 反馈事件
-
-```typescript
-// 用户反馈
-type UserFeedbackPostedEvent = {
-  type: 'UserFeedbackPosted'
-  payload: {
-    taskId: string
-    feedback: string
-    targetProposalId?: string         // 针对哪个 patch 的反馈
-    authorActorId: string
-  }
-}
-```
-
-> **V0 简化说明**：移除了 `ThreadOpened` 事件。
-
-#### 1.3.4 冲突事件
-
-```typescript
-// Patch 冲突（apply 时 baseRevision 不匹配）
-type PatchConflictedEvent = {
-  type: 'PatchConflicted'
-  payload: {
-    taskId: string
-    proposalId: string
-    targetPath: string
-    reason: string
-    authorActorId: string
-  }
-}
-```
-
-> **V0 简化说明**：移除了 `ArtifactChanged`、`TaskNeedsRebase`、`TaskRebased` 事件。
-> 冲突检测简化为 JIT 模式：apply 时校验 baseRevision，失败时发出 `PatchConflicted`。
-
-### 1.4 完整 DomainEvent Union
+### 1.4 完整 DomainEvent Union（V0.1）
 
 ```typescript
 type DomainEvent =
-  // 任务生命周期
+  // Task 生命周期
   | TaskCreatedEvent
   | TaskStartedEvent
   | TaskCompletedEvent
   | TaskFailedEvent
   | TaskCanceledEvent
-  // 计划与补丁
-  | AgentPlanPostedEvent
-  | PatchProposedEvent
-  | PatchAcceptedEvent
-  | PatchRejectedEvent
-  | PatchAppliedEvent
-  // 反馈
-  | UserFeedbackPostedEvent
-  // 冲突
-  | PatchConflictedEvent
+  // UIP
+  | UserInteractionRequestedEvent
+  | UserInteractionRespondedEvent
 
 type EventType = DomainEvent['type']
 ```
 
-### 1.5 V0 事件集（12 种）
+### 1.5 V0.1 事件集（6 种）
 
 | 事件 | 说明 |
 |------|------|
-| `TaskCreated` | 用户发起任务请求，入队等待 |
-| `TaskStarted` | Agent 认领并开始处理（含 agentId） |
+| `TaskCreated` | 用户发起任务请求（含 agentId 指定处理者） |
+| `TaskStarted` | 任务开始执行 |
+| `UserInteractionRequested` | 系统发起交互请求（统一协议） |
+| `UserInteractionResponded` | 用户对交互请求做出回应 |
 | `TaskCompleted` | 任务成功完成 |
 | `TaskFailed` | 任务执行失败 |
-| `TaskCanceled` | 用户取消任务 |
-| `AgentPlanPosted` | Agent 发布修改计划 |
-| `PatchProposed` | Agent 提议补丁 |
-| `PatchAccepted` | 用户接受补丁 |
-| `PatchRejected` | 用户拒绝补丁 |
-| `PatchApplied` | 补丁已写入文件 |
-| `UserFeedbackPosted` | 用户发布反馈 |
-| `PatchConflicted` | apply 时 baseRevision 不匹配 |
+| `TaskCanceled` | 任务被取消 |
 
 ---
 
@@ -258,11 +204,13 @@ import { z } from 'zod'
 export const ActorKindSchema = z.enum(['human', 'agent'])
 
 export const ActorCapabilitySchema = z.enum([
-  'apply_patch',
+  'tool_read_file',
+  'tool_edit_file',
+  'tool_run_command',
   'run_latex_build',
   'read_assets',
-  'create_task',
-  'claim_task'
+  'create_task'
+  // V1: 'claim_task' - Agent 主动认领任务
 ])
 
 export const ActorSchema = z.object({
@@ -283,11 +231,10 @@ export type Actor = z.infer<typeof ActorSchema>
 ```typescript
 export const TaskStatusSchema = z.enum([
   'open',
-  'claimed',
   'in_progress',
-  'awaiting_review',
+  'awaiting_user',
   'done',
-  'blocked',
+  'failed',
   'canceled'
 ])
 
@@ -365,41 +312,9 @@ export type ArtifactType = z.infer<typeof ArtifactTypeSchema>
 export type Artifact = z.infer<typeof ArtifactSchema>
 ```
 
-### 2.4 Plan
+### 2.4 说明：Plan/Patch（已废弃）
 
-```typescript
-export const PlanSchema = z.object({
-  planId: z.string().min(1),
-  taskId: z.string().min(1),
-  goal: z.string().min(1),
-  issues: z.array(z.string()).optional(),
-  strategy: z.string().min(1),
-  scope: z.string().min(1),
-  risks: z.array(z.string()).optional(),
-  questions: z.array(z.string()).optional(),
-  authorActorId: z.string().min(1),
-  createdAt: z.string().min(1)
-})
-
-export type Plan = z.infer<typeof PlanSchema>
-```
-
-### 2.5 PatchProposal
-
-```typescript
-export const PatchProposalSchema = z.object({
-  proposalId: z.string().min(1),
-  taskId: z.string().min(1),
-  targetPath: z.string().min(1),
-  patchText: z.string().min(1),
-  baseRevision: z.string().min(1),
-  status: z.enum(['pending', 'accepted', 'rejected', 'applied']),
-  authorActorId: z.string().min(1),
-  createdAt: z.string().min(1)
-})
-
-export type PatchProposal = z.infer<typeof PatchProposalSchema>
-```
+V0.1 不再将 plan/patch 作为领域对象与领域事件的一部分。若需要兼容历史事件日志或旧实现的对照，请参考文末 `附录 A（Deprecated）`。
 
 ---
 
@@ -410,28 +325,31 @@ Projection 是从事件流派生的读模型，用于快速查询。
 ### 3.1 TaskView
 
 ```typescript
+/**
+ * TaskView - Read model for fast task queries.
+ * Projected from DomainEvents via reducer.
+ */
 export type TaskView = {
   taskId: string
   title: string
   intent: string
   createdBy: string
-  assignedTo?: string      // Agent 认领后赋值
+  agentId: string                 // V0: 创建时直接指定的处理 Agent
   priority: TaskPriority
   status: TaskStatus
   artifactRefs?: ArtifactRef[]
-  baseRevisions?: Record<string, string>
+  baseRevisions?: Record<string, string>  // 创建时的文件版本快照
   
-  // 派生字段（从事件流投影）
-  currentPlanId?: string
-  pendingProposals: string[]
-  appliedProposals: string[]
+  // UIP 交互状态
+  pendingInteractionId?: string   // 当前等待响应的交互 ID
+  lastInteractionId?: string      // 最后一次交互的 ID
   
   // V1 预留：子任务支持
   parentTaskId?: string
   childTaskIds?: string[]
   
   createdAt: string
-  updatedAt: string        // 最后事件时间
+  updatedAt: string               // 最后事件时间
 }
 ```
 
@@ -465,43 +383,13 @@ V0 采用 **单 Agent 直连模型**，无需路由：
 
 这类似于 chat 模式，但任务经过 Billboard 形成可审计的 Task 历史。
 
-**V1 扩展：Orchestrator 子任务模型**
+**V1 扩展：Orchestrator 子任务模型（仅交互层）**
 
-V1 将支持 OrchestratorAgent 在执行过程中创建子任务：
+当 Orchestrator 需要把工作拆成多个子任务并选择执行者时，V0.1 只要求交互统一走 UIP：
+- `UserInteractionRequested(purpose=assign_subtask, kind=Select, options=[agentA, agentB, ...])`
+- `UserInteractionResponded(selectedOptionId=agentB)`
 
-```
-用户 → Billboard → OrchestratorAgent
-                        │
-                        ├─ 分析任务 → 创建 SubTask1 → SpecialistAgent A
-                        ├─ 创建 SubTask2 → SpecialistAgent B
-                        └─ 汇总结果 → 完成原任务
-```
-
-子任务事件设计（V1）：
-```typescript
-// V1: 创建子任务
-type SubtaskCreatedEvent = {
-  type: 'SubtaskCreated'
-  payload: {
-    parentTaskId: string
-    subtaskId: string
-    intent: string
-    targetAgentHint?: string          // 建议的目标 Agent
-    authorActorId: string             // 创建者（通常是 Orchestrator）
-  }
-}
-
-// V1: 子任务完成
-type SubtaskCompletedEvent = {
-  type: 'SubtaskCompleted'
-  payload: {
-    parentTaskId: string
-    subtaskId: string
-    result?: string
-    authorActorId: string
-  }
-}
-```
+子任务是否需要额外的领域事件属于后续设计（可选）；本规范不在 DomainEvent 中预置 `SubtaskCreated/SubtaskCompleted` 事件类型。
 
 ### 4.2 SchedulerPolicy
 
@@ -515,7 +403,7 @@ export const defaultSchedulerPolicy: SchedulerPolicy = (tasks) => {
   const priorityOrder = { foreground: 0, normal: 1, background: 2 }
   
   return [...tasks]
-    .filter(t => t.status === 'open' || t.status === 'claimed')
+    .filter(t => t.status === 'open' || t.status === 'in_progress')
     .sort((a, b) => {
       // 先按优先级
       const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority]
@@ -591,7 +479,60 @@ export interface EventStore {
 }
 ```
 
-### 5.2 ArtifactStore
+### 5.2 ConversationStore
+
+用于持久化 Agent 与 LLM 的对话历史，支持跨 UIP 暂停、程序重启的状态恢复。
+
+```typescript
+import type { LLMMessage } from './llmClient.js'
+
+/**
+ * 对话条目 - 消息 + 任务上下文
+ */
+export type ConversationEntry = {
+  taskId: string       // 所属任务
+  index: number        // 任务内顺序索引
+  message: LLMMessage  // LLM 消息
+}
+
+/**
+ * 持久化的对话条目（含元数据）
+ */
+export type StoredConversationEntry = ConversationEntry & {
+  id: number           // 全局自增 ID
+  createdAt: string    // ISO timestamp
+}
+
+/**
+ * ConversationStore 端口接口
+ *
+ * 职责分离：
+ * - EventStore: User ↔ Agent 协作决策
+ * - AuditLog: Agent ↔ Tools/Files 执行审计
+ * - ConversationStore: Agent ↔ LLM 对话上下文
+ */
+export interface ConversationStore {
+  // 初始化 schema
+  ensureSchema(): void
+  
+  // 追加消息到任务对话历史
+  append(taskId: string, message: LLMMessage): StoredConversationEntry
+  
+  // 获取任务的所有消息（按顺序）
+  getMessages(taskId: string): LLMMessage[]
+  
+  // 截断对话历史，只保留最后 N 条
+  truncate(taskId: string, keepLastN: number): void
+  
+  // 清除任务的所有对话历史
+  clear(taskId: string): void
+  
+  // 读取所有条目（调试/测试用）
+  readAll(fromIdExclusive?: number): StoredConversationEntry[]
+}
+```
+
+### 5.3 ArtifactStore
 
 ```typescript
 export interface ArtifactStore {
@@ -609,36 +550,79 @@ export interface ArtifactStore {
   
   // 写入文件
   writeFile(path: string, content: string): Promise<void>
-  
-  // 应用 patch
-  applyPatch(path: string, patchText: string): Promise<{ newRevision: string }>
 }
 ```
 
 ### 5.3 LLMClient
 
 ```typescript
+import type { ToolDefinition, ToolCallRequest } from './tool.js'
+
 export type LLMProfile = 'fast' | 'writer' | 'reasoning'
 
-export type LLMMessage = {
-  role: 'system' | 'user' | 'assistant'
-  content: string
+export type LLMMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content?: string; toolCalls?: ToolCallRequest[] }
+  | { role: 'tool'; toolCallId: string; content: string }
+
+// ============================================================================
+// LLM Response Types
+// ============================================================================
+
+export type LLMStopReason = 'end_turn' | 'tool_use' | 'max_tokens'
+
+export type LLMResponse = {
+  content?: string
+  toolCalls?: ToolCallRequest[]
+  stopReason: LLMStopReason
 }
 
+// ============================================================================
+// LLM Options
+// ============================================================================
+
+export type LLMCompleteOptions = {
+  profile: LLMProfile
+  messages: LLMMessage[]
+  tools?: ToolDefinition[]
+  maxTokens?: number
+}
+
+export type LLMStreamOptions = {
+  profile: LLMProfile
+  messages: LLMMessage[]
+  tools?: ToolDefinition[]
+  maxTokens?: number
+}
+
+// ============================================================================
+// LLM Stream Chunk Types
+// ============================================================================
+
+export type LLMStreamChunk =
+  | { type: 'text'; content: string }
+  | { type: 'tool_call_start'; toolCallId: string; toolName: string }
+  | { type: 'tool_call_delta'; toolCallId: string; argumentsDelta: string }
+  | { type: 'tool_call_end'; toolCallId: string }
+  | { type: 'done'; stopReason: LLMStopReason }
+
+// ============================================================================
+// LLM Client Interface
+// ============================================================================
+
 export interface LLMClient {
-  // 单次补全
-  complete(opts: {
-    profile: LLMProfile
-    messages: LLMMessage[]
-    maxTokens?: number
-  }): Promise<string>
-  
-  // 流式补全
-  stream(opts: {
-    profile: LLMProfile
-    messages: LLMMessage[]
-    maxTokens?: number
-  }): AsyncGenerator<string>
+  /**
+   * Complete a conversation (non-streaming).
+   * Returns structured response with content and/or tool calls.
+   */
+  complete(opts: LLMCompleteOptions): Promise<LLMResponse>
+
+  /**
+   * Stream a conversation.
+   * Yields chunks for text and tool calls.
+   */
+  stream(opts: LLMStreamOptions): AsyncGenerator<LLMStreamChunk>
 }
 ```
 
@@ -651,8 +635,8 @@ export interface LLMClient {
 | 类型 | 格式 | 示例 |
 |------|------|------|
 | taskId | nanoid(21) | `V1StGXR8_Z5jdHi6B-myT` |
-| planId | `plan_` + nanoid(12) | `plan_abc123def456` |
-| proposalId | `patch_` + nanoid(12) | `patch_xyz789uvw012` |
+| interactionId | `ui_` + nanoid(12) | `ui_abc123def456` |
+| toolCallId | `tool_` + nanoid(12) | `tool_xyz789uvw012` |
 | actorId (user) | `user_` + identifier | `user_jerry` |
 | actorId (agent) | `agent_` + name | `agent_coauthor_default` |
 
@@ -688,30 +672,28 @@ export function validateEvent(event: unknown): DomainEvent {
 | 规则 | 说明 |
 |------|------|
 | 任务状态转换 | 只能按状态机转换（见下图） |
-| Patch 应用 | baseRevision 必须匹配当前文件版本 |
-| Actor 权限 | 只有 'apply_patch' capability 才能应用 patch |
+| 工具高风险动作 | 写文件/执行命令等必须先走 UIP `confirm_risky_action` |
+| Actor 权限 | 只有具备对应 tool capability 才能执行对应 Tool Use |
 
-### 7.3 任务状态机
+### 7.3 任务状态机 (V0)
 
 ```
-open ──────────────────────────────────────────────────→ canceled
+open ──────────────────────────────────────────────────────→ canceled
   │
-  ├─ TaskClaimed ──→ claimed
-  │                    │
-  │                    ├─ TaskStarted ──→ in_progress
-  │                    │                      │
-  │                    │                      ├─ PatchProposed ──→ awaiting_review
-  │                    │                      │                         │
-  │                    │                      │                         ├─ PatchAccepted + Applied ──→ done
-  │                    │                      │                         │
-  │                    │                      │                         ├─ PatchRejected ──→ in_progress
-  │                    │                      │                         │
-  │                    │                      │                         └─ UserFeedback ──→ in_progress
-  │                    │
-  │                    └─ TaskFailed ──→ (terminal)
+  ├─ TaskStarted ──→ in_progress
+  │                      │
+  │                      ├─ UserInteractionRequested ──→ awaiting_user
+  │                      │                                 │
+  │                      │                                 └─ UserInteractionResponded ──→ in_progress
+  │                      │
+  │                      ├─ TaskCompleted ──→ done
+  │                      │
+  │                      └─ TaskFailed ──→ failed
   │
-  └─ TaskFailed ──→ (terminal)
+  └─ TaskFailed ──→ failed
 ```
+
+> **V1 扩展**：引入 `TaskClaimed` 事件和 `claimed` 状态，支持 Agent 主动认领任务（多 Agent 协作场景）。
 
 ---
 
@@ -721,5 +703,20 @@ open ─────────────────────────
 |----------|--------|
 | `domain.ts` | 拆分为 `domain/events.ts` + `domain/task.ts` + `domain/actor.ts` |
 | `TaskCreated.payload.taskId` | 保留，增加 `authorActorId` |
-| `PatchProposed` | 保留，增加 `authorActorId` + `baseRevision` |
-| `PatchApplied` | 保留，增加 `authorActorId` + `newRevision` |
+| `Patch*`/`AgentPlanPosted` 等旧事件 | 不再属于 DomainEvent（V0.1）；迁移为 UIP + Tool Audit 表达（见附录 A） |
+
+---
+
+## 附录 A（Deprecated）：旧 Plan/Patch 事件与迁移映射
+
+本附录仅用于阅读历史事件日志或迁移旧实现。自 V0.1 起，不应再新增使用这些事件或将其作为协作协议的一部分。
+
+### A.1 旧事件清单（历史兼容）
+
+- `AgentPlanPosted`
+- `PatchProposed` / `PatchAccepted` / `PatchRejected` / `PatchApplied` / `PatchConflicted`
+- `UserFeedbackPosted`
+
+### A.2 迁移映射（推荐表达）
+
+- 计划/方案呈现：使用 `UserInteractionRequested(display.contentKind=PlainText|Json, purpose=choose_strategy|confirm_task)`。\n- diff/变更预览：使用 `UserInteractionRequested(display.contentKind=Diff, purpose=confirm_risky_action)`。\n- 文件修改与命令执行：通过 Tool Use 执行，并在 AuditLog 中记录 `ToolCallRequested/ToolCallCompleted`；不要用 DomainEvent 记录具体 diff 或写入细节。\n- 冲突/失败：由工具执行结果（AuditLog 的 isError=true 等）与后续 UIP 交互引导用户决策；必要时以 `TaskFailed` 终止任务。

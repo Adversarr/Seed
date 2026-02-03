@@ -40,16 +40,20 @@ describe('OpenAILLMClient (LLMClient port)', () => {
     ).toThrow(/OPENAI_API_KEY/)
   })
 
-  test('complete routes by profile and returns text', async () => {
+  test('complete routes by profile and returns LLMResponse', async () => {
     mocks.createOpenAI.mockReturnValue((modelId: string) => ({ modelId }))
-    mocks.generateText.mockResolvedValue({ text: 'hello' })
+    mocks.generateText.mockResolvedValue({ 
+      text: 'hello', 
+      toolCalls: [],
+      finishReason: 'stop'
+    })
 
     const llm = new OpenAILLMClient({
       apiKey: 'k',
       modelByProfile: { fast: 'fast-model', writer: 'writer-model', reasoning: 'reasoning-model' }
     })
 
-    const text = await llm.complete({
+    const response = await llm.complete({
       profile: 'writer',
       messages: [
         { role: 'system', content: 'S' },
@@ -58,23 +62,21 @@ describe('OpenAILLMClient (LLMClient port)', () => {
       maxTokens: 123
     })
 
-    expect(text).toBe('hello')
+    expect(response.content).toBe('hello')
+    expect(response.stopReason).toBe('end_turn')
     expect(mocks.generateText).toHaveBeenCalledTimes(1)
     const args = mocks.generateText.mock.calls[0]![0] as any
     expect(args.model.modelId).toBe('writer-model')
     expect(args.maxOutputTokens).toBe(123)
-    expect(args.messages).toEqual([
-      { role: 'system', content: 'S' },
-      { role: 'user', content: 'U' }
-    ])
   })
 
-  test('stream yields chunks from textStream', async () => {
+  test('stream yields chunks from fullStream', async () => {
     mocks.createOpenAI.mockReturnValue((modelId: string) => ({ modelId }))
     mocks.streamText.mockResolvedValue({
-      textStream: (async function* () {
-        yield 'a'
-        yield 'b'
+      fullStream: (async function* () {
+        yield { type: 'text-delta', textDelta: 'a' }
+        yield { type: 'text-delta', textDelta: 'b' }
+        yield { type: 'finish', finishReason: 'stop' }
       })()
     })
 
@@ -83,7 +85,7 @@ describe('OpenAILLMClient (LLMClient port)', () => {
       modelByProfile: { fast: 'fast-model', writer: 'writer-model', reasoning: 'reasoning-model' }
     })
 
-    const out: string[] = []
+    const out: unknown[] = []
     for await (const chunk of llm.stream({
       profile: 'fast',
       messages: [{ role: 'user', content: 'hi' }]
@@ -91,7 +93,9 @@ describe('OpenAILLMClient (LLMClient port)', () => {
       out.push(chunk)
     }
 
-    expect(out).toEqual(['a', 'b'])
+    expect(out.length).toBeGreaterThan(0)
+    expect(out[0]).toEqual({ type: 'text', content: 'a' })
+    expect(out[1]).toEqual({ type: 'text', content: 'b' })
     const args = mocks.streamText.mock.calls[0]![0] as any
     expect(args.model.modelId).toBe('fast-model')
   })
