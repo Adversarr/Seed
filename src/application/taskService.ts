@@ -1,4 +1,4 @@
-// Task service: encapsulates task use cases (create, list, open thread, etc.)
+// Task service: encapsulates task use cases (create, list, etc.)
 // Adapters should call services, not EventStore directly
 
 import { nanoid } from 'nanoid'

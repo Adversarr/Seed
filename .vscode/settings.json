@@ -11,6 +11,7 @@
         },
         "npx tsc": true,
         "npx eslint": true,
-        "npm list": true
+        "npm list": true,
+        "npx vitest": true
     }
 }

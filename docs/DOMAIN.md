@@ -184,7 +184,7 @@ type UserFeedbackPostedEvent = {
 }
 ```
 
-> **V0 简化说明**：移除了 `ThreadOpened` 事件，currentTaskId 改用内存状态管理。
+> **V0 简化说明**：移除了 `ThreadOpened` 事件。
 
 #### 1.3.4 冲突事件
 
@@ -463,7 +463,7 @@ V0 采用 **单 Agent 直连模型**，无需路由：
 用户 → Billboard (TaskCreated) → 默认 Agent 自动认领 → 执行 workflow
 ```
 
-这类似于 chat 模式，但任务经过 Billboard 形成可审计的 Task thread。
+这类似于 chat 模式，但任务经过 Billboard 形成可审计的 Task 历史。
 
 **V1 扩展：Orchestrator 子任务模型**
 
@@ -707,10 +707,6 @@ open ─────────────────────────
   │                    │                      │                         ├─ PatchRejected ──→ in_progress
   │                    │                      │                         │
   │                    │                      │                         └─ UserFeedback ──→ in_progress
-  │                    │                      │
-  │                    │                      └─ TaskBlocked ──→ blocked
-  │                    │                                            │
-  │                    │                                            └─ UserFeedback ──→ in_progress
   │                    │
   │                    └─ TaskFailed ──→ (terminal)
   │
@@ -725,6 +721,5 @@ open ─────────────────────────
 |----------|--------|
 | `domain.ts` | 拆分为 `domain/events.ts` + `domain/task.ts` + `domain/actor.ts` |
 | `TaskCreated.payload.taskId` | 保留，增加 `authorActorId` |
-| `ThreadOpened` | 保留，增加 `authorActorId` |
 | `PatchProposed` | 保留，增加 `authorActorId` + `baseRevision` |
 | `PatchApplied` | 保留，增加 `authorActorId` + `newRevision` |

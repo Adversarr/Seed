@@ -68,7 +68,6 @@ export const TaskSchema = z.object({
   status: TaskStatusSchema,
   artifactRefs: z.array(ArtifactRefSchema).optional(),
   baseRevisions: z.record(z.string()).optional(),
-  threadId: z.string().min(1),
   createdAt: z.string().min(1)
 })
 

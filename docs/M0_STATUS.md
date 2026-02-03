@@ -216,7 +216,6 @@ graph LR
     B --> C[JSONL 事件日志]
     C --> D[Projector]
     D --> E[TasksProjection]
-    D --> E[TasksProjection]
     E --> G[CLI 输出]
 ```
 

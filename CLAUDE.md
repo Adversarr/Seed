@@ -43,9 +43,6 @@ npx vitest run -t "should create task"       # Run tests matching pattern
 npm run dev -- task create "Task title"         # Create a task
 npm run dev -- task list                        # List all tasks
 
-# Thread operations
-npm run dev -- thread open <taskId>            # Open thread for task
-
 # Patch operations
 echo '<patch content>' | npm run dev -- patch propose <taskId> <targetPath>
 npm run dev -- patch accept <taskId> [proposalId|latest]
@@ -139,7 +136,6 @@ docs/                     # Documentation
 
 **Projections:**
 - `tasks` projection - Lists all tasks with metadata
-- `threads` projection - Task threads with patch proposals
 - Projections maintain cursor positions for incremental updates
 
 **Hexagonal Architecture Layers:**

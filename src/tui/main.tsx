@@ -36,7 +36,7 @@ export function MainTui(props: Props) {
 
       const commandLine = trimmed.slice(1)
       if (commandLine === 'help') {
-        setStatus('commands: /task create <title>, /task list, /thread open <taskId>, /log replay [taskId], /exit')
+        setStatus('commands: /task create <title>, /task list, /log replay [taskId], /exit')
         return
       }
 
