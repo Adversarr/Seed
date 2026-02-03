@@ -56,20 +56,41 @@ src/
 │   ├── events.ts          # 完整 Event schema（含 authorActorId）✅
 │   ├── index.ts
 │   └── ports/
-│       └── eventStore.ts  # EventStore 接口 ✅
+│       ├── eventStore.ts  # EventStore 接口 ✅
+│       ├── auditLog.ts    # AuditLog 接口 ✅
+│       ├── conversationStore.ts # ConversationStore 接口 ✅
+│       ├── llmClient.ts   # LLMClient 接口 ✅
+│       └── tool.ts        # Tool/Registry/Executor 接口 ✅
 ├── application/
 │   ├── taskService.ts     # Task 用例封装 ✅
-│   ├── patchService.ts    # Patch 用例封装 ✅
 │   ├── eventService.ts    # Event 回放服务 ✅
+│   ├── interactionService.ts # UIP 服务 ✅
+│   ├── contextBuilder.ts  # 上下文构建 ✅
 │   ├── projector.ts       # Projection runner ✅
+│   └── revision.ts        # 内容 revision 辅助 ✅
 ├── infra/
-│   └── jsonlEventStore.ts # JSONL 实现 ✅
+│   ├── jsonlEventStore.ts # JSONL 实现 ✅
+│   ├── jsonlAuditLog.ts   # AuditLog JSONL 实现 ✅
+│   ├── jsonlConversationStore.ts # ConversationStore JSONL 实现 ✅
+│   ├── toolRegistry.ts    # ToolRegistry 实现 ✅
+│   ├── toolExecutor.ts    # ToolExecutor 实现 ✅
+│   ├── fakeLLMClient.ts   # Fake LLM ✅
+│   ├── openaiLLMClient.ts # OpenAI LLM ✅
+│   └── tools/             # 内置工具 ✅
+│       ├── readFile.ts
+│       ├── editFile.ts
+│       ├── listFiles.ts
+│       └── runCommand.ts
 ├── cli/
 │   ├── run.ts             # CLI 入口 ✅
 │   └── io.ts              # I/O 工具 ✅
 ├── tui/
 │   ├── main.tsx           # TUI 组件（可选）✅
 │   └── run.ts
+├── agents/
+│   ├── agent.ts           # Agent 接口 ✅
+│   ├── runtime.ts         # AgentRuntime ✅
+│   └── defaultAgent.ts    # 默认 Agent ✅
 └── patch/
     └── applyUnifiedPatch.ts # 补丁引擎 ✅
 ```

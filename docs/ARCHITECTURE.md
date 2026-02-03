@@ -79,12 +79,9 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │                   Application Layer                      │   │
 │  │                                                          │   │
 │  │  UseCases:                                               │
-│  │  - PostTask: 创建任务（直接发送给默认 Agent）           │
-│  │  - ClaimTask: Agent 认领任务                             │
-│  │  - StartTask: 标记任务开始执行                           │
-│  │  - CompleteTask: 标记任务完成                             │
-│  │  - FailTask: 标记任务失败                                 │
-│  │  - CancelTask: 取消任务                                   │
+│  │  - CreateTask: 创建任务（TaskCreated）                   │
+│  │  - RunTask: 运行 Agent（TaskStarted → ... → Completed）  │
+│  │  - CancelTask: 取消任务                                  │
 │  │  - RequestUserInteraction: 发起 UIP 交互请求             │
 │  │  - RespondUserInteraction: 提交 UIP 交互响应             │
 │  │  - ReplayEvents: 事件回放                                │
@@ -261,37 +258,43 @@ type Artifact = {
 
 Billboard 是 V0 的核心组件，承担：
 
-1. **统一入口**：所有 Adapter 只需 `appendEvent(TaskCreated)`
-2. **统一出口**：UI 与 Agents 通过订阅 streams 得到最新任务状态与产物
+1. **统一入口**：所有 Adapter 只需调用 Application Services（最终追加 DomainEvent 到 EventStore）
+2. **统一出口**：UI 与 Agents 可订阅 `EventStore.events$` 获取事件流；任务读模型由投影派生
 3. **审计与可回放**：任何异常都可通过事件回放复盘
 4. **高扩展性**：未来多 Agent、多 UI、多入口不会改变核心
 
 ### 4.1 组件组成
 
 ```
-Billboard = EventStore + Projector + RxJS Streams
+Billboard（概念）= EventStore + Projector + RxJS events$
 ```
 
 - **EventStore（持久化）**：追加写事件，支持回放
 - **Projector（投影）**：从事件流派生读模型（TaskView）
-- **Streams（实时）**：RxJS Observable 供 UI 和 Agent 订阅
+- **events$（实时）**：EventStore 暴露 RxJS Observable，供 UI 和 Agent 订阅
 
 ### 4.2 API 设计
 
 ```typescript
-interface Billboard {
-  // 写入
-  appendEvent(event: DomainEvent): StoredEvent
-  
-  // 读取（投影）
-  getTask(taskId: string): TaskView | null
-  queryTasks(filter: TaskFilter): TaskView[]
-  
-  // 订阅
+// V0.1 当前实现没有单独的 Billboard 抽象，组合根（createApp）直接注入以下能力：
+interface EventStore {
+  append(streamId: string, events: DomainEvent[]): StoredEvent[]
+  readAll(fromIdExclusive?: number): StoredEvent[]
+  readStream(streamId: string, fromSeqInclusive?: number): StoredEvent[]
   events$: Observable<StoredEvent>
-  taskViews$: Observable<TaskView[]>
+}
+
+interface TaskService {
+  createTask(...): { taskId: string }
+  listTasks(): { tasks: TaskView[] }
+  getTask(taskId: string): TaskView | null
+}
+
+interface EventService {
+  replayEvents(streamId?: string): StoredEvent[]
 }
 ```
+
 
 ---
 
@@ -307,25 +310,26 @@ interface Agent {
   readonly displayName: string
   
   // 执行任务，通过 AgentOutput 通知 runtime
-  run(context: AgentContext): AsyncGenerator<AgentOutput>
+  run(task: TaskView, context: AgentContext): AsyncGenerator<AgentOutput>
 }
 
 // Agent 输出类型
 type AgentOutput = 
   | { kind: 'text'; content: string }
-  | { kind: 'tool_call'; toolCallId: string; toolName: string; args: unknown }
-  | { kind: 'interaction'; request: InteractionRequest }
+  | { kind: 'tool_call'; call: ToolCallRequest }
+  | { kind: 'interaction'; request: InteractionRequest & { interactionId: string } }
   | { kind: 'done'; summary?: string }
   | { kind: 'failed'; reason: string }
 
 // Agent 上下文
 type AgentContext = {
-  task: TaskView
   llm: LLMClient
-  tools: ToolDefinition[]
+  tools: ToolRegistry
+  baseDir: string
   conversationHistory: readonly LLMMessage[]  // 从 ConversationStore 加载
-  pendingInteractionResponse?: InteractionResponse
-  toolResults?: Map<string, ToolResult>
+  pendingInteractionResponse?: UserInteractionRespondedPayload
+  toolResults: Map<string, ToolResult>
+  confirmedInteractionId?: string
   persistMessage: (message: LLMMessage) => void  // 持久化新消息
 }
 ```
@@ -366,10 +370,11 @@ src/
 │   ├── actor.ts            # Actor 类型定义
 │   ├── task.ts             # Task/TaskStatus 类型定义
 │   ├── artifact.ts         # Artifact 类型定义
-│   ├── events.ts           # DomainEvent Zod schemas (6 事件类型)
+│   ├── events.ts           # DomainEvent Zod schemas (7 事件类型)
 │   └── ports/              # 端口接口定义
 │       ├── eventStore.ts   # EventStore 接口
 │       ├── conversationStore.ts  # ConversationStore 接口
+│       ├── artifactStore.ts # ArtifactStore 接口（V0 可暂不使用）
 │       ├── llmClient.ts    # LLMClient 接口
 │       ├── tool.ts         # Tool/ToolRegistry/ToolExecutor 接口
 │       └── auditLog.ts     # AuditLog 接口
@@ -379,7 +384,8 @@ src/
 │   ├── eventService.ts     # 事件回放
 │   ├── interactionService.ts # UIP 请求/响应
 │   ├── contextBuilder.ts   # Agent 上下文构建
-│   └── projector.ts        # 投影运行器
+│   ├── projector.ts        # 投影运行器
+│   └── revision.ts         # 内容 revision 计算
 │
 ├── infra/                   # 基础设施层
 │   ├── jsonlEventStore.ts  # JSONL EventStore 实现

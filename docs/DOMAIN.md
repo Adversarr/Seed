@@ -14,7 +14,7 @@
 
 | 特性 | V0 状态 | V1 计划 |
 |------|---------|---------|
-| Task 生命周期事件 | ✅ 6 种事件 | 可能新增 SubtaskCreated/Completed |
+| Task 生命周期事件 | ✅ 5 种事件（Created/Started/Completed/Failed/Canceled） | 可能新增 Claim/Subtask 等事件 |
 | UIP 通用交互 | ✅ 完整实现 | - |
 | Tool Use + AuditLog | ✅ 完整实现 | - |
 | ConversationStore | ✅ 对话历史持久化 | - |
@@ -180,7 +180,7 @@ type DomainEvent =
 type EventType = DomainEvent['type']
 ```
 
-### 1.5 V0.1 事件集（6 种）
+### 1.5 V0.1 事件集（7 种）
 
 | 事件 | 说明 |
 |------|------|

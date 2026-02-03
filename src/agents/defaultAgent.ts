@@ -39,7 +39,7 @@ export class DefaultCoAuthorAgent implements Agent {
     // Request user confirmation before starting work (only if no existing conversation)
     if (!context.pendingInteractionResponse && context.conversationHistory.length === 0) {
       const confirmRequest: AgentInteractionRequest = {
-        interactionId: `interact_${nanoid(12)}`,
+        interactionId: `ui_${nanoid(12)}`,
         kind: 'Confirm',
         purpose: 'confirm_task',
         display: {
@@ -168,7 +168,7 @@ export class DefaultCoAuthorAgent implements Agent {
           } else {
             // Need to request confirmation
             const confirmRequest: AgentInteractionRequest = {
-              interactionId: `interact_${nanoid(12)}`,
+              interactionId: `ui_${nanoid(12)}`,
               kind: 'Confirm',
               purpose: 'confirm_risky_action',
               display: {

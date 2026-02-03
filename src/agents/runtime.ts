@@ -290,6 +290,9 @@ export class AgentRuntime {
         return {}
 
       case 'tool_call': {
+        const tool = this.#toolRegistry.get(output.call.toolName)
+        const isRisky = tool?.riskLevel === 'risky'
+
         // Execute the tool with proper context
         const toolContext = {
           taskId,
@@ -300,6 +303,9 @@ export class AgentRuntime {
         const result = await this.#toolExecutor.execute(output.call, toolContext)
         // Inject result back into context for agent to use
         context.toolResults.set(output.call.toolCallId, result)
+        if (isRisky) {
+          context.confirmedInteractionId = undefined
+        }
         // No domain event for tool calls (they go to AuditLog)
         return {}
       }

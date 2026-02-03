@@ -58,7 +58,7 @@ export class InteractionService {
     request: InteractionRequest,
     authorActorId?: string
   ): { interactionId: string } {
-    const interactionId = `int_${nanoid(12)}`
+    const interactionId = `ui_${nanoid(12)}`
     
     this.#store.append(taskId, [
       {

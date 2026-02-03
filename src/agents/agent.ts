@@ -70,7 +70,7 @@ export type AgentContext = {
    * Confirmed interaction ID for risky tool execution.
    * Set when resuming after a confirm_risky_action UIP response.
    */
-  readonly confirmedInteractionId?: string
+  confirmedInteractionId?: string
 
   /**
    * Persist a message to conversation history.

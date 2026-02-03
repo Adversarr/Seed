@@ -2,11 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Project Overview -- in MVP development stage, no backward compatibility need to consider.
 
 CoAuthor is a co-authoring system for STEM academic writing using LLM agents. It provides a task-driven, event-sourced architecture for collaborative writing with LaTeX support.
 
-**Current Milestone:** M0 (Billboard 基础闭环) - Core event sourcing and CLI scaffolding complete.
+**Current Milestone:** M1 - Core event sourcing and CLI scaffolding complete.
 
 ## Common Commands
 

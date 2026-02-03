@@ -107,6 +107,7 @@ export function createApp(opts: CreateAppOptions): App {
   // Audit Log (Agent ↔ Tools/Files)
   const auditLogPath = opts.auditLogPath ?? join(baseDir, '.coauthor', 'audit.jsonl')
   const auditLog = new JsonlAuditLog({ auditPath: auditLogPath })
+  auditLog.ensureSchema()
 
   // Conversation Store (Agent ↔ LLM context persistence)
   const conversationsPath = opts.conversationsPath ?? join(baseDir, '.coauthor', 'conversations.jsonl')
