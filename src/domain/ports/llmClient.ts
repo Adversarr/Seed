@@ -5,7 +5,7 @@ export type LLMProfile = 'fast' | 'writer' | 'reasoning'
 export type LLMMessage =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content?: string; toolCalls?: ToolCallRequest[] }
+  | { role: 'assistant'; content?: string; toolCalls?: ToolCallRequest[]; reasoning?: string }
   | { role: 'tool'; toolCallId: string; content: string }
 
 // ============================================================================
@@ -44,6 +44,7 @@ export type LLMStreamOptions = {
 
 export type LLMStreamChunk =
   | { type: 'text'; content: string }
+  | { type: 'reasoning'; content: string }
   | { type: 'tool_call_start'; toolCallId: string; toolName: string }
   | { type: 'tool_call_delta'; toolCallId: string; argumentsDelta: string }
   | { type: 'tool_call_end'; toolCallId: string }

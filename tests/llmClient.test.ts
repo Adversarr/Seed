@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => {
   return {
     generateText: vi.fn(),
     streamText: vi.fn(),
-    createOpenAI: vi.fn()
+    createOpenAICompatible: vi.fn()
   }
 })
 
@@ -19,9 +19,9 @@ vi.mock('ai', () => {
   }
 })
 
-vi.mock('@ai-sdk/openai', () => {
+vi.mock('@ai-sdk/openai-compatible', () => {
   return {
-    createOpenAI: mocks.createOpenAI
+    createOpenAICompatible: mocks.createOpenAICompatible
   }
 })
 
@@ -31,7 +31,7 @@ describe('OpenAILLMClient (LLMClient port)', () => {
   beforeEach(() => {
     mocks.generateText.mockReset()
     mocks.streamText.mockReset()
-    mocks.createOpenAI.mockReset()
+    mocks.createOpenAICompatible.mockReset()
   })
 
   test('throws a readable error when api key is missing', () => {
@@ -45,7 +45,7 @@ describe('OpenAILLMClient (LLMClient port)', () => {
   })
 
   test('complete routes by profile and returns LLMResponse', async () => {
-    mocks.createOpenAI.mockReturnValue((modelId: string) => ({ modelId }))
+    mocks.createOpenAICompatible.mockReturnValue((modelId: string) => ({ modelId }))
     mocks.generateText.mockResolvedValue({ 
       text: 'hello', 
       toolCalls: [],
@@ -75,11 +75,11 @@ describe('OpenAILLMClient (LLMClient port)', () => {
   })
 
   test('stream yields chunks from fullStream', async () => {
-    mocks.createOpenAI.mockReturnValue((modelId: string) => ({ modelId }))
+    mocks.createOpenAICompatible.mockReturnValue((modelId: string) => ({ modelId }))
     mocks.streamText.mockResolvedValue({
       fullStream: (async function* () {
-        yield { type: 'text-delta', textDelta: 'a' }
-        yield { type: 'text-delta', textDelta: 'b' }
+        yield { type: 'text-delta', text: 'a' }
+        yield { type: 'text-delta', text: 'b' }
         yield { type: 'finish', finishReason: 'stop' }
       })()
     })

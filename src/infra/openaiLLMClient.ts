@@ -1,5 +1,5 @@
-import { generateText, streamText, type CoreMessage, type LanguageModel } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
+import { generateText, streamText, type ModelMessage, type LanguageModel } from 'ai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { z } from 'zod'
 import { nanoid } from 'nanoid'
 import type {
@@ -13,9 +13,9 @@ import type {
 } from '../domain/ports/llmClient.js'
 import type { ToolDefinition, ToolCallRequest } from '../domain/ports/tool.js'
 
-// Convert our LLMMessage to ai-sdk CoreMessage format
-function toCoreMessages(messages: LLMMessage[]): CoreMessage[] {
-  return messages.map((m): CoreMessage => {
+// Convert our LLMMessage to ai-sdk ModelMessage format
+function toModelMessages(messages: LLMMessage[]): ModelMessage[] {
+  return messages.map((m): ModelMessage => {
     if (m.role === 'system') {
       return { role: 'system', content: m.content }
     }
@@ -37,12 +37,12 @@ function toCoreMessages(messages: LLMMessage[]): CoreMessage[] {
             args: tc.arguments
           })
         }
-        return { role: 'assistant', content: parts } as CoreMessage
+        return { role: 'assistant', content: parts } as ModelMessage
       }
       return { role: 'assistant', content: m.content ?? '' }
     }
     if (m.role === 'tool') {
-      // Use 'as unknown as CoreMessage' to work around ai-sdk type changes
+      // Use 'as unknown as ModelMessage' to work around ai-sdk type changes
       return {
         role: 'tool',
         content: [
@@ -53,7 +53,7 @@ function toCoreMessages(messages: LLMMessage[]): CoreMessage[] {
             output: { text: m.content }
           }
         ]
-      } as unknown as CoreMessage
+      } as unknown as ModelMessage
     }
     throw new Error(`Unknown message role: ${(m as { role: string }).role}`)
   })
@@ -128,7 +128,7 @@ function jsonSchemaToZod(schema: ToolDefinition['parameters']): z.ZodType {
 
 export class OpenAILLMClient implements LLMClient {
   readonly #apiKey: string
-  readonly #openai: ReturnType<typeof createOpenAI>
+  readonly #openai: ReturnType<typeof createOpenAICompatible>
   readonly #modelByProfile: Record<LLMProfile, string>
 
   constructor(opts: {
@@ -140,7 +140,11 @@ export class OpenAILLMClient implements LLMClient {
       throw new Error('Missing COAUTHOR_OPENAI_API_KEY (or inject apiKey via config)')
     }
     this.#apiKey = opts.apiKey
-    this.#openai = createOpenAI({ apiKey: this.#apiKey, baseURL: opts.baseURL ?? undefined })
+    this.#openai = createOpenAICompatible({ 
+      name: 'openai',
+      apiKey: this.#apiKey, 
+      baseURL: opts.baseURL ?? 'https://api.openai.com/v1',
+    })
     this.#modelByProfile = opts.modelByProfile
   }
 
@@ -150,9 +154,9 @@ export class OpenAILLMClient implements LLMClient {
     
     const result = await generateText({
       model: this.#openai(modelId) as unknown as LanguageModel,
-      messages: toCoreMessages(opts.messages),
+      messages: toModelMessages(opts.messages),
       tools,
-      maxOutputTokens: opts.maxTokens
+      maxOutputTokens: opts.maxTokens,
     })
 
     // Convert tool calls to our format
@@ -179,15 +183,32 @@ export class OpenAILLMClient implements LLMClient {
     
     const res = await streamText({
       model: this.#openai(modelId) as unknown as LanguageModel,
-      messages: toCoreMessages(opts.messages),
+      messages: toModelMessages(opts.messages),
       tools,
-      maxOutputTokens: opts.maxTokens
+      maxOutputTokens: opts.maxTokens,
+      providerOptions: {
+        openai: {
+          // enable_thinking: true
+        }
+      }
     })
 
-    // Track tool calls being built
+    // Track reasoning and tool calls being built
+    let reasoningBuffer = ''
+    
     for await (const part of res.fullStream) {
       if (part.type === 'text-delta') {
-        yield { type: 'text', content: (part as { type: 'text-delta'; text?: string; textDelta?: string }).text ?? (part as { textDelta?: string }).textDelta ?? '' }
+        yield { type: 'text', content: part.text }
+      } else if (part.type === 'reasoning-start') {
+        reasoningBuffer = ''
+      } else if (part.type === 'reasoning-delta') {
+        const delta = part.text
+        reasoningBuffer += delta
+      } else if (part.type === 'reasoning-end') {
+        if (reasoningBuffer) {
+          yield { type: 'reasoning', content: reasoningBuffer }
+        }
+        reasoningBuffer = ''
       } else if (part.type === 'tool-call') {
         const toolCallPart = part as { type: 'tool-call'; toolCallId?: string; toolName: string; args?: unknown; input?: unknown }
         const toolCallId = toolCallPart.toolCallId ?? `tool_${nanoid(12)}`
@@ -203,6 +224,8 @@ export class OpenAILLMClient implements LLMClient {
           stopReason = 'max_tokens'
         }
         yield { type: 'done', stopReason }
+      } else {
+        console.warn(`Unknown stream part type: ${(part as { type: string }).type}`)
       }
     }
   }
