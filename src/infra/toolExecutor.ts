@@ -80,6 +80,7 @@ export class DefaultToolExecutor implements ToolExecutor {
       type: 'ToolCallCompleted',
       payload: {
         toolCallId: call.toolCallId,
+        toolName: call.toolName,
         authorActorId: ctx.actorId,
         taskId: ctx.taskId,
         output: result.output,

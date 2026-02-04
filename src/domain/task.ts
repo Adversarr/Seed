@@ -67,7 +67,6 @@ export const TaskSchema = z.object({
   priority: TaskPrioritySchema,
   status: TaskStatusSchema,
   artifactRefs: z.array(ArtifactRefSchema).optional(),
-  baseRevisions: z.record(z.string()).optional(),
   createdAt: z.string().min(1),
   parentTaskId: z.string().optional()   // V1: 子任务支持
 })

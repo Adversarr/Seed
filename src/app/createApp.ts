@@ -11,7 +11,7 @@ import { JsonlConversationStore } from '../infra/jsonlConversationStore.js'
 import { DefaultToolRegistry } from '../infra/toolRegistry.js'
 import { registerBuiltinTools } from '../infra/tools/index.js'
 import { DefaultToolExecutor } from '../infra/toolExecutor.js'
-import { TaskService, EventService, InteractionService } from '../application/index.js'
+import { TaskService, EventService, InteractionService, AuditService } from '../application/index.js'
 import { ContextBuilder } from '../application/contextBuilder.js'
 import { AgentRuntime } from '../agents/runtime.js'
 import { DefaultCoAuthorAgent } from '../agents/defaultAgent.js'
@@ -62,6 +62,7 @@ export type App = {
   taskService: TaskService
   eventService: EventService
   interactionService: InteractionService
+  auditService: AuditService
   contextBuilder: ContextBuilder
   
   // Agent
@@ -141,6 +142,7 @@ export function createApp(opts: CreateAppOptions): App {
   const taskService = new TaskService(store, currentActorId)
   const eventService = new EventService(store)
   const interactionService = new InteractionService(store, currentActorId)
+  const auditService = new AuditService(auditLog)
   const contextBuilder = new ContextBuilder(baseDir)
 
   // === Agent Layer ===
@@ -175,6 +177,7 @@ export function createApp(opts: CreateAppOptions): App {
     taskService,
     eventService,
     interactionService,
+    auditService,
     contextBuilder,
     // Agent
     agent,

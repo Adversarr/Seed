@@ -38,7 +38,5 @@ export function loadAppConfig(env: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
-  console.log('Loaded app config:', config)
-
   return config
 }

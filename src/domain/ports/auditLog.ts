@@ -24,6 +24,7 @@ export const ToolCallRequestedPayloadSchema = z.object({
 
 export const ToolCallCompletedPayloadSchema = z.object({
   toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
   authorActorId: z.string().min(1),
   taskId: z.string().min(1),
   output: z.unknown(),

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import TextInput from 'ink-text-input'
 import type { App } from '../app/createApp.js'
+import { InteractionPanel } from './components/InteractionPanel.js'
+import type { UserInteractionRequestedPayload } from '../domain/events.js'
 
 type Props = {
   app: App
@@ -11,17 +13,43 @@ export function MainTui(props: Props) {
   const { app } = props
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<string>('')
-  const [tasks, setTasks] = useState<Array<{ taskId: string; title: string }>>([])
+  const [tasks, setTasks] = useState<Array<{ taskId: string; title: string; status: string }>>([])
   const [replayOutput, setReplayOutput] = useState<string[]>([])
+  const [pendingInteraction, setPendingInteraction] = useState<UserInteractionRequestedPayload | null>(null)
 
   const refresh = async () => {
     const result = await app.taskService.listTasks()
-    setTasks(result.tasks.map((t) => ({ taskId: t.taskId, title: t.title })))
+    setTasks(result.tasks.map((t) => ({ taskId: t.taskId, title: t.title, status: t.status })))
+
+    const awaitingTask = result.tasks.find(t => t.status === 'awaiting_user')
+    if (awaitingTask) {
+      const pending = app.interactionService.getPendingInteraction(awaitingTask.taskId)
+      setPendingInteraction(pending)
+    } else {
+      setPendingInteraction(null)
+    }
   }
 
   useEffect(() => {
     refresh().catch((e) => setStatus(e instanceof Error ? e.message : String(e)))
+    const sub = app.store.events$.subscribe(() => {
+      refresh().catch(console.error)
+    })
+    return () => sub.unsubscribe()
   }, [])
+
+  const onInteractionSubmit = async (optionId?: string, inputValue?: string) => {
+    if (!pendingInteraction) return
+    
+    app.interactionService.respondToInteraction(
+      pendingInteraction.taskId,
+      pendingInteraction.interactionId,
+      { selectedOptionId: optionId, inputValue }
+    )
+    setPendingInteraction(null)
+    await refresh()
+  }
+
 
   const onSubmit = async (line: string) => {
     const trimmed = line.trim()
@@ -132,8 +160,20 @@ export function MainTui(props: Props) {
       ) : null}
       <Box>
         <Text color="cyan">{'> '}</Text>
-        <TextInput value={input} onChange={setInput} onSubmit={onSubmit} />
+        {pendingInteraction ? (
+          <Text dimColor>Please respond to the interaction above...</Text>
+        ) : (
+          <TextInput value={input} onChange={setInput} onSubmit={onSubmit} />
+        )}
       </Box>
+      {pendingInteraction ? (
+        <Box marginTop={1}>
+          <InteractionPanel 
+            pendingInteraction={pendingInteraction} 
+            onSubmit={onInteractionSubmit} 
+          />
+        </Box>
+      ) : null}
     </Box>
   )
 }

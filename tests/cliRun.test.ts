@@ -74,4 +74,13 @@ describe('CLI smoke', () => {
     await runCli({ argv: ['interact', 'pending'], baseDir, io: io2.io })
     expect(io2.out.join('')).toContain('No pending interactions')
   })
+
+  test('audit list command works', async () => {
+    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
+
+    // Run audit list (should be empty initially)
+    const io1 = createTestIO({})
+    await runCli({ argv: ['audit', 'list'], baseDir, io: io1.io })
+    expect(io1.out.join('')).toContain('No audit entries found')
+  })
 })

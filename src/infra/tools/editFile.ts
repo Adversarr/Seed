@@ -10,11 +10,10 @@ import { resolve, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
-import { computeRevision } from '../../application/revision.js'
 
 export const editFileTool: Tool = {
   name: 'editFile',
-  description: `Edit a file by replacing oldString with newString. For new files, use oldString="" and newString with the full content. The replacement must match exactly (including whitespace). Returns the new file content hash.`,
+  description: `Edit a file by replacing oldString with newString. For new files, use oldString="" and newString with the full content. The replacement must match exactly (including whitespace).`,
   parameters: {
     type: 'object',
     properties: {
@@ -29,10 +28,6 @@ export const editFileTool: Tool = {
       newString: {
         type: 'string',
         description: 'The string to replace oldString with'
-      },
-      expectedRevision: {
-        type: 'string',
-        description: 'Optional: Expected file revision hash for conflict detection'
       }
     },
     required: ['path', 'oldString', 'newString']
@@ -44,7 +39,6 @@ export const editFileTool: Tool = {
     const path = args.path as string
     const oldString = args.oldString as string
     const newString = args.newString as string
-    const expectedRevision = args.expectedRevision as string | undefined
 
     try {
       const absolutePath = resolve(ctx.baseDir, path)
@@ -60,14 +54,12 @@ export const editFileTool: Tool = {
         }
         mkdirSync(dirname(absolutePath), { recursive: true })
         writeFileSync(absolutePath, newString, 'utf8')
-        const newRevision = computeRevision(newString)
         return {
           toolCallId,
           output: { 
             success: true, 
             path, 
-            action: 'created',
-            newRevision 
+            action: 'created'
           },
           isError: false
         }
@@ -83,19 +75,6 @@ export const editFileTool: Tool = {
       }
 
       const currentContent = readFileSync(absolutePath, 'utf8')
-      const currentRevision = computeRevision(currentContent)
-
-      // Check for conflicts if expectedRevision provided
-      if (expectedRevision && expectedRevision !== currentRevision) {
-        return {
-          toolCallId,
-          output: { 
-            error: `Conflict: file has changed. Expected revision ${expectedRevision}, got ${currentRevision}`,
-            currentRevision
-          },
-          isError: true
-        }
-      }
 
       // Check that oldString exists exactly once
       const occurrences = currentContent.split(oldString).length - 1
@@ -117,16 +96,13 @@ export const editFileTool: Tool = {
       // Apply the replacement
       const newContent = currentContent.replace(oldString, newString)
       writeFileSync(absolutePath, newContent, 'utf8')
-      const newRevision = computeRevision(newContent)
 
       return {
         toolCallId,
         output: { 
           success: true, 
           path, 
-          action: 'edited',
-          oldRevision: currentRevision,
-          newRevision 
+          action: 'edited'
         },
         isError: false
       }

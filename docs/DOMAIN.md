@@ -272,7 +272,6 @@ export const TaskSchema = z.object({
   priority: TaskPrioritySchema,
   status: TaskStatusSchema,
   artifactRefs: z.array(ArtifactRefSchema).optional(),
-  baseRevisions: z.record(z.string()).optional(),
   createdAt: z.string().min(1),
   // V1: 子任务支持
   parentTaskId: z.string().optional()
@@ -303,7 +302,6 @@ export const ArtifactSchema = z.object({
   id: z.string().min(1),
   type: ArtifactTypeSchema,
   path: z.string().min(1),
-  revision: z.string().min(1),
   metadata: z.record(z.unknown()).optional()
 })
 
@@ -337,7 +335,6 @@ export type TaskView = {
   priority: TaskPriority
   status: TaskStatus
   artifactRefs?: ArtifactRef[]
-  baseRevisions?: Record<string, string>  // 创建时的文件版本快照
   
   // UIP 交互状态
   pendingInteractionId?: string   // 当前等待响应的交互 ID
@@ -410,39 +407,6 @@ export const defaultSchedulerPolicy: SchedulerPolicy = (tasks) => {
       // 再按创建时间
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     })
-}
-```
-
-### 4.3 RebasePolicy
-
-```typescript
-export type DriftInfo = {
-  path: string
-  expectedRevision: string
-  actualRevision: string
-}
-
-export type RebaseDecision = 
-  | { action: 'auto_rebase'; reason: string }
-  | { action: 'block'; reason: string; questions: string[] }
-  | { action: 'continue'; reason: string }
-
-export type RebasePolicy = (
-  task: TaskView,
-  drifts: DriftInfo[]
-) => RebaseDecision
-
-// V0 默认实现
-export const defaultRebasePolicy: RebasePolicy = (task, drifts) => {
-  if (drifts.length === 0) {
-    return { action: 'continue', reason: 'No drift detected' }
-  }
-  
-  // V0：自动 rebase，但记录 drift
-  return {
-    action: 'auto_rebase',
-    reason: `Detected ${drifts.length} file(s) changed since task created`
-  }
 }
 ```
 

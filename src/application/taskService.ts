@@ -23,7 +23,6 @@ export type TaskView = {
   priority: TaskPriority
   status: 'open' | 'in_progress' | 'awaiting_user' | 'done' | 'failed' | 'canceled'
   artifactRefs?: ArtifactRef[]
-  baseRevisions?: Record<string, string>  // 创建时的文件版本快照
   
   // UIP 交互状态
   pendingInteractionId?: string   // 当前等待响应的交互 ID
@@ -137,7 +136,6 @@ export class TaskService {
           priority: event.payload.priority ?? 'foreground',
           status: 'open',
           artifactRefs: event.payload.artifactRefs,
-          baseRevisions: undefined,  // TODO: 从 artifactRefs 中提取初始版本
           pendingInteractionId: undefined,
           lastInteractionId: undefined,
           parentTaskId: undefined,

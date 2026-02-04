@@ -20,7 +20,6 @@ export const ArtifactSchema = z.object({
   id: z.string().min(1),
   type: ArtifactTypeSchema,
   path: z.string().min(1),
-  revision: z.string().min(1),
   metadata: z.record(z.unknown()).optional()
 })
 

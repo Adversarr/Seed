@@ -114,7 +114,6 @@ User 与 LLM Agent 都是 **Actor**。区别仅在于：
 │  │                                                          │
 │  │  Policies (Pure Functions):                              │
 │  │  - SchedulerPolicy: 执行优先级规则                       │
-│  │  - RebasePolicy: 漂移处理规则                            │
 │  └────────────────────────────┬────────────────────────────┘   │
 │                               │                                 │
 │                               ▼                                 │

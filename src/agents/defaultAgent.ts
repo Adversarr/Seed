@@ -1,9 +1,11 @@
 import { nanoid } from 'nanoid'
+import { createPatch } from 'diff'
 import type { Agent, AgentContext, AgentOutput, AgentInteractionRequest } from './agent.js'
 import type { TaskView } from '../application/taskService.js'
 import type { ContextBuilder } from '../application/contextBuilder.js'
 import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { ToolCallRequest } from '../domain/ports/tool.js'
+import type { InteractionDisplay } from '../domain/events.js'
 
 // ============================================================================
 // Default CoAuthor Agent - Tool Use Workflow
@@ -140,10 +142,7 @@ export class DefaultCoAuthorAgent implements Agent {
               interactionId: `ui_${nanoid(12)}`,
               kind: 'Confirm',
               purpose: 'confirm_risky_action',
-              display: {
-                title: 'Confirm Risky Operation',
-                description: this.#formatRiskyToolConfirmation(toolCall)
-              },
+              display: this.#buildRiskyToolDisplay(toolCall),
               options: [
                 { id: 'approve', label: 'Approve', style: 'danger' },
                 { id: 'reject', label: 'Reject', style: 'default', isDefault: true }
@@ -218,17 +217,53 @@ export class DefaultCoAuthorAgent implements Agent {
     return prompt
   }
 
-  #formatRiskyToolConfirmation(toolCall: ToolCallRequest): string {
+  #buildRiskyToolDisplay(toolCall: ToolCallRequest): InteractionDisplay {
+    const baseDisplay = {
+      title: 'Confirm Risky Operation',
+      description: `The agent wants to execute a potentially risky operation using ${toolCall.toolName}.`
+    }
+
+    if (toolCall.toolName === 'editFile') {
+      const args = toolCall.arguments as Record<string, string>
+      const path = args.path
+      const oldString = args.oldString || ''
+      const newString = args.newString || ''
+      
+      const diff = createPatch(path, oldString, newString)
+      
+      return {
+        ...baseDisplay,
+        description: `Agent requests to edit file: ${path}`,
+        contentKind: 'Diff',
+        content: diff
+      }
+    }
+
+    if (toolCall.toolName === 'runCommand') {
+      const args = toolCall.arguments as Record<string, any>
+      const command = args.command
+      const cwd = args.cwd || '(workspace root)'
+      const timeout = args.timeout || 30000
+      
+      const content = [
+        `Command: ${command}`,
+        `CWD: ${cwd}`,
+        `Timeout: ${timeout}ms`
+      ].join('\n')
+
+      return {
+        ...baseDisplay,
+        contentKind: 'PlainText',
+        content
+      }
+    }
+
+    // Default fallback
     const argsPreview = JSON.stringify(toolCall.arguments, null, 2)
-    return `The agent wants to execute a potentially risky operation:
-
-**Tool:** ${toolCall.toolName}
-
-**Arguments:**
-\`\`\`json
-${argsPreview}
-\`\`\`
-
-Do you want to allow this operation?`
+    return {
+      ...baseDisplay,
+      contentKind: 'Json',
+      content: argsPreview
+    }
   }
 }
