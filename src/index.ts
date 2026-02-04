@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// Load environment variables from .env file
+import { config } from 'dotenv'
+config({ quiet: true })
+
 import { runCli } from './cli/run.js'
 import { defaultIO } from './cli/io.js'
 

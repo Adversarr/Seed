@@ -4,3 +4,8 @@ dist
 .DS_Store
 coverage
 .trae
+
+# Environment variables - never commit!
+.env
+.env.local
+.env.*.local

@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => {
   }
 })
 
+vi.mock('nanoid', () => ({
+  nanoid: (size?: number) => `id_${size ?? 21}`
+}))
+
 vi.mock('ai', () => {
   return {
     generateText: mocks.generateText,
@@ -21,7 +25,7 @@ vi.mock('@ai-sdk/openai', () => {
   }
 })
 
-import { OpenAILLMClient } from '../src/infra/openaiLLMClient.js'
+import { OpenAILLMClient, toToolCallRequests } from '../src/infra/openaiLLMClient.js'
 
 describe('OpenAILLMClient (LLMClient port)', () => {
   beforeEach(() => {
@@ -37,7 +41,7 @@ describe('OpenAILLMClient (LLMClient port)', () => {
           apiKey: null,
           modelByProfile: { fast: 'm1', writer: 'm2', reasoning: 'm3' }
         })
-    ).toThrow(/OPENAI_API_KEY/)
+    ).toThrow(/COAUTHOR_OPENAI_API_KEY/)
   })
 
   test('complete routes by profile and returns LLMResponse', async () => {
@@ -98,5 +102,42 @@ describe('OpenAILLMClient (LLMClient port)', () => {
     expect(out[1]).toEqual({ type: 'text', content: 'b' })
     const args = mocks.streamText.mock.calls[0]![0] as any
     expect(args.model.modelId).toBe('fast-model')
+  })
+})
+
+describe('toToolCallRequests', () => {
+  test('returns empty array for undefined input', () => {
+    expect(toToolCallRequests(undefined)).toEqual([])
+  })
+
+  test('returns empty array for empty input', () => {
+    expect(toToolCallRequests([])).toEqual([])
+  })
+
+  test('converts valid tool calls', () => {
+    const input = [
+      { toolCallId: 'call_1', toolName: 'test_tool', args: { foo: 'bar' } }
+    ]
+    const expected = [
+      { toolCallId: 'call_1', toolName: 'test_tool', arguments: { foo: 'bar' } }
+    ]
+    expect(toToolCallRequests(input)).toEqual(expected)
+  })
+
+  test('generates id if missing', () => {
+    const input = [
+      { toolName: 'test_tool', args: { foo: 'bar' } }
+    ]
+    const result = toToolCallRequests(input)
+    expect(result[0].toolCallId).toBe('tool_id_12')
+    expect(result[0].toolName).toBe('test_tool')
+  })
+
+  test('defaults arguments to empty object if missing', () => {
+    const input = [
+      { toolCallId: 'call_1', toolName: 'test_tool' }
+    ]
+    const result = toToolCallRequests(input)
+    expect(result[0].arguments).toEqual({})
   })
 })

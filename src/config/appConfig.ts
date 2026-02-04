@@ -14,7 +14,7 @@ export type AppConfig = {
 
 const EnvSchema = z.object({
   COAUTHOR_LLM_PROVIDER: z.enum(['fake', 'openai']).default('fake'),
-  OPENAI_API_KEY: z.string().min(1).optional(),
+  COAUTHOR_OPENAI_API_KEY: z.string().min(1).optional(),
   COAUTHOR_OPENAI_BASE_URL: z.string().min(1).optional(),
   COAUTHOR_OPENAI_MODEL_FAST: z.string().min(1).default('gpt-4o-mini'),
   COAUTHOR_OPENAI_MODEL_WRITER: z.string().min(1).default('gpt-4o'),
@@ -23,11 +23,11 @@ const EnvSchema = z.object({
 
 export function loadAppConfig(env: NodeJS.ProcessEnv): AppConfig {
   const parsed = EnvSchema.parse(env)
-  return {
+  const config = {
     llm: {
       provider: parsed.COAUTHOR_LLM_PROVIDER,
       openai: {
-        apiKey: parsed.OPENAI_API_KEY ?? null,
+        apiKey: parsed.COAUTHOR_OPENAI_API_KEY ?? null,
         baseURL: parsed.COAUTHOR_OPENAI_BASE_URL ?? null,
         modelByProfile: {
           fast: parsed.COAUTHOR_OPENAI_MODEL_FAST,
@@ -37,4 +37,8 @@ export function loadAppConfig(env: NodeJS.ProcessEnv): AppConfig {
       }
     }
   }
+
+  console.log('Loaded app config:', config)
+
+  return config
 }

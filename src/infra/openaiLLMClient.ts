@@ -75,6 +75,15 @@ function toCoreTools(tools?: ToolDefinition[]): Record<string, any> | undefined 
   return result
 }
 
+// Convert ai-sdk tool calls to our ToolCallRequest format
+export function toToolCallRequests(toolCalls?: Array<{ toolCallId?: string; toolName: string; args?: unknown }>): ToolCallRequest[] {
+  return toolCalls?.map((tc) => ({
+    toolCallId: tc.toolCallId ?? `tool_${nanoid(12)}`,
+    toolName: tc.toolName,
+    arguments: (tc.args ?? {}) as Record<string, unknown>
+  })) ?? []
+}
+
 // Simple JSON Schema to Zod converter (covers basic cases)
 function jsonSchemaToZod(schema: ToolDefinition['parameters']): z.ZodType {
   const shape: Record<string, z.ZodType> = {}
@@ -84,7 +93,7 @@ function jsonSchemaToZod(schema: ToolDefinition['parameters']): z.ZodType {
     
     switch (prop.type) {
       case 'string':
-        zodType = prop.enum ? z.enum(prop.enum as [string, ...string[]]) : z.string()
+        zodType = (prop.enum && prop.enum.length > 0) ? z.enum(prop.enum as [string, ...string[]]) : z.string()
         break
       case 'number':
         zodType = z.number()
@@ -128,7 +137,7 @@ export class OpenAILLMClient implements LLMClient {
     modelByProfile: Record<LLMProfile, string>
   }) {
     if (!opts.apiKey) {
-      throw new Error('缺少 OPENAI_API_KEY（或通过 config 注入 apiKey）')
+      throw new Error('Missing COAUTHOR_OPENAI_API_KEY (or inject apiKey via config)')
     }
     this.#apiKey = opts.apiKey
     this.#openai = createOpenAI({ apiKey: this.#apiKey, baseURL: opts.baseURL ?? undefined })
@@ -147,11 +156,7 @@ export class OpenAILLMClient implements LLMClient {
     })
 
     // Convert tool calls to our format
-    const toolCalls: ToolCallRequest[] = result.toolCalls?.map((tc: { toolCallId?: string; toolName: string; args?: unknown }) => ({
-      toolCallId: tc.toolCallId ?? `tool_${nanoid(12)}`,
-      toolName: tc.toolName,
-      arguments: (tc.args ?? {}) as Record<string, unknown>
-    })) ?? []
+    const toolCalls = toToolCallRequests(result.toolCalls)
 
     // Determine stop reason
     let stopReason: LLMResponse['stopReason'] = 'end_turn'
@@ -180,8 +185,6 @@ export class OpenAILLMClient implements LLMClient {
     })
 
     // Track tool calls being built
-    const pendingToolCalls = new Map<string, { toolName: string; args: string }>()
-
     for await (const part of res.fullStream) {
       if (part.type === 'text-delta') {
         yield { type: 'text', content: (part as { type: 'text-delta'; text?: string; textDelta?: string }).text ?? (part as { textDelta?: string }).textDelta ?? '' }
