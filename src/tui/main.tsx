@@ -1,53 +1,124 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { Box, Text, useInput } from 'ink'
+import React, { useEffect, useRef, useState } from 'react'
+import { Box, Text, useInput, useStdout, Static } from 'ink'
 import TextInput from 'ink-text-input'
 import type { App } from '../app/createApp.js'
 import { InteractionPanel } from './components/InteractionPanel.js'
 import type { StoredAuditEntry } from '../domain/ports/auditLog.js'
 import type { UserInteractionRequestedPayload } from '../domain/events.js'
+import { handleCommand } from './commands.js'
 
 type Props = {
   app: App
 }
 
+type StaticEntry = {
+  id: string
+  lines: string[]
+  color?: string
+  dim?: boolean
+  bold?: boolean
+}
+
 export function MainTui(props: Props) {
   const { app } = props
+  const { stdout } = useStdout()
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<string>('')
   const [tasks, setTasks] = useState<Array<{ taskId: string; title: string; status: string }>>([])
-  const [replayOutput, setReplayOutput] = useState<string[]>([])
-  const [agentOutput, setAgentOutput] = useState<string[]>([])
-  const [auditOutput, setAuditOutput] = useState<string[]>([])
+  const [completedEntries, setCompletedEntries] = useState<StaticEntry[]>([])
   const [pendingInteraction, setPendingInteraction] = useState<UserInteractionRequestedPayload | null>(null)
+  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null)
+  const [showTasks, setShowTasks] = useState(false)
+  const logSequence = useRef(0)
 
-  const refresh = async () => {
-    const result = await app.taskService.listTasks()
-    setTasks(result.tasks.map((t) => ({ taskId: t.taskId, title: t.title, status: t.status })))
+  const addLog = (
+    content: string,
+    options: { prefix?: string; color?: string; dim?: boolean; bold?: boolean } = {}
+  ): void => {
+    setCompletedEntries((previousEntries) => {
+      const lines = content.split('\n').map((line, index) => {
+        if (index === 0 && options.prefix) {
+          return `${options.prefix}${line}`
+        }
+        return line
+      })
+      const nextEntry: StaticEntry = {
+        id: `${Date.now()}-${logSequence.current++}`,
+        lines,
+        color: options.color,
+        dim: options.dim,
+        bold: options.bold
+      }
+      const nextEntries = [...previousEntries, nextEntry]
+      // Cap at 2000 entries to prevent memory bloat in very long sessions
+      return nextEntries.slice(-2000)
+    })
+  }
 
-    const awaitingTask = result.tasks.find(t => t.status === 'awaiting_user')
-    if (awaitingTask) {
-      const pending = app.interactionService.getPendingInteraction(awaitingTask.taskId)
-      setPendingInteraction(pending)
-    } else {
-      setPendingInteraction(null)
+  const setReplayOutput = (lines: string[]): void => {
+    for (const line of lines) {
+      addLog(line, { color: 'cyan', dim: true })
+    }
+  }
+
+  const refresh = async (): Promise<void> => {
+    try {
+      const result = await app.taskService.listTasks()
+      const taskList = result.tasks.map((task) => ({
+        taskId: task.taskId,
+        title: task.title,
+        status: task.status
+      }))
+      setTasks(taskList)
+
+      if (focusedTaskId) {
+        const stillExists = taskList.some((task) => task.taskId === focusedTaskId)
+        if (!stillExists) setFocusedTaskId(null)
+      }
+
+      const awaitingTask = result.tasks.find((task) => task.status === 'awaiting_user')
+      if (awaitingTask) {
+        const pending = app.interactionService.getPendingInteraction(awaitingTask.taskId)
+        setPendingInteraction(pending)
+        if (pending && focusedTaskId !== awaitingTask.taskId) {
+          setFocusedTaskId(awaitingTask.taskId)
+        }
+      } else {
+        setPendingInteraction(null)
+      }
+    } catch (e) {
+      addLog(`Failed to refresh: ${e}`, { color: 'red' })
     }
   }
 
   useEffect(() => {
     app.agentRuntime.start()
     refresh().catch((e) => setStatus(e instanceof Error ? e.message : String(e)))
+    addLog('Welcome to CoAuthor. Type /help for commands.', { color: 'cyan', dim: true })
+
     const storeSub = app.store.events$.subscribe(() => {
       refresh().catch(console.error)
     })
+    
     const uiBusSub = app.uiBus.events$.subscribe((event) => {
       if (event.type === 'agent_output') {
-        const prefix = event.payload.kind === 'reasoning' ? '[Thinking] ' : ''
-        const line = `${prefix}${event.payload.content}`
-        setAgentOutput((prev) => appendWithLimit(prev, line, 80))
+        const isThinking = event.payload.kind === 'reasoning'
+        if (isThinking) {
+          addLog(event.payload.content, {
+            prefix: '[Thinking] ',
+            color: 'yellow',
+            dim: true
+          })
+        } else {
+          addLog(event.payload.content, {
+            prefix: '> ',
+            color: 'green'
+          })
+        }
       }
       if (event.type === 'audit_entry') {
         const line = formatAuditEntry(event.payload)
-        setAuditOutput((prev) => appendWithLimit(prev, line, 80))
+        addLog(line, { color: 'cyan', dim: true })
       }
     })
     return () => {
@@ -57,168 +128,153 @@ export function MainTui(props: Props) {
     }
   }, [])
 
-  const onInteractionSubmit = async (optionId?: string, inputValue?: string) => {
+  const onInteractionSubmit = async (optionId?: string, inputValue?: string): Promise<void> => {
     if (!pendingInteraction) return
-    
-    app.interactionService.respondToInteraction(
-      pendingInteraction.taskId,
-      pendingInteraction.interactionId,
-      { selectedOptionId: optionId, inputValue }
-    )
-    setPendingInteraction(null)
-    await refresh()
+    try {
+      const option = pendingInteraction.options?.find(o => o.id === optionId)
+      const summary = optionId 
+        ? `Selected: ${option?.label || optionId}` 
+        : `Input: ${inputValue || ''}`
+      addLog(summary, { prefix: '← ', color: 'white' })
+      
+      await app.interactionService.respondToInteraction(
+        pendingInteraction.taskId,
+        pendingInteraction.interactionId,
+        { selectedOptionId: optionId, inputValue }
+      )
+      setPendingInteraction(null)
+      await refresh()
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e))
+    }
   }
 
-
-  const onSubmit = async (line: string) => {
+  const onSubmit = async (line: string): Promise<void> => {
     const trimmed = line.trim()
     setInput('')
     if (!trimmed) return
 
-    try {
-      if (!trimmed.startsWith('/')) {
-        setStatus('命令需以 / 开头，输入 /help 查看可用命令')
-        return
-      }
+    addLog(trimmed, { prefix: '← ', color: 'white', bold: true })
 
-      const commandLine = trimmed.slice(1)
-      if (commandLine === 'help') {
-        setStatus('commands: /task create <title>, /task list, /task cancel <taskId> [reason], /log replay [taskId], /exit')
-        return
-      }
-
-      if (commandLine === 'exit' || commandLine === 'quit') {
-        process.exit(0)
-      }
-
-      if (commandLine === 'task list') {
-        await refresh()
-        setStatus('')
-        return
-      }
-
-      if (commandLine.startsWith('task create ')) {
-        const title = commandLine.slice('task create '.length).trim()
-        await app.taskService.createTask({ title, agentId: app.agent.id })
-        await refresh()
-        setStatus('')
-        return
-      }
-
-      if (commandLine.startsWith('task cancel ')) {
-        const rest = commandLine.slice('task cancel '.length).trim()
-        const [taskId, ...reasonParts] = rest.split(/\s+/)
-        if (!taskId) {
-          setStatus('usage: /task cancel <taskId> [reason]')
-          return
-        }
-        const reason = reasonParts.join(' ').trim() || undefined
-        await app.taskService.cancelTask(taskId, reason)
-        await refresh()
-        setStatus('')
-        return
-      }
-
-      if (commandLine === 'log replay' || commandLine.startsWith('log replay ')) {
-        const rest = commandLine.slice('log replay'.length).trim()
-        const streamId = rest ? rest : undefined
-        const events = app.eventService.replayEvents(streamId)
-        setReplayOutput(events.map((e) => `${e.id} ${e.streamId}#${e.seq} ${e.type} ${JSON.stringify(e.payload)}`))
-        setStatus(streamId ? `replayed ${events.length} events for ${streamId}` : `replayed ${events.length} events`)
-        return
-      }
-
-      setStatus(`unknown: /${commandLine}`)
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e))
-    }
+    await handleCommand(trimmed, {
+      app,
+      refresh,
+      setStatus,
+      setReplayOutput,
+      focusedTaskId,
+      setFocusedTaskId,
+      setShowTasks
+    })
   }
 
   useInput((input, key) => {
     if (key.ctrl && input === 'd') {
       process.exit(0)
     }
+    if (key.escape) {
+      if (showTasks) setShowTasks(false)
+    }
   })
 
-  const header = useMemo(() => {
-    return `coauthor (store: ${app.storePath})`
-  }, [app.storePath])
+  const focusedTask = tasks.find((task) => task.taskId === focusedTaskId)
+  const taskTitle = focusedTask ? focusedTask.title : '(no task focused)'
+  const taskStatus = focusedTask ? focusedTask.status : ''
+  const statusIcon = getStatusIcon(taskStatus)
+  const columns = stdout?.columns ?? 80
+  const statusLine = truncateText(status || '', columns - 2)
+  const separatorLine = createSeparatorLine(columns)
 
   return (
-    <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold>{header}</Text>
-        <Text dimColor>
-          Commands: /task create &lt;title&gt; · /task list · /task cancel &lt;taskId&gt; [reason] · /log replay [taskId] · /exit
-        </Text>
-      </Box>
-      <Box flexDirection="column" marginBottom={1}>
-        <Text bold>Tasks</Text>
-        {tasks.length === 0 ? <Text dimColor>- (empty)</Text> : null}
-        {tasks.map((t) => (
-          <Box key={t.taskId}>
-            <Text>·</Text>
-            <Text> {t.title}</Text>
-            <Text dimColor> ({t.taskId})</Text>
+    <Box flexDirection="column">
+      {/* Permanent output - printed once, persists in terminal scrollback */}
+      <Static items={completedEntries}>
+        {(entry) => (
+          <Box key={entry.id} flexDirection="column" paddingX={1}>
+            {entry.lines.map((line, index) => (
+              <Text
+                key={`${entry.id}-${index}`}
+                color={entry.color}
+                dimColor={entry.dim}
+                bold={entry.bold}
+              >
+                {line}
+              </Text>
+            ))}
           </Box>
-        ))}
-      </Box>
-      {replayOutput.length > 0 ? (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text bold>Event Log</Text>
-          {replayOutput.slice(-10).map((line, i) => (
-            <Text key={i} dimColor>{line}</Text>
-          ))}
-          {replayOutput.length > 10 ? <Text dimColor>... ({replayOutput.length - 10} more)</Text> : null}
-        </Box>
-      ) : null}
-      {agentOutput.length > 0 ? (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text bold>Agent Output</Text>
-          {agentOutput.slice(-10).map((line, i) => (
-            <Text key={i} dimColor>{line}</Text>
-          ))}
-          {agentOutput.length > 10 ? <Text dimColor>... ({agentOutput.length - 10} more)</Text> : null}
-        </Box>
-      ) : null}
-      {auditOutput.length > 0 ? (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text bold>Tool Audit</Text>
-          {auditOutput.slice(-10).map((line, i) => (
-            <Text key={i} dimColor>{line}</Text>
-          ))}
-          {auditOutput.length > 10 ? <Text dimColor>... ({auditOutput.length - 10} more)</Text> : null}
-        </Box>
-      ) : null}
-      {status ? (
-        <Box marginBottom={1}>
-          <Text color="yellow">{status}</Text>
-        </Box>
-      ) : null}
-      <Box>
-        <Text color="cyan">{'> '}</Text>
-        {pendingInteraction ? (
-          <Text dimColor>Please respond to the interaction above...</Text>
-        ) : (
-          <TextInput value={input} onChange={setInput} onSubmit={onSubmit} />
         )}
-      </Box>
-      {pendingInteraction ? (
-        <Box marginTop={1}>
+      </Static>
+
+      {/* Task list overlay */}
+      {showTasks ? (
+        <Box 
+            position="absolute" 
+            marginTop={2} 
+            marginLeft={2} 
+            width="80%" 
+            height="70%" 
+            borderStyle="double" 
+            borderColor="white" 
+            flexDirection="column"
+            padding={1}
+        >
+          <Text bold underline>Task List (Press ESC to close)</Text>
+          {tasks.map((task) => (
+            <Box key={task.taskId}>
+              <Text color={task.taskId === focusedTaskId ? 'green' : 'white'}>
+                {task.taskId === focusedTaskId ? '> ' : '  '}
+                {task.title}
+              </Text>
+              <Text dimColor> ({task.status}) [{task.taskId}]</Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
+
+      {/* Status line */}
+      <Text dimColor>{separatorLine}</Text>
+      <Box flexDirection="column" paddingX={1}>
+        <Text color="yellow">{statusLine || ' '}</Text>
+        
+        {/* Interactive area: either interaction panel or input */}
+        {pendingInteraction ? (
           <InteractionPanel 
             pendingInteraction={pendingInteraction} 
             onSubmit={onInteractionSubmit} 
           />
+        ) : (
+          <Box>
+            <Text color="cyan">{'> '}</Text>
+            <TextInput value={input} onChange={setInput} onSubmit={onSubmit} />
+          </Box>
+        )}
+      </Box>
+      
+      {/* Status bar */}
+      <Text dimColor>{separatorLine}</Text>
+      <Box height={1} width="100%" paddingX={1}>
+        <Box flexGrow={1}>
+          <Text color="cyan" bold>🔷 CoAuthor</Text>
+          <Text dimColor> │ </Text>
+          <Text color="yellow">FOCUSED: </Text>
+          <Text bold>{taskTitle}</Text>
+          <Text> {statusIcon} </Text>
         </Box>
-      ) : null}
+        <Text color="green">[●]</Text>
+      </Box>
     </Box>
   )
 }
 
-function appendWithLimit(items: string[], item: string, limit: number): string[] {
-  const nextItems = [...items, item]
-  if (nextItems.length <= limit) return nextItems
-  return nextItems.slice(nextItems.length - limit)
+function getStatusIcon(status: string): string {
+  switch (status) {
+    case 'running': return '🔵'
+    case 'awaiting_user': return '🟡'
+    case 'paused': return '⏸️'
+    case 'completed': return '🟢'
+    case 'failed': return '🔴'
+    case 'cancelled': return '⚪'
+    default: return ''
+  }
 }
 
 function formatAuditEntry(entry: StoredAuditEntry): string {
@@ -235,4 +291,15 @@ function truncateJson(value: unknown, maxLength: number): string {
   const raw = JSON.stringify(value)
   if (raw.length <= maxLength) return raw
   return raw.slice(0, maxLength) + '…'
+}
+
+function createSeparatorLine(columns: number): string {
+  const width = Math.max(0, columns)
+  return '─'.repeat(width)
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (maxLength <= 0) return ''
+  if (value.length <= maxLength) return value
+  return value.slice(0, Math.max(0, maxLength - 1)) + '…'
 }

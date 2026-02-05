@@ -1,9 +1,12 @@
-import { type Argv } from 'yargs'
-import { type App } from '../../app/createApp.js'
+import { type Argv, type Arguments } from 'yargs'
+import { createApp, type App } from '../../app/createApp.js'
 
-export function registerUiCommand(parser: Argv, app: App): Argv {
-  return parser.command('ui', 'Start Ink UI', () => {}, async () => {
+export function registerUiCommand(parser: Argv, app: App, defaultBaseDir: string): Argv {
+  return parser.command('ui [baseDir]', 'Start Ink UI', (y: Argv) => y.positional('baseDir', { type: 'string' }), async (args: Arguments) => {
+    const baseDirArgument = typeof args.baseDir === 'string' ? args.baseDir.trim() : ''
+    const baseDir = baseDirArgument || defaultBaseDir
+    const appForUi = baseDir === app.baseDir ? app : createApp({ baseDir })
     const { runMainTui } = await import('../../tui/run.js')
-    await runMainTui(app)
+    await runMainTui(appForUi)
   })
 }

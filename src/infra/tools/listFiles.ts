@@ -6,7 +6,7 @@
  */
 
 import { readdir, stat } from 'node:fs/promises'
-import { resolve, join } from 'node:path'
+import { resolve, join, relative } from 'node:path'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
 
@@ -75,7 +75,7 @@ async function listDirectory(
     }
 
     const itemPath = join(absolutePath, item)
-    const relativePath = itemPath.replace(baseDir + '/', '')
+    const relativePath = relative(baseDir, itemPath) + (itemPath.endsWith('/') ? '/' : '')
 
     try {
       const itemStat = await stat(itemPath)

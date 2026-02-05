@@ -298,8 +298,6 @@ export class AgentRuntime {
   ): Promise<{ event?: DomainEvent; pause?: boolean; terminal?: boolean }> {
     switch (output.kind) {
       case 'text':
-        // Text output - just log for now, no event
-        console.log(`[Agent] ${output.content}`)
         this.#uiBus?.emit({
           type: 'agent_output',
           payload: { taskId, kind: 'text', content: output.content }
@@ -307,8 +305,6 @@ export class AgentRuntime {
         return {}
 
       case 'reasoning':
-        // Reasoning output - just log
-        console.log(`[Agent] (Thinking) ${output.content}`)
         this.#uiBus?.emit({
           type: 'agent_output',
           payload: { taskId, kind: 'reasoning', content: output.content }

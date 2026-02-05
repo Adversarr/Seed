@@ -34,7 +34,7 @@ export async function runCli(opts: {
   registerAuditCommand(parser, app, io)
   registerLogCommand(parser, app, io)
   registerLlmCommand(parser, app, io)
-  registerUiCommand(parser, app)
+  registerUiCommand(parser, app, baseDir)
 
   // Default behavior: run TUI if no arguments
   if (argv.length === 0) {

@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { EventStore } from '../domain/ports/eventStore.js'
 import type { ToolRegistry, ToolExecutor } from '../domain/ports/tool.js'
 import type { AuditLog } from '../domain/ports/auditLog.js'
@@ -99,7 +99,7 @@ export type CreateAppOptions = {
  * This is the composition root where all dependencies are assembled.
  */
 export function createApp(opts: CreateAppOptions): App {
-  const baseDir = opts.baseDir
+  const baseDir = resolve(opts.baseDir)
   const currentActorId = opts.currentActorId ?? DEFAULT_USER_ACTOR_ID
   const config = opts.config ?? loadAppConfig(process.env)
 
