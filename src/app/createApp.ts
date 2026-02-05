@@ -4,6 +4,7 @@ import type { ToolRegistry, ToolExecutor } from '../domain/ports/tool.js'
 import type { AuditLog } from '../domain/ports/auditLog.js'
 import type { ConversationStore } from '../domain/ports/conversationStore.js'
 import type { LLMClient } from '../domain/ports/llmClient.js'
+import type { UiBus } from '../domain/ports/uiBus.js'
 import type { Agent } from '../agents/agent.js'
 import { JsonlEventStore } from '../infra/jsonlEventStore.js'
 import { JsonlAuditLog } from '../infra/jsonlAuditLog.js'
@@ -11,6 +12,7 @@ import { JsonlConversationStore } from '../infra/jsonlConversationStore.js'
 import { DefaultToolRegistry } from '../infra/toolRegistry.js'
 import { registerBuiltinTools } from '../infra/tools/index.js'
 import { DefaultToolExecutor } from '../infra/toolExecutor.js'
+import { createUiBus } from '../infra/subjectUiBus.js'
 import { TaskService, EventService, InteractionService, AuditService } from '../application/index.js'
 import { ContextBuilder } from '../application/contextBuilder.js'
 import { AgentRuntime } from '../agents/runtime.js'
@@ -59,6 +61,7 @@ export type App = {
   toolRegistry: ToolRegistry
   toolExecutor: ToolExecutor
   llm: LLMClient
+  uiBus: UiBus
   
   // Application Services
   taskService: TaskService
@@ -128,6 +131,11 @@ export function createApp(opts: CreateAppOptions): App {
   // Tool Executor
   const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
 
+  const uiBus = createUiBus()
+  auditLog.entries$.subscribe((entry) => {
+    uiBus.emit({ type: 'audit_entry', payload: entry })
+  })
+
   const telemetry: TelemetrySink =
     config.telemetry.sink === 'console' ? new ConsoleTelemetrySink() : new NoopTelemetrySink()
 
@@ -159,6 +167,7 @@ export function createApp(opts: CreateAppOptions): App {
     store,
     conversationStore,
     auditLog,
+    uiBus,
     telemetry,
     taskService,
     interactionService,
@@ -182,6 +191,7 @@ export function createApp(opts: CreateAppOptions): App {
     toolRegistry,
     toolExecutor,
     llm,
+    uiBus,
     // Application Services
     taskService,
     eventService,

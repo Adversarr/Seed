@@ -40,6 +40,72 @@ export class DefaultCoAuthorAgent implements Agent {
   }
 
   /**
+   * Process any pending tool calls from previous execution (e.g. after resume).
+   * Checks for missing tool results in history and executes/rejects them.
+   */
+  async *#processPendingToolCalls(context: AgentContext): AsyncGenerator<AgentOutput> {
+    // Check if last message was assistant with tool calls
+    const lastMessage = context.conversationHistory[context.conversationHistory.length - 1]
+    if (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.toolCalls || lastMessage.toolCalls.length === 0) {
+      return
+    }
+
+    // Find tool calls that don't have a corresponding result
+    const pendingCalls = lastMessage.toolCalls.filter(tc => 
+      !context.conversationHistory.some(
+        m => m.role === 'tool' && m.toolCallId === tc.toolCallId
+      )
+    )
+
+    if (pendingCalls.length === 0) return
+
+    for (const toolCall of pendingCalls) {
+      const tool = context.tools.get(toolCall.toolName)
+      if (!tool) {
+         yield { kind: 'text', content: `Unknown tool in pending call: ${toolCall.toolName}` }
+         continue
+      }
+
+      if (tool.riskLevel === 'risky') {
+        // Check for confirmation
+        if (context.confirmedInteractionId) {
+           // We have confirmation (assumed to be for this risky tool since we pause on first risky tool)
+           yield* this.#executeToolCall(toolCall, context)
+        } else if (context.pendingInteractionResponse) {
+           // We have a response, but it's not approval (checked by confirmedInteractionId)
+           // So it's a rejection.
+           yield { kind: 'text', content: `Skipping tool ${toolCall.toolName}: User rejected.` }
+           
+           const rejectionMessage: LLMMessage = {
+             role: 'tool',
+             toolCallId: toolCall.toolCallId,
+             toolName: toolCall.toolName,
+             content: JSON.stringify({ isError: true, error: 'User rejected the request' })
+           }
+           context.persistMessage(rejectionMessage)
+           
+        } else {
+           // No confirmation, no pending response. Must request confirmation.
+            const confirmRequest: AgentInteractionRequest = {
+              interactionId: `ui_${nanoid(12)}`,
+              kind: 'Confirm',
+              purpose: 'confirm_risky_action',
+              display: this.#buildRiskyToolDisplay(toolCall),
+              options: [
+                { id: 'approve', label: 'Approve', style: 'danger' },
+                { id: 'reject', label: 'Reject', style: 'default', isDefault: true }
+              ]
+            }
+            yield { kind: 'interaction', request: confirmRequest }
+        }
+      } else {
+        // Safe tool - execute immediately
+        yield* this.#executeToolCall(toolCall, context)
+      }
+    }
+  }
+
+  /**
    * Main tool execution loop.
    * Calls LLM, executes tool calls, repeats until done.
    *
@@ -77,6 +143,9 @@ export class DefaultCoAuthorAgent implements Agent {
         }
       }
     }
+
+    // Process any pending tool calls from previous execution
+    yield* this.#processPendingToolCalls(context)
 
     let iteration = 0
     while (iteration < this.#maxIterations) {

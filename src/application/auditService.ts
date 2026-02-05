@@ -4,6 +4,7 @@
  * Provides access to audit logs for CLI and TUI.
  */
 
+import { concat, filter, from, type Observable } from 'rxjs'
 import type { AuditLog, StoredAuditEntry } from '../domain/ports/auditLog.js'
 
 export class AuditService {
@@ -30,5 +31,18 @@ export class AuditService {
     entries.sort((a, b) => b.id - a.id)
     
     return entries.slice(0, limit)
+  }
+
+  observeEntries(taskId?: string): Observable<StoredAuditEntry> {
+    const historyEntries = taskId ? this.#auditLog.readByTask(taskId) : this.#auditLog.readAll()
+    historyEntries.sort((a, b) => a.id - b.id)
+
+    const liveEntries = this.#auditLog.entries$
+
+    const filteredLiveEntries = taskId
+      ? liveEntries.pipe(filter((entry) => entry.payload.taskId === taskId))
+      : liveEntries
+
+    return concat(from(historyEntries), filteredLiveEntries)
   }
 }

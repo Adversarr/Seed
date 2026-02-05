@@ -5,7 +5,7 @@
  * Risk level: safe
  */
 
-import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
@@ -41,7 +41,7 @@ export const readFileTool: Tool = {
 
     try {
       const absolutePath = resolve(ctx.baseDir, path)
-      const content = readFileSync(absolutePath, 'utf8')
+      const content = await readFile(absolutePath, 'utf8')
 
       let result: string
       if (startLine !== undefined && endLine !== undefined) {

@@ -13,6 +13,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname } from 'node:path'
+import { Subject, type Observable } from 'rxjs'
 import type { AuditLog, AuditLogEntry, StoredAuditEntry } from '../domain/ports/auditLog.js'
 import { AuditLogEntrySchema } from '../domain/ports/auditLog.js'
 
@@ -26,11 +27,16 @@ type JsonlAuditRow = {
 
 export class JsonlAuditLog implements AuditLog {
   readonly #auditPath: string
+  readonly #entrySubject = new Subject<StoredAuditEntry>()
   #maxId = 0
   #cacheInitialized = false
 
   constructor(opts: { auditPath: string }) {
     this.#auditPath = opts.auditPath
+  }
+
+  get entries$(): Observable<StoredAuditEntry> {
+    return this.#entrySubject.asObservable()
   }
 
   ensureSchema(): void {
@@ -55,11 +61,15 @@ export class JsonlAuditLog implements AuditLog {
 
     appendFileSync(this.#auditPath, `${JSON.stringify(row)}\n`)
 
-    return {
+    const storedEntry: StoredAuditEntry = {
       ...entry,
       id: row.id,
       createdAt: row.createdAt
     }
+
+    this.#entrySubject.next(storedEntry)
+
+    return storedEntry
   }
 
   readByTask(taskId: string): StoredAuditEntry[] {

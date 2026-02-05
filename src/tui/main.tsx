@@ -3,6 +3,7 @@ import { Box, Text, useInput } from 'ink'
 import TextInput from 'ink-text-input'
 import type { App } from '../app/createApp.js'
 import { InteractionPanel } from './components/InteractionPanel.js'
+import type { StoredAuditEntry } from '../domain/ports/auditLog.js'
 import type { UserInteractionRequestedPayload } from '../domain/events.js'
 
 type Props = {
@@ -15,6 +16,8 @@ export function MainTui(props: Props) {
   const [status, setStatus] = useState<string>('')
   const [tasks, setTasks] = useState<Array<{ taskId: string; title: string; status: string }>>([])
   const [replayOutput, setReplayOutput] = useState<string[]>([])
+  const [agentOutput, setAgentOutput] = useState<string[]>([])
+  const [auditOutput, setAuditOutput] = useState<string[]>([])
   const [pendingInteraction, setPendingInteraction] = useState<UserInteractionRequestedPayload | null>(null)
 
   const refresh = async () => {
@@ -31,11 +34,27 @@ export function MainTui(props: Props) {
   }
 
   useEffect(() => {
+    app.agentRuntime.start()
     refresh().catch((e) => setStatus(e instanceof Error ? e.message : String(e)))
-    const sub = app.store.events$.subscribe(() => {
+    const storeSub = app.store.events$.subscribe(() => {
       refresh().catch(console.error)
     })
-    return () => sub.unsubscribe()
+    const uiBusSub = app.uiBus.events$.subscribe((event) => {
+      if (event.type === 'agent_output') {
+        const prefix = event.payload.kind === 'reasoning' ? '[Thinking] ' : ''
+        const line = `${prefix}${event.payload.content}`
+        setAgentOutput((prev) => appendWithLimit(prev, line, 80))
+      }
+      if (event.type === 'audit_entry') {
+        const line = formatAuditEntry(event.payload)
+        setAuditOutput((prev) => appendWithLimit(prev, line, 80))
+      }
+    })
+    return () => {
+      uiBusSub.unsubscribe()
+      storeSub.unsubscribe()
+      app.agentRuntime.stop()
+    }
   }, [])
 
   const onInteractionSubmit = async (optionId?: string, inputValue?: string) => {
@@ -153,6 +172,24 @@ export function MainTui(props: Props) {
           {replayOutput.length > 10 ? <Text dimColor>... ({replayOutput.length - 10} more)</Text> : null}
         </Box>
       ) : null}
+      {agentOutput.length > 0 ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold>Agent Output</Text>
+          {agentOutput.slice(-10).map((line, i) => (
+            <Text key={i} dimColor>{line}</Text>
+          ))}
+          {agentOutput.length > 10 ? <Text dimColor>... ({agentOutput.length - 10} more)</Text> : null}
+        </Box>
+      ) : null}
+      {auditOutput.length > 0 ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text bold>Tool Audit</Text>
+          {auditOutput.slice(-10).map((line, i) => (
+            <Text key={i} dimColor>{line}</Text>
+          ))}
+          {auditOutput.length > 10 ? <Text dimColor>... ({auditOutput.length - 10} more)</Text> : null}
+        </Box>
+      ) : null}
       {status ? (
         <Box marginBottom={1}>
           <Text color="yellow">{status}</Text>
@@ -176,4 +213,26 @@ export function MainTui(props: Props) {
       ) : null}
     </Box>
   )
+}
+
+function appendWithLimit(items: string[], item: string, limit: number): string[] {
+  const nextItems = [...items, item]
+  if (nextItems.length <= limit) return nextItems
+  return nextItems.slice(nextItems.length - limit)
+}
+
+function formatAuditEntry(entry: StoredAuditEntry): string {
+  if (entry.type === 'ToolCallRequested') {
+    const input = truncateJson(entry.payload.input, 200)
+    return `→ ${entry.payload.toolName} ${input}`
+  }
+  const result = entry.payload.isError ? 'error' : 'ok'
+  const output = truncateJson(entry.payload.output, 200)
+  return `✓ ${entry.payload.toolName} ${result} (${entry.payload.durationMs}ms) ${output}`
+}
+
+function truncateJson(value: unknown, maxLength: number): string {
+  const raw = JSON.stringify(value)
+  if (raw.length <= maxLength) return raw
+  return raw.slice(0, maxLength) + '…'
 }

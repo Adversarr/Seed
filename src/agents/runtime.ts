@@ -5,6 +5,7 @@ import type { ToolRegistry, ToolExecutor, ToolResult } from '../domain/ports/too
 import type { ConversationStore } from '../domain/ports/conversationStore.js'
 import type { AuditLog } from '../domain/ports/auditLog.js'
 import type { TelemetrySink } from '../domain/ports/telemetry.js'
+import type { UiBus } from '../domain/ports/uiBus.js'
 import type { DomainEvent, StoredEvent, UserInteractionRespondedPayload } from '../domain/events.js'
 import type { TaskService, TaskView } from '../application/taskService.js'
 import type { InteractionService } from '../application/interactionService.js'
@@ -32,6 +33,7 @@ export class AgentRuntime {
   readonly #conversationStore: ConversationStore
   readonly #auditLog: AuditLog
   readonly #telemetry: TelemetrySink
+  readonly #uiBus: UiBus | null
   readonly #taskService: TaskService
   readonly #interactionService: InteractionService
   readonly #agent: Agent
@@ -48,6 +50,7 @@ export class AgentRuntime {
     store: EventStore
     conversationStore: ConversationStore
     auditLog: AuditLog
+    uiBus?: UiBus
     telemetry?: TelemetrySink
     taskService: TaskService
     interactionService: InteractionService
@@ -61,6 +64,7 @@ export class AgentRuntime {
     this.#conversationStore = opts.conversationStore
     this.#auditLog = opts.auditLog
     this.#telemetry = opts.telemetry ?? { emit: () => {} }
+    this.#uiBus = opts.uiBus ?? null
     this.#taskService = opts.taskService
     this.#interactionService = opts.interactionService
     this.#agent = opts.agent
@@ -296,11 +300,19 @@ export class AgentRuntime {
       case 'text':
         // Text output - just log for now, no event
         console.log(`[Agent] ${output.content}`)
+        this.#uiBus?.emit({
+          type: 'agent_output',
+          payload: { taskId, kind: 'text', content: output.content }
+        })
         return {}
 
       case 'reasoning':
         // Reasoning output - just log
         console.log(`[Agent] (Thinking) ${output.content}`)
+        this.#uiBus?.emit({
+          type: 'agent_output',
+          payload: { taskId, kind: 'reasoning', content: output.content }
+        })
         return {}
 
       case 'tool_call': {

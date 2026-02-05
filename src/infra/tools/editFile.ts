@@ -5,9 +5,9 @@
  * Risk level: risky (requires UIP confirmation)
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { constants } from 'node:fs'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
-import { mkdirSync } from 'node:fs'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
 
@@ -45,15 +45,16 @@ export const editFileTool: Tool = {
 
       // Handle new file creation
       if (oldString === '') {
-        if (existsSync(absolutePath)) {
+        const fileAlreadyExists = await pathExists(absolutePath)
+        if (fileAlreadyExists) {
           return {
             toolCallId,
             output: { error: `File already exists: ${path}. Use non-empty oldString to edit.` },
             isError: true
           }
         }
-        mkdirSync(dirname(absolutePath), { recursive: true })
-        writeFileSync(absolutePath, newString, 'utf8')
+        await mkdir(dirname(absolutePath), { recursive: true })
+        await writeFile(absolutePath, newString, 'utf8')
         return {
           toolCallId,
           output: { 
@@ -66,7 +67,8 @@ export const editFileTool: Tool = {
       }
 
       // Read existing file
-      if (!existsSync(absolutePath)) {
+      const fileExists = await pathExists(absolutePath)
+      if (!fileExists) {
         return {
           toolCallId,
           output: { error: `File not found: ${path}` },
@@ -74,7 +76,7 @@ export const editFileTool: Tool = {
         }
       }
 
-      const currentContent = readFileSync(absolutePath, 'utf8')
+      const currentContent = await readFile(absolutePath, 'utf8')
 
       // Check that oldString exists exactly once
       const occurrences = currentContent.split(oldString).length - 1
@@ -95,7 +97,7 @@ export const editFileTool: Tool = {
 
       // Apply the replacement
       const newContent = currentContent.replace(oldString, newString)
-      writeFileSync(absolutePath, newContent, 'utf8')
+      await writeFile(absolutePath, newContent, 'utf8')
 
       return {
         toolCallId,
@@ -113,5 +115,14 @@ export const editFileTool: Tool = {
         isError: true
       }
     }
+  }
+}
+
+async function pathExists(absolutePath: string): Promise<boolean> {
+  try {
+    await access(absolutePath, constants.F_OK)
+    return true
+  } catch {
+    return false
   }
 }

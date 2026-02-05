@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import type { Observable } from 'rxjs'
 
 // ============================================================================
 // Audit Log Entry Types
@@ -73,6 +74,12 @@ export const AuditLogEntrySchema = z.discriminatedUnion('type', [
  * Stored separately from DomainEvents in audit.jsonl.
  */
 export interface AuditLog {
+  /**
+   * Observable stream of new audit entries.
+   * Emits each StoredAuditEntry as it is appended.
+   */
+  readonly entries$: Observable<StoredAuditEntry>
+
   /**
    * Initialize the storage (create file if needed).
    */

@@ -5,11 +5,13 @@
  * Risk level: risky (requires UIP confirmation)
  */
 
-import { execSync } from 'node:child_process'
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
 
 const MAX_OUTPUT_LENGTH = 10000
+const execAsync = promisify(exec)
 
 export const runCommandTool: Tool = {
   name: 'runCommand',
@@ -36,22 +38,30 @@ export const runCommandTool: Tool = {
     const timeout = (args.timeout as number) ?? 30000
 
     try {
-      const output = execSync(command, {
+      const { stdout, stderr } = await execAsync(command, {
         cwd: ctx.baseDir,
         timeout,
         encoding: 'utf8',
-        maxBuffer: 1024 * 1024, // 1MB
-        stdio: ['pipe', 'pipe', 'pipe']
+        maxBuffer: 1024 * 1024,
       })
 
-      const truncatedOutput = output.length > MAX_OUTPUT_LENGTH 
-        ? output.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
-        : output
+      const stdoutText = stdout ?? ''
+      const truncatedStdout =
+        stdoutText.length > MAX_OUTPUT_LENGTH
+          ? stdoutText.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
+          : stdoutText
+
+      const stderrText = stderr ?? ''
+      const truncatedStderr =
+        stderrText.length > MAX_OUTPUT_LENGTH
+          ? stderrText.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
+          : stderrText
 
       return {
         toolCallId,
         output: { 
-          stdout: truncatedOutput, 
+          stdout: truncatedStdout,
+          stderr: truncatedStderr,
           exitCode: 0,
           command 
         },
@@ -59,7 +69,7 @@ export const runCommandTool: Tool = {
       }
     } catch (error) {
       if (error && typeof error === 'object' && 'stdout' in error && 'stderr' in error) {
-        const execError = error as { stdout: string; stderr: string; status: number }
+        const execError = error as { stdout: string; stderr: string; code?: number; signal?: NodeJS.Signals }
         const stderr = execError.stderr?.slice(0, MAX_OUTPUT_LENGTH) ?? ''
         const stdout = execError.stdout?.slice(0, MAX_OUTPUT_LENGTH) ?? ''
         return {
@@ -67,7 +77,7 @@ export const runCommandTool: Tool = {
           output: { 
             stdout,
             stderr,
-            exitCode: execError.status ?? 1,
+            exitCode: execError.code ?? 1,
             command 
           },
           isError: true

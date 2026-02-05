@@ -5,7 +5,7 @@
  * Risk level: safe
  */
 
-import { readdirSync, statSync } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
@@ -41,7 +41,7 @@ export const listFilesTool: Tool = {
 
     try {
       const absolutePath = resolve(ctx.baseDir, path)
-      const entries = listDirectory(absolutePath, ctx.baseDir, recursive, maxDepth, 0)
+      const entries = await listDirectory(absolutePath, ctx.baseDir, recursive, maxDepth, 0)
 
       return {
         toolCallId,
@@ -58,15 +58,15 @@ export const listFilesTool: Tool = {
   }
 }
 
-function listDirectory(
+async function listDirectory(
   absolutePath: string,
   baseDir: string,
   recursive: boolean,
   maxDepth: number,
   currentDepth: number
-): string[] {
+): Promise<string[]> {
   const entries: string[] = []
-  const items = readdirSync(absolutePath)
+  const items = await readdir(absolutePath)
 
   for (const item of items) {
     // Skip hidden files and common ignored directories
@@ -78,11 +78,11 @@ function listDirectory(
     const relativePath = itemPath.replace(baseDir + '/', '')
 
     try {
-      const stat = statSync(itemPath)
-      if (stat.isDirectory()) {
+      const itemStat = await stat(itemPath)
+      if (itemStat.isDirectory()) {
         entries.push(relativePath + '/')
         if (recursive && currentDepth < maxDepth) {
-          entries.push(...listDirectory(itemPath, baseDir, recursive, maxDepth, currentDepth + 1))
+          entries.push(...await listDirectory(itemPath, baseDir, recursive, maxDepth, currentDepth + 1))
         }
       } else {
         entries.push(relativePath)
