@@ -232,7 +232,13 @@ export function MainTui(props: Props) {
 
     addPlainLog(trimmed, { prefix: '← ', color: 'white', bold: true })
 
-    await handleCommand(trimmed, {
+    const effectiveCommandLine = buildCommandLineFromInput({
+      input: trimmed,
+      focusedTaskId,
+      tasks
+    })
+
+    await handleCommand(effectiveCommandLine, {
       app,
       refresh,
       setStatus,
@@ -417,4 +423,27 @@ function truncateText(value: string, maxLength: number): string {
   if (maxLength <= 0) return ''
   if (value.length <= maxLength) return value
   return value.slice(0, Math.max(0, maxLength - 1)) + '…'
+}
+
+function buildCommandLineFromInput(opts: {
+  input: string
+  focusedTaskId: string | null
+  tasks: Array<{ taskId: string; title: string; status: string }>
+}): string {
+  const trimmed = opts.input.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('/')) return trimmed
+
+  if (!opts.focusedTaskId) {
+    return `/new ${trimmed}`
+  }
+
+  const focusedTask = opts.tasks.find((task) => task.taskId === opts.focusedTaskId)
+  const focusedTaskStatus = focusedTask?.status
+
+  if (focusedTaskStatus === 'awaiting_user') {
+    return `/continue ${trimmed}`
+  }
+
+  return `/continue ${trimmed}`
 }

@@ -14,11 +14,12 @@ import { FakeLLMClient } from '../src/infra/fakeLLMClient.js'
 import { DefaultToolRegistry } from '../src/infra/toolRegistry.js'
 import { DefaultToolExecutor } from '../src/infra/toolExecutor.js'
 import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+import type { LLMClient } from '../src/domain/ports/llmClient.js'
 
 /**
  * Helper to create test infrastructure in a temp directory.
  */
-function createTestInfra(dir: string) {
+function createTestInfra(dir: string, opts?: { llm?: LLMClient }) {
   const store = new JsonlEventStore({
     eventsPath: join(dir, 'events.jsonl'),
     projectionsPath: join(dir, 'projections.jsonl')
@@ -36,7 +37,7 @@ function createTestInfra(dir: string) {
   const taskService = new TaskService(store, DEFAULT_USER_ACTOR_ID)
   const interactionService = new InteractionService(store, DEFAULT_USER_ACTOR_ID)
   const contextBuilder = new ContextBuilder(dir)
-  const llm = new FakeLLMClient()
+  const llm = opts?.llm ?? new FakeLLMClient()
   const agent = new DefaultCoAuthorAgent({ contextBuilder })
 
   const runtime = new AgentRuntime({
@@ -131,6 +132,45 @@ describe('AgentRuntime', () => {
     expect(events.some((e) => e.type === 'TaskStarted')).toBe(true)
     expect(events.some((e) => e.type === 'TaskCompleted')).toBe(true)
     expect(events.some((e) => e.type === 'UserInteractionRequested')).toBe(false)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('queues instruction added while task is running and re-executes after completion', async () => {
+    vi.useFakeTimers()
+
+    const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
+
+    const baseLLM = new FakeLLMClient()
+    const delayedLLM: LLMClient = {
+      async complete(options) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 50))
+        return baseLLM.complete(options)
+      },
+      stream(options) {
+        return baseLLM.stream(options)
+      }
+    }
+
+    const { store, taskService, runtime } = createTestInfra(dir, { llm: delayedLLM })
+
+    runtime.start()
+
+    const { taskId } = taskService.createTask({
+      title: 'Queue Instruction',
+      agentId: DEFAULT_AGENT_ACTOR_ID
+    })
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    taskService.addInstruction(taskId, 'Please apply this while running')
+
+    await vi.advanceTimersByTimeAsync(200)
+    runtime.stop()
+    vi.useRealTimers()
+
+    const completedCount = store.readStream(taskId).filter((e) => e.type === 'TaskCompleted').length
+    expect(completedCount).toBe(2)
 
     rmSync(dir, { recursive: true, force: true })
   })

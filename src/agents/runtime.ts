@@ -46,6 +46,7 @@ export class AgentRuntime {
   #subscription: Subscription | null = null
   #inFlight = new Set<string>() // Track in-flight task operations
   #pausedTasks = new Set<string>() // Track paused tasks
+  #queuedInstructionTasks = new Set<string>()
 
   constructor(opts: {
     store: EventStore
@@ -114,7 +115,7 @@ export class AgentRuntime {
       this.#inFlight.add(taskId)
 
       try {
-        await this.executeTask(taskId)
+        await this.#executeTaskAndDrainQueuedInstructions(taskId)
       } catch (error) {
         console.error(`[AgentRuntime] Task handling failed for task ${taskId}:`, error)
       } finally {
@@ -164,7 +165,7 @@ export class AgentRuntime {
         this.#inFlight.add(taskId)
 
         try {
-          await this.executeTask(taskId)
+          await this.#executeTaskAndDrainQueuedInstructions(taskId)
         } catch (error) {
           console.error(`[AgentRuntime] Resume failed for task ${taskId}:`, error)
         } finally {
@@ -187,17 +188,34 @@ export class AgentRuntime {
         }
         this.#conversationStore.append(taskId, message)
 
-        if (this.#inFlight.has(taskId)) return
+        if (this.#inFlight.has(taskId)) {
+          this.#queuedInstructionTasks.add(taskId)
+          return
+        }
         this.#inFlight.add(taskId)
 
         try {
-          await this.executeTask(taskId)
+          await this.#executeTaskAndDrainQueuedInstructions(taskId)
         } catch (error) {
           console.error(`[AgentRuntime] Resume failed for task ${taskId}:`, error)
         } finally {
           this.#inFlight.delete(taskId)
         }
       }
+    }
+  }
+
+  async #executeTaskAndDrainQueuedInstructions(taskId: string): Promise<void> {
+    while (true) {
+      await this.executeTask(taskId)
+
+      const shouldRerun = this.#queuedInstructionTasks.has(taskId)
+      if (!shouldRerun) return
+
+      this.#queuedInstructionTasks.delete(taskId)
+
+      if (!this.#isRunning) return
+      if (this.#pausedTasks.has(taskId)) return
     }
   }
 
