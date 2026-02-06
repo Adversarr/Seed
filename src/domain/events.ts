@@ -48,6 +48,24 @@ export const TaskCanceledPayloadSchema = z.object({
   ...withAuthor
 })
 
+export const TaskPausedPayloadSchema = z.object({
+  taskId: z.string().min(1),
+  reason: z.string().optional(),
+  ...withAuthor
+})
+
+export const TaskResumedPayloadSchema = z.object({
+  taskId: z.string().min(1),
+  reason: z.string().optional(),
+  ...withAuthor
+})
+
+export const TaskInstructionAddedPayloadSchema = z.object({
+  taskId: z.string().min(1),
+  instruction: z.string().min(1),
+  ...withAuthor
+})
+
 // ============================================================================
 // UIP (Universal Interaction Protocol) Events
 // ============================================================================
@@ -114,6 +132,9 @@ export const EventTypeSchema = z.enum([
   'TaskCompleted',
   'TaskFailed',
   'TaskCanceled',
+  'TaskPaused',
+  'TaskResumed',
+  'TaskInstructionAdded',
   // UIP
   'UserInteractionRequested',
   'UserInteractionResponded'
@@ -130,6 +151,9 @@ export type TaskStartedPayload = z.infer<typeof TaskStartedPayloadSchema>
 export type TaskCompletedPayload = z.infer<typeof TaskCompletedPayloadSchema>
 export type TaskFailedPayload = z.infer<typeof TaskFailedPayloadSchema>
 export type TaskCanceledPayload = z.infer<typeof TaskCanceledPayloadSchema>
+export type TaskPausedPayload = z.infer<typeof TaskPausedPayloadSchema>
+export type TaskResumedPayload = z.infer<typeof TaskResumedPayloadSchema>
+export type TaskInstructionAddedPayload = z.infer<typeof TaskInstructionAddedPayloadSchema>
 export type UserInteractionRequestedPayload = z.infer<typeof UserInteractionRequestedPayloadSchema>
 export type UserInteractionRespondedPayload = z.infer<typeof UserInteractionRespondedPayloadSchema>
 
@@ -154,6 +178,9 @@ export type DomainEvent =
   | { type: 'TaskCompleted'; payload: TaskCompletedPayload }
   | { type: 'TaskFailed'; payload: TaskFailedPayload }
   | { type: 'TaskCanceled'; payload: TaskCanceledPayload }
+  | { type: 'TaskPaused'; payload: TaskPausedPayload }
+  | { type: 'TaskResumed'; payload: TaskResumedPayload }
+  | { type: 'TaskInstructionAdded'; payload: TaskInstructionAddedPayload }
   // UIP (Universal Interaction Protocol)
   | { type: 'UserInteractionRequested'; payload: UserInteractionRequestedPayload }
   | { type: 'UserInteractionResponded'; payload: UserInteractionRespondedPayload }
@@ -181,6 +208,9 @@ export const DomainEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('TaskCompleted'), payload: TaskCompletedPayloadSchema }),
   z.object({ type: z.literal('TaskFailed'), payload: TaskFailedPayloadSchema }),
   z.object({ type: z.literal('TaskCanceled'), payload: TaskCanceledPayloadSchema }),
+  z.object({ type: z.literal('TaskPaused'), payload: TaskPausedPayloadSchema }),
+  z.object({ type: z.literal('TaskResumed'), payload: TaskResumedPayloadSchema }),
+  z.object({ type: z.literal('TaskInstructionAdded'), payload: TaskInstructionAddedPayloadSchema }),
   // UIP
   z.object({ type: z.literal('UserInteractionRequested'), payload: UserInteractionRequestedPayloadSchema }),
   z.object({ type: z.literal('UserInteractionResponded'), payload: UserInteractionRespondedPayloadSchema })

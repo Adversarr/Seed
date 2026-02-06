@@ -193,6 +193,7 @@ type TaskStatus =
   | 'open'            // 待处理
   | 'in_progress'     // 执行中
   | 'awaiting_user'   // 等待用户交互（由 UIP 驱动）
+  | 'paused'          // 暂停中
   | 'done'            // 完成
   | 'failed'          // 失败（终态）
   | 'canceled'        // 已取消
@@ -367,7 +368,7 @@ src/
 │   ├── actor.ts            # Actor 类型定义
 │   ├── task.ts             # Task/TaskStatus 类型定义
 │   ├── artifact.ts         # Artifact 类型定义
-│   ├── events.ts           # DomainEvent Zod schemas (7 事件类型)
+│   ├── events.ts           # DomainEvent Zod schemas (10 事件类型)
 │   └── ports/              # 端口接口定义
 │       ├── eventStore.ts   # EventStore 接口
 │       ├── conversationStore.ts  # ConversationStore 接口

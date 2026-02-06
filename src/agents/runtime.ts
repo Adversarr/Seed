@@ -45,6 +45,7 @@ export class AgentRuntime {
   #isRunning = false
   #subscription: Subscription | null = null
   #inFlight = new Set<string>() // Track in-flight task operations
+  #pausedTasks = new Set<string>() // Track paused tasks
 
   constructor(opts: {
     store: EventStore
@@ -140,6 +141,61 @@ export class AgentRuntime {
           console.error(`[AgentRuntime] Resume failed for task ${task.taskId}:`, error)
         } finally {
           this.#inFlight.delete(resumeKey)
+        }
+      }
+    }
+
+    // Handle TaskPaused
+    if (event.type === 'TaskPaused') {
+      const task = this.#taskService.getTask(event.payload.taskId)
+      if (task && task.agentId === this.#agent.id) {
+        this.#pausedTasks.add(task.taskId)
+      }
+    }
+
+    // Handle TaskResumed
+    if (event.type === 'TaskResumed') {
+      const task = this.#taskService.getTask(event.payload.taskId)
+      if (task && task.agentId === this.#agent.id) {
+        const taskId = task.taskId
+        this.#pausedTasks.delete(taskId)
+        
+        if (this.#inFlight.has(taskId)) return
+        this.#inFlight.add(taskId)
+
+        try {
+          await this.executeTask(taskId)
+        } catch (error) {
+          console.error(`[AgentRuntime] Resume failed for task ${taskId}:`, error)
+        } finally {
+          this.#inFlight.delete(taskId)
+        }
+      }
+    }
+
+    // Handle TaskInstructionAdded
+    if (event.type === 'TaskInstructionAdded') {
+      const task = this.#taskService.getTask(event.payload.taskId)
+      if (task && task.agentId === this.#agent.id) {
+        const taskId = task.taskId
+        this.#pausedTasks.delete(taskId) // Instruction implies resume
+
+        // Inject instruction into conversation history
+        const message: LLMMessage = {
+          role: 'user',
+          content: event.payload.instruction
+        }
+        this.#conversationStore.append(taskId, message)
+
+        if (this.#inFlight.has(taskId)) return
+        this.#inFlight.add(taskId)
+
+        try {
+          await this.executeTask(taskId)
+        } catch (error) {
+          console.error(`[AgentRuntime] Resume failed for task ${taskId}:`, error)
+        } finally {
+          this.#inFlight.delete(taskId)
         }
       }
     }
@@ -252,6 +308,11 @@ export class AgentRuntime {
 
     try {
       for await (const output of this.#agent.run(task, context)) {
+        // Check for pause signal
+        if (this.#pausedTasks.has(taskId)) {
+          break
+        }
+
         const result = await this.#processOutput(taskId, output, context)
         
         if (result.event) {

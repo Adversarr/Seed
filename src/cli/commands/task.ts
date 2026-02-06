@@ -9,7 +9,7 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
     'Task operations',
     (y: Argv) =>
       y
-        .positional('action', { type: 'string', choices: ['create', 'list', 'cancel'] as const, demandOption: true })
+        .positional('action', { type: 'string', choices: ['create', 'list', 'cancel', 'pause', 'resume', 'continue', 'refine'] as const, demandOption: true })
         .positional('args', { type: 'string', array: true })
         .option('file', { type: 'string' })
         .option('lines', { type: 'string' })
@@ -60,6 +60,37 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
         const reason = args.reason ? String(args.reason) : undefined
         app.taskService.cancelTask(taskId, reason)
         io.stdout('canceled\n')
+        return
+      }
+
+      if (action === 'pause') {
+        const positionalArgs = (args.args as unknown as string[] | undefined) ?? []
+        const taskId = (positionalArgs[0] ?? '').trim()
+        if (!taskId) throw new Error('task pause requires taskId')
+        const reason = args.reason ? String(args.reason) : undefined
+        app.taskService.pauseTask(taskId, reason)
+        io.stdout('paused\n')
+        return
+      }
+
+      if (action === 'resume') {
+        const positionalArgs = (args.args as unknown as string[] | undefined) ?? []
+        const taskId = (positionalArgs[0] ?? '').trim()
+        if (!taskId) throw new Error('task resume requires taskId')
+        const reason = args.reason ? String(args.reason) : undefined
+        app.taskService.resumeTask(taskId, reason)
+        io.stdout('resumed\n')
+        return
+      }
+
+      if (action === 'continue' || action === 'refine') {
+        const positionalArgs = (args.args as unknown as string[] | undefined) ?? []
+        const taskId = (positionalArgs[0] ?? '').trim()
+        if (!taskId) throw new Error(`task ${action} requires taskId`)
+        const instruction = positionalArgs.slice(1).join(' ').trim()
+        if (!instruction) throw new Error(`task ${action} requires instruction`)
+        app.taskService.addInstruction(taskId, instruction)
+        io.stdout('instruction added\n')
         return
       }
     }

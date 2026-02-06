@@ -1,10 +1,21 @@
+import { existsSync, readFileSync } from 'node:fs'
+import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { App } from '../app/createApp.js'
+
+export type ReplayEntry = {
+  variant: 'plain' | 'markdown'
+  content: string
+  prefix?: string
+  color?: string
+  dim?: boolean
+  bold?: boolean
+}
 
 export type CommandContext = {
   app: App
   refresh: () => Promise<void>
   setStatus: (status: string) => void
-  setReplayOutput: (output: string[]) => void
+  setReplayOutput: (entries: ReplayEntry[]) => void
   focusedTaskId: string | null
   setFocusedTaskId: (id: string | null) => void
   setShowTasks: (show: boolean) => void
@@ -41,6 +52,48 @@ export async function handleCommand(line: string, ctx: CommandContext) {
         return
       }
 
+      case 'focus':
+      case 'f': {
+        const targetId = args[0]?.trim()
+        if (!targetId) {
+          await ctx.refresh()
+          ctx.setShowTasks(true)
+          ctx.setStatus('Open task list to select focus')
+          return
+        }
+        const exists = ctx.app.taskService.getTask(targetId)
+        if (!exists) {
+          ctx.setStatus(`Task not found: ${targetId}`)
+          return
+        }
+        ctx.setFocusedTaskId(targetId)
+        await ctx.refresh()
+        ctx.setStatus(`Focused task: ${targetId}`)
+        return
+      }
+
+      case 'next':
+      case 'prev': {
+        const state = ctx.app.taskService.listTasks()
+        const list = state.tasks
+        if (list.length === 0) {
+          ctx.setStatus('No tasks available')
+          return
+        }
+        const currentIndex = ctx.focusedTaskId
+          ? Math.max(0, list.findIndex(t => t.taskId === ctx.focusedTaskId))
+          : -1
+        const nextIndex =
+          command === 'next'
+            ? (currentIndex + 1) % list.length
+            : (currentIndex <= 0 ? list.length - 1 : currentIndex - 1)
+        const nextTask = list[nextIndex]
+        ctx.setFocusedTaskId(nextTask.taskId)
+        await ctx.refresh()
+        ctx.setStatus(`Focused task: ${nextTask.taskId}`)
+        return
+      }
+
       case 'tasks':
       case 'ls':
       case 'list': {
@@ -57,24 +110,11 @@ export async function handleCommand(line: string, ctx: CommandContext) {
           ctx.setStatus('No focused task. Usage: /cancel [taskId]')
           return
         }
-        // If args[0] was provided, reasoning is the rest, else it's all args? 
-        // Design: /cancel [taskId]
-        // Let's assume reason is optional 2nd arg or not supported in simplified version yet.
-        // The original code supported reason.
-        // Let's support: /cancel <taskId> [reason] OR /cancel (uses focused)
         
-        let taskId = targetId
-        let reason: string | undefined = undefined
-
-        if (args.length > 0) {
-           // check if args[0] looks like an ID or reason? 
-           // For simplicity, if args[0] is provided, it's the ID.
-           taskId = args[0]
-           reason = args.slice(1).join(' ') || undefined
-        } else {
-           // No args, use focused
-           taskId = ctx.focusedTaskId!
-        }
+        // Simple heuristic: if args[0] is provided, assume it is taskId.
+        // Users should focus task first ideally.
+        const taskId = args[0] || ctx.focusedTaskId!
+        const reason = args.length > 1 ? args.slice(1).join(' ') : undefined
 
         await ctx.app.taskService.cancelTask(taskId, reason)
         await ctx.refresh()
@@ -82,22 +122,103 @@ export async function handleCommand(line: string, ctx: CommandContext) {
         return
       }
 
+      case 'pause':
+      case 'p': {
+        const taskId = ctx.focusedTaskId
+        if (!taskId) {
+          ctx.setStatus('No focused task. Select a task first.')
+          return
+        }
+        const reason = argString || undefined
+        await ctx.app.taskService.pauseTask(taskId, reason)
+        await ctx.refresh()
+        ctx.setStatus(`Task paused: ${taskId}`)
+        return
+      }
+
+      case 'resume':
+      case 'start': {
+        const taskId = ctx.focusedTaskId
+        if (!taskId) {
+          ctx.setStatus('No focused task. Select a task first.')
+          return
+        }
+        const reason = argString || undefined
+        await ctx.app.taskService.resumeTask(taskId, reason)
+        await ctx.refresh()
+        ctx.setStatus(`Task resumed: ${taskId}`)
+        return
+      }
+
+      case 'continue':
+      case 'refine': {
+        const taskId = ctx.focusedTaskId
+        if (!taskId) {
+          ctx.setStatus('No focused task. Select a task first.')
+          return
+        }
+        const instruction = argString
+        if (!instruction) {
+          ctx.setStatus(`Usage: /${command} <instruction>`)
+          return
+        }
+        await ctx.app.taskService.addInstruction(taskId, instruction)
+        await ctx.refresh()
+        ctx.setStatus(`Instruction added to task: ${taskId}`)
+        return
+      }
+
       case 'replay':
       case 'r':
-      case 'log': { // keep 'log' for backward compat or just redirect
-        const targetId = args[0] || ctx.focusedTaskId
-        // Original: log replay [streamId]
-        // New: /replay [taskId]
-        const events = ctx.app.eventService.replayEvents(targetId || undefined)
-        ctx.setReplayOutput(events.map((e) => `${e.id} ${e.streamId}#${e.seq} ${e.type} ${JSON.stringify(e.payload)}`))
-        ctx.setStatus(`Replayed ${events.length} events`)
+      case 'log': {
+        const targetId = resolveTargetTaskId(args[0], ctx)
+        if (!targetId) {
+          ctx.setStatus('No task found to replay')
+          return
+        }
+        const messages = ctx.app.conversationStore.getMessages(targetId)
+        const entries = messages.flatMap((message) => buildReplayEntries(message))
+        ctx.setReplayOutput(
+          entries.length > 0
+            ? entries
+            : [{ variant: 'plain', content: '(no conversation history)', color: 'cyan', dim: true }]
+        )
+        ctx.setStatus(`Replayed ${messages.length} messages for ${targetId}`)
+        return
+      }
+
+      case 'replay-raw': {
+        const targetId = resolveTargetTaskId(args[0], ctx)
+        const rawLines = readConversationRawLines(ctx.app.conversationsPath)
+        const filteredLines = targetId
+          ? rawLines.filter((line) => line.includes(`"taskId":"${targetId}"`))
+          : rawLines
+
+        const entries: ReplayEntry[] =
+          filteredLines.length > 0
+            ? filteredLines.map((line) => ({
+                variant: 'plain',
+                content: line,
+                color: 'cyan',
+                dim: true
+              }))
+            : [{ variant: 'plain', content: '(no raw conversation logs)', color: 'cyan', dim: true }]
+
+        ctx.setReplayOutput(entries)
+        ctx.setStatus(
+          targetId
+            ? `Replayed raw conversation logs for ${targetId}`
+            : 'Replayed raw conversation logs'
+        )
         return
       }
 
       case 'help':
       case 'h':
       case '?': {
-        ctx.setStatus('Commands: /new <title>, /tasks, /cancel [id], /replay [id], /verbose [on|off], /exit')
+        ctx.setStatus(
+          'Commands: /new <title>, /tasks, /focus [taskId], /next, /prev, /cancel, /pause, /resume, /continue <msg>, /replay [taskId], /replay-raw [taskId], /verbose, /exit'
+        )
         return
       }
 
@@ -141,4 +262,76 @@ export async function handleCommand(line: string, ctx: CommandContext) {
   } catch (e) {
     ctx.setStatus(e instanceof Error ? e.message : String(e))
   }
+}
+
+function resolveTargetTaskId(explicitTaskId: string | undefined, ctx: CommandContext): string | null {
+  const trimmed = explicitTaskId?.trim()
+  if (trimmed) return trimmed
+  if (ctx.focusedTaskId) return ctx.focusedTaskId
+  const state = ctx.app.taskService.listTasks()
+  if (state.tasks.length === 0) return null
+  const sorted = [...state.tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return sorted[0]?.taskId ?? null
+}
+
+function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
+  const entries: ReplayEntry[] = []
+
+  if (message.role === 'system') {
+    if (message.content) {
+      entries.push({
+        variant: 'plain',
+        content: `SYSTEM: ${message.content}`,
+        color: 'blue',
+        dim: true
+      })
+    }
+  } else if (message.role === 'user') {
+    if (message.content) {
+      entries.push({ variant: 'markdown', content: message.content, prefix: '> ' })
+    }
+  } else if (message.role === 'assistant') {
+    if (message.reasoning) {
+      entries.push({
+        variant: 'plain',
+        content: message.reasoning,
+        prefix: '󰧑 ',
+        color: 'yellow',
+        dim: true
+      })
+    }
+    if (message.content) {
+      entries.push({ variant: 'markdown', content: message.content, prefix: '󰍥 ' })
+    }
+    if (message.toolCalls) {
+      for (const toolCall of message.toolCalls) {
+        const args = JSON.stringify(toolCall.arguments)
+        entries.push({
+          variant: 'plain',
+          content: `${toolCall.toolName} ${args}`,
+          prefix: ' → ',
+          color: 'cyan',
+          dim: true
+        })
+      }
+    }
+  } else if (message.role === 'tool') {
+    const toolName = message.toolName ?? 'unknown'
+    const content = message.content ?? ''
+    entries.push({
+      variant: 'plain',
+      content: `${toolName} result: ${content}`,
+      prefix: ' ✓ ',
+      color: 'cyan',
+      dim: true
+    })
+  }
+
+  return entries
+}
+
+function readConversationRawLines(path: string): string[] {
+  if (!existsSync(path)) return []
+  const raw = readFileSync(path, 'utf8')
+  return raw.split('\n').filter((line) => line.trim().length > 0)
 }

@@ -9,6 +9,7 @@ import { InteractionPanel } from './components/InteractionPanel.js'
 import type { StoredAuditEntry } from '../domain/ports/auditLog.js'
 import type { UserInteractionRequestedPayload } from '../domain/events.js'
 import { handleCommand } from './commands.js'
+import type { ReplayEntry } from './commands.js'
 
 type Props = {
   app: App
@@ -57,6 +58,7 @@ export function MainTui(props: Props) {
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null)
   const [showTasks, setShowTasks] = useState(false)
   const [showVerbose, setShowVerbose] = useState(false)
+  const [selectedTaskIndex, setSelectedTaskIndex] = useState(0)
   const logSequence = useRef(0)
   const hasAutoOpenedTasks = useRef(false)
   const showVerboseRef = useRef(false)
@@ -103,9 +105,18 @@ export function MainTui(props: Props) {
     })
   }
 
-  const setReplayOutput = (lines: string[]): void => {
-    for (const line of lines) {
-      addPlainLog(line, { color: 'cyan', dim: true })
+  const setReplayOutput = (entries: ReplayEntry[]): void => {
+    for (const entry of entries) {
+      if (entry.variant === 'markdown') {
+        addMarkdownLog(entry.content, { prefix: entry.prefix })
+      } else {
+        addPlainLog(entry.content, {
+          prefix: entry.prefix,
+          color: entry.color,
+          dim: entry.dim,
+          bold: entry.bold
+        })
+      }
     }
   }
 
@@ -124,6 +135,16 @@ export function MainTui(props: Props) {
         if (!stillExists) setFocusedTaskId(null)
       }
 
+      if (showTasks) {
+        const currentIndex = focusedTaskId
+          ? Math.max(0, taskList.findIndex((t) => t.taskId === focusedTaskId))
+          : 0
+        setSelectedTaskIndex((prev) => {
+          const clamped = Math.min(Math.max(prev, 0), Math.max(0, taskList.length - 1))
+          return Number.isFinite(clamped) ? clamped : currentIndex
+        })
+      }
+
       const awaitingTask = result.tasks.find((task) => task.status === 'awaiting_user')
       if (awaitingTask) {
         const pending = app.interactionService.getPendingInteraction(awaitingTask.taskId)
@@ -138,6 +159,10 @@ export function MainTui(props: Props) {
       if (!awaitingTask && !hasAutoOpenedTasks.current && taskList.length > 0) {
         hasAutoOpenedTasks.current = true
         setShowTasks(true)
+        const initialIndex = focusedTaskId
+          ? Math.max(0, taskList.findIndex((t) => t.taskId === focusedTaskId))
+          : 0
+        setSelectedTaskIndex(initialIndex)
       }
     } catch (e) {
       addPlainLog(`Failed to refresh: ${e}`, { color: 'red' })
@@ -226,6 +251,20 @@ export function MainTui(props: Props) {
     if (key.escape) {
       if (showTasks) setShowTasks(false)
     }
+    if (showTasks && tasks.length > 0) {
+      if (key.upArrow) {
+        setSelectedTaskIndex((prev) => Math.max(0, prev - 1))
+      } else if (key.downArrow) {
+        setSelectedTaskIndex((prev) => Math.min(tasks.length - 1, prev + 1))
+      } else if (key.return) {
+        const chosen = tasks[selectedTaskIndex]
+        if (chosen) {
+          setFocusedTaskId(chosen.taskId)
+          setShowTasks(false)
+          setStatus(`Focused: ${chosen.taskId}`)
+        }
+      }
+    }
   })
 
   const focusedTask = tasks.find((task) => task.taskId === focusedTaskId)
@@ -281,17 +320,18 @@ export function MainTui(props: Props) {
                   <>
                     {visibleTasks.map((task) => {
                       const isFocused = task.taskId === focusedTaskId
+                      const isSelected = tasks.indexOf(task) === selectedTaskIndex
                       const taskSuffix = ` (${task.status}) [${task.taskId}]`
                       const availableTitleWidth = Math.max(0, columns - taskSuffix.length - 6)
                       const truncatedTitle = truncateText(task.title, availableTitleWidth)
 
                       return (
                         <Box key={task.taskId}>
-                          <Text color={isFocused ? 'green' : 'white'} bold={isFocused}>
-                            {isFocused ? '> ' : '  '}
+                          <Text color={isFocused ? 'green' : isSelected ? 'blue' : 'white'} bold={isFocused || isSelected}>
+                            {isSelected ? '> ' : '  '}
                             {truncatedTitle}
                           </Text>
-                          <Text dimColor>{taskSuffix}</Text>
+                          <Text dimColor>{` ${getStatusIcon(task.status)}${taskSuffix}`}</Text>
                         </Box>
                       )
                     })}
@@ -341,13 +381,14 @@ export function MainTui(props: Props) {
 
 function getStatusIcon(status: string): string {
   switch (status) {
-    case 'running': return '🔵'
+    case 'open': return '⚪'
+    case 'in_progress': return '🔵'
     case 'awaiting_user': return '🟡'
     case 'paused': return '⏸️'
-    case 'completed': return '🟢'
+    case 'done': return '🟢'
     case 'failed': return '🔴'
-    case 'cancelled': return '⚪'
-    default: return ''
+    case 'canceled': return '⚪'
+    default: return ' '
   }
 }
 

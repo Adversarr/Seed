@@ -21,7 +21,7 @@ export type TaskView = {
   createdBy: string
   agentId: string                 // V0: 创建时直接指定的处理 Agent
   priority: TaskPriority
-  status: 'open' | 'in_progress' | 'awaiting_user' | 'done' | 'failed' | 'canceled'
+  status: 'open' | 'in_progress' | 'awaiting_user' | 'paused' | 'done' | 'failed' | 'canceled'
   artifactRefs?: ArtifactRef[]
   
   // UIP 交互状态
@@ -113,20 +113,90 @@ export class TaskService {
     ])
   }
 
+  /**
+   * Pause a task.
+   */
+  pauseTask(taskId: string, reason?: string): void {
+    this.#store.append(taskId, [
+      {
+        type: 'TaskPaused',
+        payload: {
+          taskId,
+          reason,
+          authorActorId: this.#currentActorId
+        }
+      }
+    ])
+  }
+
+  /**
+   * Resume a task.
+   */
+  resumeTask(taskId: string, reason?: string): void {
+    this.#store.append(taskId, [
+      {
+        type: 'TaskResumed',
+        payload: {
+          taskId,
+          reason,
+          authorActorId: this.#currentActorId
+        }
+      }
+    ])
+  }
+
+  /**
+   * Add an instruction to a task (refinement).
+   */
+  addInstruction(taskId: string, instruction: string): void {
+    this.#store.append(taskId, [
+      {
+        type: 'TaskInstructionAdded',
+        payload: {
+          taskId,
+          instruction,
+          authorActorId: this.#currentActorId
+        }
+      }
+    ])
+  }
+
   // ============================================================================
   // Private Methods
   // ============================================================================
 
-  #reduceTasksProjection(state: TasksProjectionState, event: StoredEvent): TasksProjectionState {
-    const tasks = state.tasks
+  // Check if state transition is valid
+  #canTransition(currentStatus: string, eventType: string): boolean {
+    // TaskInstructionAdded is a universal wake-up signal (7.1 requirement)
+    if (eventType === 'TaskInstructionAdded') return true 
+    
+    switch (currentStatus) {
+      case 'open':
+        return ['TaskStarted', 'TaskCanceled'].includes(eventType)
+      case 'in_progress':
+        // TaskStarted allowed for idempotent restarts
+        return ['UserInteractionRequested', 'TaskCompleted', 'TaskFailed', 'TaskCanceled', 'TaskPaused', 'TaskInstructionAdded', 'TaskStarted'].includes(eventType)
+      case 'awaiting_user':
+        return ['UserInteractionResponded', 'TaskCanceled'].includes(eventType)
+      case 'paused':
+        return ['TaskResumed', 'TaskCanceled'].includes(eventType)
+      case 'done':
+      case 'failed':
+      case 'canceled':
+        // Allow restart via TaskStarted (re-execution)
+        return ['TaskStarted'].includes(eventType)
+      default:
+        return false
+    }
+  }
 
-    const findTaskIndex = (taskId: string): number => tasks.findIndex((t) => t.taskId === taskId)
+  // Reducer for tasks projection
+  #reduceTasksProjection(state: TasksProjectionState, event: StoredEvent): TasksProjectionState {
+    const tasks = [...state.tasks]
+    const findTaskIndex = (id: string) => tasks.findIndex(t => t.taskId === id)
 
     switch (event.type) {
       case 'TaskCreated': {
-        const idx = findTaskIndex(event.payload.taskId)
-        if (idx !== -1) return state
-
         tasks.push({
           taskId: event.payload.taskId,
           title: event.payload.title,
@@ -143,30 +213,36 @@ export class TaskService {
           createdAt: event.createdAt,
           updatedAt: event.createdAt
         })
-        return state
+        return { tasks }
       }
       case 'TaskStarted': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+        
         task.status = 'in_progress'
         task.updatedAt = event.createdAt
-        return state
+        return { tasks }
       }
       case 'UserInteractionRequested': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
         task.status = 'awaiting_user'
         task.pendingInteractionId = event.payload.interactionId
         task.lastInteractionId = event.payload.interactionId
         task.updatedAt = event.createdAt
-        return state
+        return { tasks }
       }
       case 'UserInteractionResponded': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
         // Only clear if this response is for the pending interaction
         if (task.pendingInteractionId === event.payload.interactionId) {
           task.status = 'in_progress'
@@ -174,34 +250,72 @@ export class TaskService {
         }
         task.lastInteractionId = event.payload.interactionId
         task.updatedAt = event.createdAt
-        return state
+        return { tasks }
       }
       case 'TaskCompleted': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
         task.status = 'done'
         task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
-        return state
+        return { tasks }
       }
       case 'TaskFailed': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
         task.status = 'failed'
         task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
-        return state
+        return { tasks }
       }
       case 'TaskCanceled': {
         const idx = findTaskIndex(event.payload.taskId)
         if (idx === -1) return state
         const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
         task.status = 'canceled'
         task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
-        return state
+        return { tasks }
+      }
+      case 'TaskPaused': {
+        const idx = findTaskIndex(event.payload.taskId)
+        if (idx === -1) return state
+        const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
+        task.status = 'paused'
+        task.updatedAt = event.createdAt
+        return { tasks }
+      }
+      case 'TaskResumed': {
+        const idx = findTaskIndex(event.payload.taskId)
+        if (idx === -1) return state
+        const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
+        task.status = 'in_progress'
+        task.updatedAt = event.createdAt
+        return { tasks }
+      }
+      case 'TaskInstructionAdded': {
+        const idx = findTaskIndex(event.payload.taskId)
+        if (idx === -1) return state
+        const task = tasks[idx]!
+        if (!this.#canTransition(task.status, event.type)) return state
+
+        // If task was done/failed/canceled/paused, move back to in_progress
+        // If already in_progress, stay in_progress
+        task.status = 'in_progress'
+        task.updatedAt = event.createdAt
+        return { tasks }
       }
       default:
         return state
