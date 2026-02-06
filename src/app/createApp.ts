@@ -1,5 +1,6 @@
 import { join, resolve } from 'node:path'
 import type { EventStore } from '../domain/ports/eventStore.js'
+import type { ArtifactStore } from '../domain/ports/artifactStore.js'
 import type { ToolRegistry, ToolExecutor } from '../domain/ports/tool.js'
 import type { AuditLog } from '../domain/ports/auditLog.js'
 import type { ConversationStore } from '../domain/ports/conversationStore.js'
@@ -7,6 +8,7 @@ import type { LLMClient } from '../domain/ports/llmClient.js'
 import type { UiBus } from '../domain/ports/uiBus.js'
 import type { Agent } from '../agents/agent.js'
 import { JsonlEventStore } from '../infra/jsonlEventStore.js'
+import { FsArtifactStore } from '../infra/fsArtifactStore.js'
 import { JsonlAuditLog } from '../infra/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../infra/jsonlConversationStore.js'
 import { DefaultToolRegistry } from '../infra/toolRegistry.js'
@@ -55,6 +57,7 @@ export type App = {
   
   // Infrastructure
   store: EventStore
+  artifactStore: ArtifactStore
   auditLog: AuditLog
   conversationStore: ConversationStore
   telemetry: TelemetrySink
@@ -109,6 +112,9 @@ export function createApp(opts: CreateAppOptions): App {
   const eventsPath = opts.eventsPath ?? join(baseDir, '.coauthor', 'events.jsonl')
   const store = new JsonlEventStore({ eventsPath, projectionsPath: opts.projectionsPath })
   store.ensureSchema()
+
+  // Artifact Store (File access)
+  const artifactStore = new FsArtifactStore(baseDir)
 
   // Audit Log (Agent ↔ Tools/Files)
   const auditLogPath = opts.auditLogPath ?? join(baseDir, '.coauthor', 'audit.jsonl')
@@ -166,6 +172,7 @@ export function createApp(opts: CreateAppOptions): App {
   const agentRuntime = new AgentRuntime({
     store,
     conversationStore,
+    artifactStore,
     auditLog,
     uiBus,
     telemetry,
@@ -185,6 +192,7 @@ export function createApp(opts: CreateAppOptions): App {
     conversationsPath,
     // Infrastructure
     store,
+    artifactStore,
     auditLog,
     conversationStore,
     telemetry,

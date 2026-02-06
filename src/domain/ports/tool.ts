@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import type { ArtifactStore } from './artifactStore.js'
 
 // ============================================================================
 // Tool Call Types
@@ -65,6 +66,7 @@ export type ToolContext = {
   taskId: string
   actorId: string
   baseDir: string
+  artifactStore: ArtifactStore
   /**
    * For risky tools: the interactionId of the UIP confirmation.
    * If a risky tool is called without this, the executor should reject.

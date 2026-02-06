@@ -1,5 +1,6 @@
 import type { Subscription } from 'rxjs'
 import type { EventStore } from '../domain/ports/eventStore.js'
+import type { ArtifactStore } from '../domain/ports/artifactStore.js'
 import type { LLMClient, LLMMessage } from '../domain/ports/llmClient.js'
 import type { ToolRegistry, ToolExecutor, ToolResult } from '../domain/ports/tool.js'
 import type { ConversationStore } from '../domain/ports/conversationStore.js'
@@ -31,6 +32,7 @@ import type { Agent, AgentContext, AgentOutput } from './agent.js'
 export class AgentRuntime {
   readonly #store: EventStore
   readonly #conversationStore: ConversationStore
+  readonly #artifactStore: ArtifactStore
   readonly #auditLog: AuditLog
   readonly #telemetry: TelemetrySink
   readonly #uiBus: UiBus | null
@@ -51,6 +53,7 @@ export class AgentRuntime {
   constructor(opts: {
     store: EventStore
     conversationStore: ConversationStore
+    artifactStore: ArtifactStore
     auditLog: AuditLog
     uiBus?: UiBus
     telemetry?: TelemetrySink
@@ -64,6 +67,7 @@ export class AgentRuntime {
   }) {
     this.#store = opts.store
     this.#conversationStore = opts.conversationStore
+    this.#artifactStore = opts.artifactStore
     this.#auditLog = opts.auditLog
     this.#telemetry = opts.telemetry ?? { emit: () => {} }
     this.#uiBus = opts.uiBus ?? null
@@ -413,7 +417,8 @@ export class AgentRuntime {
           taskId,
           actorId: this.#agent.id,
           baseDir: this.#baseDir,
-          confirmedInteractionId: context.confirmedInteractionId
+          confirmedInteractionId: context.confirmedInteractionId,
+          artifactStore: this.#artifactStore
         }
         const result = await this.#toolExecutor.execute(output.call, toolContext)
         // Inject result back into context for agent to use
@@ -572,6 +577,7 @@ export class AgentRuntime {
           taskId,
           actorId: this.#agent.id,
           baseDir: this.#baseDir,
+          artifactStore: this.#artifactStore,
         }
       )
 
