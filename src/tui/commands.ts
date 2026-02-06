@@ -11,6 +11,9 @@ export type ReplayEntry = {
   bold?: boolean
 }
 
+const TOOL_OUTPUT_MAX = 200
+const TOOL_OUTPUT_SUFFIX = '...(truncated)'
+
 export type CommandContext = {
   app: App
   refresh: () => Promise<void>
@@ -288,7 +291,13 @@ function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
     }
   } else if (message.role === 'user') {
     if (message.content) {
-      entries.push({ variant: 'markdown', content: message.content, prefix: '> ' })
+      entries.push({
+        variant: 'markdown',
+        content: message.content,
+        prefix: '← ',
+        color: 'white',
+        bold: true
+      })
     }
   } else if (message.role === 'assistant') {
     if (message.reasoning) {
@@ -296,12 +305,18 @@ function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
         variant: 'plain',
         content: message.reasoning,
         prefix: '󰧑 ',
-        color: 'yellow',
+        color: 'gray',
         dim: true
       })
     }
     if (message.content) {
-      entries.push({ variant: 'markdown', content: message.content, prefix: '󰍥 ' })
+      entries.push({
+        variant: 'markdown',
+        content: message.content,
+        prefix: '→ ',
+        color: 'green',
+        bold: true
+      })
     }
     if (message.toolCalls) {
       for (const toolCall of message.toolCalls) {
@@ -310,7 +325,7 @@ function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
           variant: 'plain',
           content: `${toolCall.toolName} ${args}`,
           prefix: ' → ',
-          color: 'cyan',
+          color: 'gray',
           dim: true
         })
       }
@@ -318,16 +333,48 @@ function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
   } else if (message.role === 'tool') {
     const toolName = message.toolName ?? 'unknown'
     const content = message.content ?? ''
+    const formatted = formatToolContent(content)
+    const prefix = formatted.isError ? ' ✖ ' : ' ✓ '
+    const color = formatted.isError ? 'red' : 'gray'
+    const bold = formatted.isError
     entries.push({
       variant: 'plain',
-      content: `${toolName} result: ${content}`,
-      prefix: ' ✓ ',
-      color: 'cyan',
-      dim: true
+      content: `${toolName} result: ${formatted.display}`,
+      prefix,
+      color,
+      bold,
+      dim: !formatted.isError
     })
   }
 
   return entries
+}
+
+function formatToolContent(content: string): { display: string; isError: boolean } {
+  const parsed = tryParseJson(content)
+  if (typeof parsed === 'string') {
+    return { display: truncateLongString(parsed), isError: false }
+  }
+  if (parsed && typeof parsed === 'object') {
+    const record = parsed as Record<string, unknown>
+    const isError = record.isError === true || typeof record.error === 'string'
+    return { display: JSON.stringify(parsed), isError }
+  }
+  return { display: String(parsed), isError: false }
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+function truncateLongString(value: string): string {
+  if (value.length <= TOOL_OUTPUT_MAX) return value
+  const sliceLength = Math.max(0, TOOL_OUTPUT_MAX - TOOL_OUTPUT_SUFFIX.length)
+  return value.slice(0, sliceLength) + TOOL_OUTPUT_SUFFIX
 }
 
 function readConversationRawLines(path: string): string[] {

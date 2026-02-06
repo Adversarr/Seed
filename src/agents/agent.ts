@@ -76,15 +76,8 @@ export type AgentContext = {
    */
   readonly conversationHistory: readonly LLMMessage[]
   
-  /** Response to a pending interaction (if resuming) */
+  /** Response to a pending interaction (if resuming from a generic UIP) */
   readonly pendingInteractionResponse?: UserInteractionRespondedPayload
-  
-  /**
-   * Confirmed interaction ID for risky tool execution.
-   * Set when resuming after a confirm_risky_action UIP response.
-   * Read-only — managed by the Runtime.
-   */
-  readonly confirmedInteractionId?: string
 
   /**
    * Persist a message to conversation history.

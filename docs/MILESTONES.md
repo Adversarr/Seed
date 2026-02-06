@@ -160,14 +160,16 @@ npm run dev -- task create "Make this section sound more academic" --file chapte
 
 ---
 
-## M3: Tool Safety and Conflict Resolution (JIT)
+## M3: Tool Safety and Conflict Resolution (JIT) 🟡 Almost Done
 
-> **Goal**: If a user manually modifies a file while the Agent is working, the system will not blindly overwrite it; conflicts are resolved via tool failure + UIP guidance rather than Patch events.
+> **Goal**: If a user manually modifies a file while the Agent is working, the system avoids blind overwrites; edit conflicts surface as tool failures and the agent re-reads and retries using the latest content, with UIP confirmation still required for risky writes.
 
 ### Design Decisions
 
-- ✅ **Tool-side JIT Validation**: File-writing Tool Use supports expectedRevision/atomic write strategy; fails directly and logs to AuditLog if it doesn't match.
-- ✅ **Interaction Guidance**: Agent asks the user for the next step via UIP (retry/abandon/change strategy/terminate task).
+- ✅ **Tool-side JIT Validation**: File-writing uses read-modify-write with strict content matching; stale edits fail and are logged to AuditLog.
+- ✅ **Auto Re-read + Retry**: On conflict, the agent re-reads and retries once using the latest content without asking the user to restate the request.
+- ✅ **UIP Still Required**: Risky edits still require explicit UIP confirmation before execution.
+- 🟡 **Manual Resume Needed**: After a UIP pause or conflict, the user may need to resume the agent manually to continue the task loop.
 - ❌ **No Hard Dependency on FileWatcher**: Background monitoring is not used as a source of truth for consistency (optional enhancement only for "early stop/token saving").
 
 ---

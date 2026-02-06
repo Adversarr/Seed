@@ -3,7 +3,6 @@ import type { TaskView } from '../application/taskService.js'
 import type { ContextBuilder } from '../application/contextBuilder.js'
 import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { ToolCallRequest } from '../domain/ports/tool.js'
-import { buildConfirmInteraction } from './displayBuilder.js'
 
 // ============================================================================
 // Default CoAuthor Agent - Tool Use Workflow
@@ -12,14 +11,13 @@ import { buildConfirmInteraction } from './displayBuilder.js'
 /**
  * Default CoAuthor Agent.
  *
- * Implements the UIP + Tool Use workflow:
+ * Implements the Tool Use workflow:
  * 1. Enter tool loop: call LLM → yield tool calls → repeat
- * 2. Handle risky tools via UIP confirmation
- * 3. Complete or fail task
+ * 2. Complete or fail task
  *
- * Tool execution is handled by the Runtime — the agent simply yields
- * `{ kind: 'tool_call' }` and the result appears in `conversationHistory`
- * as a `role: 'tool'` message on the next iteration.
+ * The agent is risk-unaware. It yields `{ kind: 'tool_call' }` for every
+ * tool. The Runtime/OutputHandler intercepts risky tools and handles UIP
+ * confirmation before execution — agents never need to know about risk.
  */
 export class DefaultCoAuthorAgent implements Agent {
   readonly id = 'agent_coauthor_default'
@@ -41,7 +39,11 @@ export class DefaultCoAuthorAgent implements Agent {
 
   /**
    * Process any pending tool calls from previous execution (e.g. after resume).
-   * Checks for missing tool results in history and executes/rejects them.
+   *
+   * The agent is risk-unaware — it simply yields `tool_call` for every
+   * pending call. The Runtime/OutputHandler handles UIP confirmation.
+   * Rejection results are already injected into history by Runtime before
+   * agent.run() is called, so we only re-execute calls with no result.
    */
   async *#processPendingToolCalls(context: AgentContext): AsyncGenerator<AgentOutput> {
     const lastMessage = context.conversationHistory[context.conversationHistory.length - 1]
@@ -63,25 +65,7 @@ export class DefaultCoAuthorAgent implements Agent {
         continue
       }
 
-      if (tool.riskLevel === 'risky') {
-        if (context.confirmedInteractionId) {
-          yield* this.#executeToolCall(toolCall)
-        } else if (context.pendingInteractionResponse) {
-          // Response exists but not approval → rejection
-          yield { kind: 'verbose', content: `Skipping tool ${toolCall.toolName}: User rejected.` }
-          context.persistMessage({
-            role: 'tool',
-            toolCallId: toolCall.toolCallId,
-            toolName: toolCall.toolName,
-            content: JSON.stringify({ isError: true, error: 'User rejected the request' })
-          })
-        } else {
-          // No response yet → request confirmation
-          yield { kind: 'interaction', request: buildConfirmInteraction(toolCall) }
-        }
-      } else {
-        yield* this.#executeToolCall(toolCall)
-      }
+      yield* this.#executeToolCall(toolCall)
     }
   }
 
@@ -143,7 +127,7 @@ export class DefaultCoAuthorAgent implements Agent {
         return
       }
 
-      // Process tool calls
+      // Process tool calls — agent is risk-unaware, just yield them all
       for (const toolCall of llmResponse.toolCalls) {
         const tool = context.tools.get(toolCall.toolName)
         if (!tool) {
@@ -151,16 +135,7 @@ export class DefaultCoAuthorAgent implements Agent {
           continue
         }
 
-        if (tool.riskLevel === 'risky') {
-          if (context.confirmedInteractionId) {
-            yield* this.#executeToolCall(toolCall)
-          } else {
-            yield { kind: 'interaction', request: buildConfirmInteraction(toolCall) }
-            return // Pause for confirmation
-          }
-        } else {
-          yield* this.#executeToolCall(toolCall)
-        }
+        yield* this.#executeToolCall(toolCall)
       }
     }
 

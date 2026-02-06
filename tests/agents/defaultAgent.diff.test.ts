@@ -61,32 +61,30 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
     persistMessage: vi.fn()
   }
 
-  it('should generate Diff for editFile in interaction request', async () => {
+  it('should yield tool_call for risky editFile (agent is risk-unaware)', async () => {
     const generator = agent.run(mockTask, mockContext)
     
     // 1. Verbose yield (Calling LLM...)
     let result = await generator.next()
     expect(result.value).toMatchObject({ kind: 'verbose' })
 
-    // 2. Interaction yield (Confirm)
+    // 2. Verbose yield (Executing tool...)
     result = await generator.next()
-    
+    expect(result.value).toMatchObject({ kind: 'verbose', content: expect.stringContaining('Executing tool') })
+
+    // 3. tool_call yield — agent doesn't know about risk, just yields it
+    result = await generator.next()
     expect(result.value).toMatchObject({
-      kind: 'interaction',
-      request: {
-        kind: 'Confirm',
-        purpose: 'confirm_risky_action',
-        display: {
-          contentKind: 'Diff'
+      kind: 'tool_call',
+      call: {
+        toolCallId: 'call_1',
+        toolName: 'editFile',
+        arguments: {
+          path: 'test.txt',
+          oldString: 'Hello World',
+          newString: 'Hello CoAuthor'
         }
       }
     })
-
-    const request = (result.value as any).request
-    expect(request.display.description).toContain('edit file: test.txt')
-    expect(request.display.content).toContain('--- test.txt')
-    expect(request.display.content).toContain('+++ test.txt')
-    expect(request.display.content).toContain('-Hello World')
-    expect(request.display.content).toContain('+Hello CoAuthor')
   })
 })

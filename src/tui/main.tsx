@@ -29,6 +29,9 @@ type MarkdownStaticEntry = {
   variant: 'markdown'
   prefix?: string
   content: string
+  color?: string
+  dim?: boolean
+  bold?: boolean
 }
 
 type StaticEntry = PlainStaticEntry | MarkdownStaticEntry
@@ -92,13 +95,19 @@ export function MainTui(props: Props) {
     })
   }
 
-  const addMarkdownLog = (content: string, options: { prefix?: string } = {}): void => {
+  const addMarkdownLog = (
+    content: string,
+    options: { prefix?: string; color?: string; dim?: boolean; bold?: boolean } = {}
+  ): void => {
     setCompletedEntries((previousEntries) => {
       const nextEntry: MarkdownStaticEntry = {
         id: `${Date.now()}-${logSequence.current++}`,
         variant: 'markdown',
         prefix: options.prefix,
-        content
+        content,
+        color: options.color,
+        dim: options.dim,
+        bold: options.bold
       }
       const nextEntries = [...previousEntries, nextEntry]
       return nextEntries.slice(-2000)
@@ -108,7 +117,12 @@ export function MainTui(props: Props) {
   const setReplayOutput = (entries: ReplayEntry[]): void => {
     for (const entry of entries) {
       if (entry.variant === 'markdown') {
-        addMarkdownLog(entry.content, { prefix: entry.prefix })
+        addMarkdownLog(entry.content, {
+          prefix: entry.prefix,
+          color: entry.color,
+          dim: entry.dim,
+          bold: entry.bold
+        })
       } else {
         addPlainLog(entry.content, {
           prefix: entry.prefix,
@@ -181,20 +195,24 @@ export function MainTui(props: Props) {
     const uiBusSub = app.uiBus.events$.subscribe((event) => {
       if (event.type === 'agent_output') {
         if (event.payload.kind === 'reasoning') {
-          addPlainLog(event.payload.content, { prefix: '󰧑 ', color: 'yellow', dim: true })
+          addPlainLog(event.payload.content, { prefix: '󰧑 ', color: 'gray', dim: true })
         } else if (event.payload.kind === 'verbose') {
           if (showVerboseRef.current) {
-            addPlainLog(event.payload.content, { prefix: '· ', color: 'cyan', dim: true })
+            addPlainLog(event.payload.content, { prefix: '· ', color: 'gray', dim: true })
           }
         } else if (event.payload.kind === 'error') {
-          addPlainLog(event.payload.content, { prefix: '⚠ ', color: 'red', bold: true })
+          addPlainLog(event.payload.content, { prefix: '✖ ', color: 'red', bold: true })
         } else {
-          addMarkdownLog(event.payload.content, { prefix: '󰍥 ' })
+          addMarkdownLog(event.payload.content, { prefix: '→ ', color: 'green', bold: true })
         }
       }
       if (event.type === 'audit_entry') {
-        const line = formatAuditEntry(event.payload)
-        addPlainLog(line, { color: 'cyan', dim: true })
+        const formatted = formatAuditEntry(event.payload)
+        addPlainLog(formatted.line, {
+          color: formatted.color,
+          dim: formatted.dim,
+          bold: formatted.bold
+        })
       }
     })
     return () => {
@@ -300,7 +318,7 @@ export function MainTui(props: Props) {
                 </Text>
               ))
             ) : (
-              <Text>
+              <Text color={entry.color} dimColor={entry.dim} bold={entry.bold}>
                 {entry.prefix ?? ''}
                 {renderMarkdownToTerminalText(entry.content, columns - 4)}
               </Text>
@@ -398,20 +416,48 @@ function getStatusIcon(status: string): string {
   }
 }
 
-function formatAuditEntry(entry: StoredAuditEntry): string {
+function formatAuditEntry(entry: StoredAuditEntry): {
+  line: string
+  color?: string
+  dim?: boolean
+  bold?: boolean
+} {
   if (entry.type === 'ToolCallRequested') {
-    const input = truncateJson(entry.payload.input, 200)
-    return ` → ${entry.payload.toolName} ${input}`
+    const input = formatToolPayload(entry.payload.input, 200)
+    return {
+      line: ` → ${entry.payload.toolName} ${input}`,
+      color: 'gray',
+      dim: true
+    }
   }
-  const result = entry.payload.isError ? 'error' : 'ok'
-  const output = truncateJson(entry.payload.output, 200)
-  return ` ✓ ${entry.payload.toolName} ${result} (${entry.payload.durationMs}ms) ${output}`
+  const output = formatToolPayload(entry.payload.output, 200)
+  if (entry.payload.isError) {
+    return {
+      line: ` ✖ ${entry.payload.toolName} error (${entry.payload.durationMs}ms) ${output}`,
+      color: 'red',
+      bold: true
+    }
+  }
+  return {
+    line: ` ✓ ${entry.payload.toolName} ok (${entry.payload.durationMs}ms) ${output}`,
+    color: 'gray',
+    dim: true
+  }
 }
 
-function truncateJson(value: unknown, maxLength: number): string {
+function formatToolPayload(value: unknown, maxLength: number): string {
+  if (typeof value === 'string') {
+    return truncateLongString(value, maxLength)
+  }
   const raw = JSON.stringify(value)
-  if (raw.length <= maxLength) return raw
-  return raw.slice(0, maxLength) + '…'
+  return typeof raw === 'string' ? raw : String(value)
+}
+
+function truncateLongString(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  const suffix = '...(truncated)'
+  const sliceLength = Math.max(0, maxLength - suffix.length)
+  return value.slice(0, sliceLength) + suffix
 }
 
 function createSeparatorLine(columns: number): string {

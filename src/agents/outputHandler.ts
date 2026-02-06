@@ -6,6 +6,7 @@ import type { DomainEvent } from '../domain/events.js'
 import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { AgentOutput } from './agent.js'
 import type { ConversationManager } from './conversationManager.js'
+import { buildConfirmInteraction } from './displayBuilder.js'
 
 // ============================================================================
 // Output Handler
@@ -96,6 +97,25 @@ export class OutputHandler {
       case 'tool_call': {
         const tool = this.#toolRegistry.get(output.call.toolName)
         const isRisky = tool?.riskLevel === 'risky'
+
+        // Risky tool without confirmation → emit UIP request, pause execution
+        if (isRisky && !ctx.confirmedInteractionId) {
+          const confirmReq = buildConfirmInteraction(output.call)
+          const event: DomainEvent = {
+            type: 'UserInteractionRequested',
+            payload: {
+              taskId: ctx.taskId,
+              interactionId: confirmReq.interactionId,
+              kind: confirmReq.kind,
+              purpose: confirmReq.purpose,
+              display: confirmReq.display,
+              options: confirmReq.options,
+              validation: confirmReq.validation,
+              authorActorId: ctx.agentId
+            }
+          }
+          return { event, pause: true }
+        }
 
         const toolContext = {
           taskId: ctx.taskId,

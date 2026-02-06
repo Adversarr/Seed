@@ -6,7 +6,7 @@ import type { TaskView } from '../../src/application/taskService.js'
 import type { ToolRegistry, Tool } from '../../src/domain/ports/tool.js'
 import type { LLMClient, LLMMessage } from '../../src/domain/ports/llmClient.js'
 
-describe('DefaultCoAuthorAgent Rejection Handling', () => {
+describe('DefaultCoAuthorAgent - Risk-Unaware Behavior', () => {
   const contextBuilder = new ContextBuilder('/tmp')
   const agent = new DefaultCoAuthorAgent({ contextBuilder })
 
@@ -45,8 +45,9 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
     stream: vi.fn()
   }
 
-  it('should handle tool rejection on resume', async () => {
-    // Setup history with pending tool call
+  it('should skip pending tool calls that already have rejection results (injected by Runtime)', async () => {
+    // Runtime injects rejection results before calling agent.run(),
+    // so history already contains the tool result when agent sees it.
     const history: LLMMessage[] = [
       { role: 'system', content: 'sys' },
       { role: 'user', content: 'task' },
@@ -57,6 +58,12 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
           toolName: 'riskyTool',
           arguments: {}
         }]
+      },
+      {
+        role: 'tool',
+        toolCallId: 'call_1',
+        toolName: 'riskyTool',
+        content: JSON.stringify({ isError: true, error: 'User rejected the request' })
       }
     ]
 
@@ -67,38 +74,18 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
       tools: mockTools,
       baseDir: '/tmp',
       conversationHistory: history,
-      persistMessage,
-      pendingInteractionResponse: {
-        interactionId: 'ui_1',
-        selectedOptionId: 'reject', // User rejected
-        payload: {}
-      },
-      confirmedInteractionId: undefined // Not approved
+      persistMessage
     }
 
     const generator = agent.run(mockTask, mockContext)
 
-    // 1. Expect text yield "Skipping tool..."
+    // The pending call already has a result → agent skips it and enters LLM loop
     const result1 = await generator.next()
-    expect(result1.value).toMatchObject({ 
-      kind: 'verbose',
-      content: expect.stringContaining('User rejected')
-    })
-
-    // 2. Expect iteration verbose (this advances the generator past the persistMessage call)
-    const result2 = await generator.next()
-    expect(result2.value).toMatchObject({ kind: 'verbose', content: expect.stringContaining('Iteration') })
-
-    // Now expect persisted rejection message
-    expect(persistMessage).toHaveBeenCalledWith(expect.objectContaining({
-      role: 'tool',
-      toolCallId: 'call_1',
-      content: expect.stringContaining('User rejected')
-    }))
+    expect(result1.value).toMatchObject({ kind: 'verbose', content: expect.stringContaining('Iteration') })
   })
 
-  it('should handle tool approval on resume', async () => {
-    // Setup history with pending tool call
+  it('should yield tool_call for pending risky tool (risk-unaware)', async () => {
+    // History has a dangling risky tool call with no result
     const history: LLMMessage[] = [
       { role: 'system', content: 'sys' },
       { role: 'user', content: 'task' },
@@ -119,13 +106,7 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
       tools: mockTools,
       baseDir: '/tmp',
       conversationHistory: history,
-      persistMessage,
-      pendingInteractionResponse: {
-        interactionId: 'ui_1',
-        selectedOptionId: 'approve', 
-        payload: {}
-      },
-      confirmedInteractionId: 'ui_1' // Approved
+      persistMessage
     }
 
     const generator = agent.run(mockTask, mockContext)
@@ -137,7 +118,7 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
       content: expect.stringContaining('Executing tool')
     })
 
-    // 2. Expect tool_call
+    // 2. Expect tool_call — agent doesn't know it's risky
     const result2 = await generator.next()
     expect(result2.value).toMatchObject({ 
       kind: 'tool_call',

@@ -23,30 +23,9 @@ export class DefaultToolExecutor implements ToolExecutor {
   }
 
   async execute(call: ToolCallRequest, ctx: ToolContext): Promise<ToolResult> {
-    const tool = this.#registry.get(call.toolName)
-    if (!tool) {
-      return {
-        toolCallId: call.toolCallId,
-        output: { error: `Unknown tool: ${call.toolName}` },
-        isError: true
-      }
-    }
-
-    // Risk check: risky tools require explicit UIP confirmation
-    if (tool.riskLevel === 'risky' && !ctx.confirmedInteractionId) {
-      return {
-        toolCallId: call.toolCallId,
-        output: {
-          error: `Tool '${call.toolName}' is risky and requires user confirmation via UIP before execution. ` +
-            `Agent must first emit UserInteractionRequested(purpose='confirm_risky_action') and receive confirmation.`
-        },
-        isError: true
-      }
-    }
-
     const startTime = Date.now()
 
-    // Log the request
+    // Always log tool calls, even if we fail before execution.
     this.#auditLog.append({
       type: 'ToolCallRequested',
       payload: {
@@ -58,6 +37,45 @@ export class DefaultToolExecutor implements ToolExecutor {
         timestamp: startTime
       }
     })
+
+    const finalize = (result: ToolResult): ToolResult => {
+      const endTime = Date.now()
+      this.#auditLog.append({
+        type: 'ToolCallCompleted',
+        payload: {
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          authorActorId: ctx.actorId,
+          taskId: ctx.taskId,
+          output: result.output,
+          isError: result.isError,
+          durationMs: endTime - startTime,
+          timestamp: endTime
+        }
+      })
+      return result
+    }
+
+    const tool = this.#registry.get(call.toolName)
+    if (!tool) {
+      return finalize({
+        toolCallId: call.toolCallId,
+        output: { error: `Unknown tool: ${call.toolName}` },
+        isError: true
+      })
+    }
+
+    // Risk check: risky tools require explicit UIP confirmation
+    if (tool.riskLevel === 'risky' && !ctx.confirmedInteractionId) {
+      return finalize({
+        toolCallId: call.toolCallId,
+        output: {
+          error: `Tool '${call.toolName}' is risky and requires user confirmation via UIP before execution. ` +
+            `Agent must first emit UserInteractionRequested(purpose='confirm_risky_action') and receive confirmation.`
+        },
+        isError: true
+      })
+    }
 
     // Execute the tool
     let result: ToolResult
@@ -73,24 +91,7 @@ export class DefaultToolExecutor implements ToolExecutor {
       }
     }
 
-    const endTime = Date.now()
-
-    // Log the completion
-    this.#auditLog.append({
-      type: 'ToolCallCompleted',
-      payload: {
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        authorActorId: ctx.actorId,
-        taskId: ctx.taskId,
-        output: result.output,
-        isError: result.isError,
-        durationMs: endTime - startTime,
-        timestamp: endTime
-      }
-    })
-
-    return result
+    return finalize(result)
   }
 }
 
