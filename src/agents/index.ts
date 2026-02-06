@@ -7,3 +7,6 @@
 export * from './agent.js'
 export * from './defaultAgent.js'
 export * from './runtime.js'
+export * from './displayBuilder.js'
+export * from './conversationManager.js'
+export * from './outputHandler.js'

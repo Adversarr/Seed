@@ -1,7 +1,7 @@
 import type { UserInteractionRespondedPayload } from '../domain/events.js'
 import type { TaskView } from '../application/taskService.js'
 import type { LLMClient, LLMMessage } from '../domain/ports/llmClient.js'
-import type { ToolRegistry, ToolCallRequest, ToolResult } from '../domain/ports/tool.js'
+import type { ToolRegistry, ToolCallRequest } from '../domain/ports/tool.js'
 import type { InteractionRequest } from '../application/interactionService.js'
 
 // ============================================================================
@@ -23,6 +23,14 @@ export type AgentInteractionRequest = InteractionRequest & {
 /**
  * AgentOutput represents what an Agent yields during execution.
  * The AgentRuntime interprets these outputs and takes appropriate actions.
+ *
+ * When an agent yields `tool_call`, control transfers to the Runtime which:
+ * 1. Executes the tool via ToolExecutor
+ * 2. Persists the tool-result message into conversationHistory
+ * 3. Returns control to the agent generator
+ *
+ * The agent does NOT need to read tool results explicitly — they appear
+ * in `conversationHistory` as `role: 'tool'` messages for the next LLM call.
  */
 export type AgentOutput =
   | { kind: 'text'; content: string }
@@ -45,6 +53,11 @@ export type AgentOutput =
  * The Runtime manages conversation persistence via ConversationStore.
  * Agents should use `persistMessage()` to add messages to history,
  * which ensures they are both persisted and available in `conversationHistory`.
+ *
+ * Tool results are NOT exposed to agents via a Map. Instead, when an agent
+ * yields `{ kind: 'tool_call' }`, the Runtime executes the tool and persists
+ * the result into `conversationHistory`. The agent sees tool results as
+ * `role: 'tool'` messages on the next LLM call — single source of truth.
  */
 export type AgentContext = {
   /** LLM client for generating responses */
@@ -66,14 +79,12 @@ export type AgentContext = {
   /** Response to a pending interaction (if resuming) */
   readonly pendingInteractionResponse?: UserInteractionRespondedPayload
   
-  /** Results from tool calls (injected by runtime) */
-  readonly toolResults: Map<string, ToolResult>
-  
   /**
    * Confirmed interaction ID for risky tool execution.
    * Set when resuming after a confirm_risky_action UIP response.
+   * Read-only — managed by the Runtime.
    */
-  confirmedInteractionId?: string
+  readonly confirmedInteractionId?: string
 
   /**
    * Persist a message to conversation history.

@@ -10,8 +10,9 @@ import { JsonlConversationStore } from '../src/infra/jsonlConversationStore.js'
 import { DefaultToolRegistry } from '../src/infra/toolRegistry.js'
 import { DefaultToolExecutor } from '../src/infra/toolExecutor.js'
 import { TaskService } from '../src/application/taskService.js'
-import { InteractionService } from '../src/application/interactionService.js'
 import { AgentRuntime } from '../src/agents/runtime.js'
+import { ConversationManager } from '../src/agents/conversationManager.js'
+import { OutputHandler } from '../src/agents/outputHandler.js'
 import { DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
 
 class ImmediateDoneAgent implements Agent {
@@ -69,20 +70,40 @@ describe('AgentRuntime - context recovery', () => {
     const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
 
     const taskService = new TaskService(store, DEFAULT_USER_ACTOR_ID)
-    const interactionService = new InteractionService(store, DEFAULT_USER_ACTOR_ID)
+
+    const artifactStore = {
+      readFile: async () => '',
+      readFileRange: async () => '',
+      listDir: async () => [],
+      writeFile: async () => {}
+    }
 
     const agent = new ImmediateDoneAgent('agent_repair')
-    const runtime = new AgentRuntime({
-      store,
+
+    const conversationManager = new ConversationManager({
       conversationStore,
       auditLog,
+      toolRegistry,
+      toolExecutor,
+      artifactStore
+    })
+
+    const outputHandler = new OutputHandler({
+      toolExecutor,
+      toolRegistry,
+      artifactStore,
+      conversationManager
+    })
+
+    const runtime = new AgentRuntime({
+      store,
       taskService,
-      interactionService,
       agent,
       llm: { complete: async () => ({ stopReason: 'end_turn' }), stream: async function* () {} },
       toolRegistry,
-      toolExecutor,
       baseDir: dir,
+      conversationManager,
+      outputHandler
     })
 
     store.append('t1', [
@@ -157,20 +178,40 @@ describe('AgentRuntime - context recovery', () => {
     const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
 
     const taskService = new TaskService(store, DEFAULT_USER_ACTOR_ID)
-    const interactionService = new InteractionService(store, DEFAULT_USER_ACTOR_ID)
+
+    const artifactStore = {
+      readFile: async () => '',
+      readFileRange: async () => '',
+      listDir: async () => [],
+      writeFile: async () => {}
+    }
 
     const agent = new SingleToolCallAgent('agent_toolpersist')
-    const runtime = new AgentRuntime({
-      store,
+
+    const conversationManager = new ConversationManager({
       conversationStore,
       auditLog,
+      toolRegistry,
+      toolExecutor,
+      artifactStore
+    })
+
+    const outputHandler = new OutputHandler({
+      toolExecutor,
+      toolRegistry,
+      artifactStore,
+      conversationManager
+    })
+
+    const runtime = new AgentRuntime({
+      store,
       taskService,
-      interactionService,
       agent,
       llm: { complete: async () => ({ stopReason: 'end_turn' }), stream: async function* () {} },
       toolRegistry,
-      toolExecutor,
       baseDir: dir,
+      conversationManager,
+      outputHandler
     })
 
     store.append('t1', [

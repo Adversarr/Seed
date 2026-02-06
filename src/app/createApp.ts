@@ -18,6 +18,8 @@ import { createUiBus } from '../infra/subjectUiBus.js'
 import { TaskService, EventService, InteractionService, AuditService } from '../application/index.js'
 import { ContextBuilder } from '../application/contextBuilder.js'
 import { AgentRuntime } from '../agents/runtime.js'
+import { ConversationManager } from '../agents/conversationManager.js'
+import { OutputHandler } from '../agents/outputHandler.js'
 import { DefaultCoAuthorAgent } from '../agents/defaultAgent.js'
 import { FakeLLMClient } from '../infra/fakeLLMClient.js'
 import { OpenAILLMClient } from '../infra/openaiLLMClient.js'
@@ -169,20 +171,33 @@ export function createApp(opts: CreateAppOptions): App {
   
   const agent = opts.agent ?? new DefaultCoAuthorAgent({ contextBuilder })
 
+  const conversationManager = new ConversationManager({
+    conversationStore,
+    auditLog,
+    toolRegistry,
+    toolExecutor,
+    artifactStore,
+    telemetry
+  })
+
+  const outputHandler = new OutputHandler({
+    toolExecutor,
+    toolRegistry,
+    artifactStore,
+    uiBus,
+    conversationManager,
+    telemetry
+  })
+
   const agentRuntime = new AgentRuntime({
     store,
-    conversationStore,
-    artifactStore,
-    auditLog,
-    uiBus,
-    telemetry,
     taskService,
-    interactionService,
     agent,
     llm,
     toolRegistry,
-    toolExecutor,
-    baseDir
+    baseDir,
+    conversationManager,
+    outputHandler
   })
 
   return {

@@ -1,16 +1,12 @@
 import type { Subscription } from 'rxjs'
 import type { EventStore } from '../domain/ports/eventStore.js'
-import type { ArtifactStore } from '../domain/ports/artifactStore.js'
 import type { LLMClient, LLMMessage } from '../domain/ports/llmClient.js'
-import type { ToolRegistry, ToolExecutor, ToolResult } from '../domain/ports/tool.js'
-import type { ConversationStore } from '../domain/ports/conversationStore.js'
-import type { AuditLog } from '../domain/ports/auditLog.js'
-import type { TelemetrySink } from '../domain/ports/telemetry.js'
-import type { UiBus } from '../domain/ports/uiBus.js'
+import type { ToolRegistry } from '../domain/ports/tool.js'
 import type { DomainEvent, StoredEvent, UserInteractionRespondedPayload } from '../domain/events.js'
 import type { TaskService, TaskView } from '../application/taskService.js'
-import type { InteractionService } from '../application/interactionService.js'
 import type { Agent, AgentContext, AgentOutput } from './agent.js'
+import type { ConversationManager } from './conversationManager.js'
+import type { OutputHandler, OutputContext } from './outputHandler.js'
 
 // ============================================================================
 // Agent Runtime
@@ -19,66 +15,50 @@ import type { Agent, AgentContext, AgentOutput } from './agent.js'
 /**
  * AgentRuntime manages the execution of agents with UIP + Tool Use.
  *
- * It orchestrates the agent → tool → interaction → resume loop:
- * 1. Agent yields AgentOutput (text, tool_call, interaction, done, failed)
- * 2. Runtime interprets each output and takes action
- * 3. For tool_call: execute via ToolExecutor, inject result back
- * 4. For interaction: emit UIP event, wait for response
- * 5. For done/failed: emit TaskCompleted/TaskFailed event
+ * Responsibilities (after decomposition):
+ * - Event subscription and routing (TaskCreated, UIP responses, pause/resume, instructions)
+ * - Concurrency control (in-flight deduplication, pause tracking)
+ * - Task lifecycle (executeTask, resumeTask)
+ * - Agent loop orchestration (delegates output handling to OutputHandler)
  *
- * Conversation history is persisted via ConversationStore for state recovery
- * across UIP pauses, app restarts, and crashes.
+ * Conversation management → ConversationManager
+ * Output processing / tool execution → OutputHandler
  */
 export class AgentRuntime {
   readonly #store: EventStore
-  readonly #conversationStore: ConversationStore
-  readonly #artifactStore: ArtifactStore
-  readonly #auditLog: AuditLog
-  readonly #telemetry: TelemetrySink
-  readonly #uiBus: UiBus | null
   readonly #taskService: TaskService
-  readonly #interactionService: InteractionService
   readonly #agent: Agent
   readonly #llm: LLMClient
   readonly #toolRegistry: ToolRegistry
-  readonly #toolExecutor: ToolExecutor
   readonly #baseDir: string
+  readonly #conversationManager: ConversationManager
+  readonly #outputHandler: OutputHandler
 
   #isRunning = false
   #subscription: Subscription | null = null
-  #inFlight = new Set<string>() // Track in-flight task operations
-  #pausedTasks = new Set<string>() // Track paused tasks
+  #inFlight = new Set<string>()
+  #pausedTasks = new Set<string>()
   #queuedInstructionTasks = new Set<string>()
-  #pendingInstructions = new Map<string, string[]>() // Queue for instructions added during unsafe states
+  #pendingInstructions = new Map<string, string[]>()
 
   constructor(opts: {
     store: EventStore
-    conversationStore: ConversationStore
-    artifactStore: ArtifactStore
-    auditLog: AuditLog
-    uiBus?: UiBus
-    telemetry?: TelemetrySink
     taskService: TaskService
-    interactionService: InteractionService
     agent: Agent
     llm: LLMClient
     toolRegistry: ToolRegistry
-    toolExecutor: ToolExecutor
     baseDir: string
+    conversationManager: ConversationManager
+    outputHandler: OutputHandler
   }) {
     this.#store = opts.store
-    this.#conversationStore = opts.conversationStore
-    this.#artifactStore = opts.artifactStore
-    this.#auditLog = opts.auditLog
-    this.#telemetry = opts.telemetry ?? { emit: () => {} }
-    this.#uiBus = opts.uiBus ?? null
     this.#taskService = opts.taskService
-    this.#interactionService = opts.interactionService
     this.#agent = opts.agent
     this.#llm = opts.llm
     this.#toolRegistry = opts.toolRegistry
-    this.#toolExecutor = opts.toolExecutor
     this.#baseDir = opts.baseDir
+    this.#conversationManager = opts.conversationManager
+    this.#outputHandler = opts.outputHandler
   }
 
   /** The agent ID this runtime is responsible for */
@@ -86,11 +66,12 @@ export class AgentRuntime {
     return this.#agent.id
   }
 
+  // ======================== lifecycle ========================
+
   start(): void {
     if (this.#isRunning) return
     this.#isRunning = true
 
-    // Subscribe to event stream
     this.#subscription = this.#store.events$.subscribe({
       next: (event) => {
         void this.#handleEvent(event)
@@ -110,10 +91,12 @@ export class AgentRuntime {
     return this.#isRunning
   }
 
+  // ======================== event routing ========================
+
   async #handleEvent(event: StoredEvent): Promise<void> {
     if (!this.#isRunning) return
 
-    // Handle TaskCreated events assigned to this agent
+    // --- TaskCreated ---
     if (event.type === 'TaskCreated' && event.payload.agentId === this.#agent.id) {
       const taskId = event.payload.taskId
       if (this.#inFlight.has(taskId)) return
@@ -128,13 +111,9 @@ export class AgentRuntime {
       }
     }
 
-    // Handle UserInteractionResponded events for tasks assigned to this agent
+    // --- UserInteractionResponded ---
     if (event.type === 'UserInteractionResponded') {
       const task = this.#taskService.getTask(event.payload.taskId)
-      // Note: We don't check task.status === 'awaiting_user' because by the time
-      // the projection runs, it has already processed this UserInteractionResponded
-      // and set status to 'in_progress'. Instead, we rely on deduplication via
-      // inFlight set to avoid processing the same response twice.
       if (task && task.agentId === this.#agent.id) {
         const taskId = task.taskId
         const resumeKey = `resume:${taskId}:${event.id}`
@@ -151,7 +130,7 @@ export class AgentRuntime {
       }
     }
 
-    // Handle TaskPaused
+    // --- TaskPaused ---
     if (event.type === 'TaskPaused') {
       const task = this.#taskService.getTask(event.payload.taskId)
       if (task && task.agentId === this.#agent.id) {
@@ -159,13 +138,13 @@ export class AgentRuntime {
       }
     }
 
-    // Handle TaskResumed
+    // --- TaskResumed ---
     if (event.type === 'TaskResumed') {
       const task = this.#taskService.getTask(event.payload.taskId)
       if (task && task.agentId === this.#agent.id) {
         const taskId = task.taskId
         this.#pausedTasks.delete(taskId)
-        
+
         if (this.#inFlight.has(taskId)) return
         this.#inFlight.add(taskId)
 
@@ -179,31 +158,26 @@ export class AgentRuntime {
       }
     }
 
-    // Handle TaskInstructionAdded
+    // --- TaskInstructionAdded ---
     if (event.type === 'TaskInstructionAdded') {
       const task = this.#taskService.getTask(event.payload.taskId)
       if (task && task.agentId === this.#agent.id) {
         const taskId = task.taskId
-        this.#pausedTasks.delete(taskId) // Instruction implies resume
+        this.#pausedTasks.delete(taskId)
 
-        // Check if safe to inject immediately
-        const history = this.#conversationStore.getMessages(taskId)
-        if (this.#isConversationSafeToInject(history)) {
-          const message: LLMMessage = {
+        const history = this.#conversationManager.store.getMessages(taskId)
+        if (this.#conversationManager.isSafeToInject(history)) {
+          this.#conversationManager.store.append(taskId, {
             role: 'user',
             content: event.payload.instruction
-          }
-          this.#conversationStore.append(taskId, message)
+          } as LLMMessage)
         } else {
-          // Queue instruction
           const queue = this.#pendingInstructions.get(taskId) ?? []
           queue.push(event.payload.instruction)
           this.#pendingInstructions.set(taskId, queue)
         }
 
-        if (task.status === 'awaiting_user') {
-          return
-        }
+        if (task.status === 'awaiting_user') return
 
         if (this.#inFlight.has(taskId)) {
           this.#queuedInstructionTasks.add(taskId)
@@ -222,6 +196,8 @@ export class AgentRuntime {
     }
   }
 
+  // ======================== task execution ========================
+
   async #executeTaskAndDrainQueuedInstructions(taskId: string): Promise<void> {
     while (true) {
       await this.executeTask(taskId)
@@ -230,17 +206,14 @@ export class AgentRuntime {
       if (!task) return
       if (task.status === 'awaiting_user' || task.status === 'paused') return
 
-      // Check if we have queued instruction tasks OR pending instructions in queue
       const hasQueuedTask = this.#queuedInstructionTasks.has(taskId)
       const hasPendingInstructions = (this.#pendingInstructions.get(taskId)?.length ?? 0) > 0
-      
+
       if (!hasQueuedTask && !hasPendingInstructions) return
 
       this.#queuedInstructionTasks.delete(taskId)
 
       if (!this.#isRunning) return
-      // If paused, we stop (unless we are just draining instructions which implies resume? 
-      // No, TaskInstructionAdded removed pause. But if user paused again?)
       if (this.#pausedTasks.has(taskId)) return
     }
   }
@@ -256,66 +229,45 @@ export class AgentRuntime {
     if (!task) {
       throw new Error(`Task not found: ${taskId}`)
     }
-
-    // Verify this task is assigned to our agent
     if (task.agentId !== this.#agent.id) {
       throw new Error(`Task ${taskId} assigned to ${task.agentId}, not ${this.#agent.id}`)
     }
 
-    // Emit TaskStarted event
     const startedEvent: DomainEvent = {
       type: 'TaskStarted',
-      payload: {
-        taskId,
-        agentId: this.#agent.id,
-        authorActorId: this.#agent.id
-      }
+      payload: { taskId, agentId: this.#agent.id, authorActorId: this.#agent.id }
     }
     this.#store.append(taskId, [startedEvent])
 
     const emittedEvents: DomainEvent[] = [startedEvent]
-    
-    // Run the agent workflow
-    const result = await this.#runAgentLoop(task, emittedEvents)
-    return result
+    return this.#runAgentLoop(task, emittedEvents)
   }
 
   /**
    * Resume an agent workflow after user interaction response.
    */
   async resumeTask(
-    taskId: string, 
+    taskId: string,
     response: UserInteractionRespondedPayload
   ): Promise<{ taskId: string; events: DomainEvent[] }> {
     const task = this.#taskService.getTask(taskId)
     if (!task) {
       throw new Error(`Task not found: ${taskId}`)
     }
-
-    // Verify this task is assigned to our agent
     if (task.agentId !== this.#agent.id) {
       throw new Error(`Task ${taskId} assigned to ${task.agentId}, not ${this.#agent.id}`)
     }
 
-    const emittedEvents: DomainEvent[] = []
-    
-    // Run the agent workflow with the pending response
-    const result = await this.#runAgentLoop(task, emittedEvents, response)
-    return result
+    return this.#runAgentLoop(task, [], response)
   }
+
+  // ======================== agent loop ========================
 
   /**
    * Core agent execution loop.
-   * 
-   * Processes AgentOutput and takes appropriate action for each kind:
-   * - text: Log/display (no event emitted)
-   * - tool_call: Execute tool, inject result back
-   * - interaction: Emit UIP event, pause execution
-   * - done: Emit TaskCompleted
-   * - failed: Emit TaskFailed
    *
-   * Conversation history is loaded from ConversationStore at start and
-   * persisted after each LLM response/tool result for crash recovery.
+   * Loads conversation, builds AgentContext, runs the agent generator,
+   * and delegates each yielded output to the OutputHandler.
    */
   async #runAgentLoop(
     task: TaskView,
@@ -323,17 +275,19 @@ export class AgentRuntime {
     pendingResponse?: UserInteractionRespondedPayload
   ): Promise<{ taskId: string; events: DomainEvent[] }> {
     const taskId = task.taskId
-    
-    // Load persisted conversation history (enables resume across restarts)
-    const conversationHistory: LLMMessage[] = this.#conversationStore.getMessages(taskId)
-    await this.#repairConversationHistory(taskId, conversationHistory)
-    const toolResults = new Map<string, ToolResult>()
 
-    // If resuming from a confirm_risky_action response, track the confirmed interactionId
-    // so we can pass it to ToolExecutor for risky tool execution
+    // Load & repair conversation history
+    const conversationHistory = await this.#conversationManager.loadAndRepair(
+      taskId,
+      this.#agent.id,
+      this.#baseDir
+    )
+
     const confirmedInteractionId = pendingResponse?.selectedOptionId === 'approve'
       ? pendingResponse.interactionId
       : undefined
+
+    const persistMessage = this.#conversationManager.createPersistCallback(taskId, conversationHistory)
 
     const context: AgentContext = {
       llm: this.#llm,
@@ -341,54 +295,49 @@ export class AgentRuntime {
       baseDir: this.#baseDir,
       conversationHistory,
       pendingInteractionResponse: pendingResponse,
-      toolResults,
       confirmedInteractionId,
-      // Provide callback for agent to persist messages
-      persistMessage: (message: LLMMessage) => {
-        this.#conversationStore.append(taskId, message)
-        conversationHistory.push(message)
-      }
+      persistMessage
+    }
+
+    const outputCtx: OutputContext = {
+      taskId,
+      agentId: this.#agent.id,
+      baseDir: this.#baseDir,
+      confirmedInteractionId,
+      conversationHistory,
+      persistMessage
     }
 
     try {
-      // Process any pending instructions before starting/resuming the loop
-      // This handles cases where instructions were queued while task was inFlight
-      this.#processPendingInstructions(taskId, context)
+      // Drain any instructions queued while task was in-flight
+      const queue = this.#pendingInstructions.get(taskId) ?? []
+      this.#conversationManager.drainPendingInstructions(queue, conversationHistory, persistMessage)
 
       for await (const output of this.#agent.run(task, context)) {
-        // Process pending instructions (if safe)
-        this.#processPendingInstructions(taskId, context)
+        // Drain pending instructions between yields (if safe)
+        this.#conversationManager.drainPendingInstructions(queue, conversationHistory, persistMessage)
 
-        // Check for pause signal - ONLY if safe
-        if (this.#pausedTasks.has(taskId) && this.#isConversationSafeToInject(context.conversationHistory)) {
+        // Check for pause signal — only at safe conversation state
+        if (this.#pausedTasks.has(taskId) && this.#conversationManager.isSafeToInject(conversationHistory)) {
           break
         }
 
-        const result = await this.#processOutput(taskId, output, context)
-        
+        const result = await this.#outputHandler.handle(output, outputCtx)
+
         if (result.event) {
           this.#store.append(taskId, [result.event])
           emittedEvents.push(result.event)
         }
 
-        // If we need to pause (awaiting user interaction), exit the loop
-        if (result.pause) {
-          break
-        }
-
-        // If terminal, exit the loop
-        if (result.terminal) {
-          // Optionally clear conversation on completion (keep for audit trail)
-          // this.#conversationStore.clear(taskId)
-          break
-        }
+        if (result.pause) break
+        if (result.terminal) break
       }
     } catch (error) {
       const failureEvent: DomainEvent = {
         type: 'TaskFailed',
         payload: {
           taskId,
-          reason: this.#formatError(error),
+          reason: error instanceof Error ? error.message || String(error) : String(error),
           authorActorId: this.#agent.id
         }
       }
@@ -398,307 +347,5 @@ export class AgentRuntime {
     }
 
     return { taskId, events: emittedEvents }
-  }
-
-  /**
-   * Process a single AgentOutput and return any resulting event.
-   */
-  async #processOutput(
-    taskId: string,
-    output: AgentOutput,
-    context: AgentContext
-  ): Promise<{ event?: DomainEvent; pause?: boolean; terminal?: boolean }> {
-    switch (output.kind) {
-      case 'text':
-        this.#uiBus?.emit({
-          type: 'agent_output',
-          payload: { taskId, kind: 'text', content: output.content }
-        })
-        return {}
-
-      case 'verbose':
-        this.#uiBus?.emit({
-          type: 'agent_output',
-          payload: { taskId, kind: 'verbose', content: output.content }
-        })
-        return {}
-
-      case 'error':
-        this.#uiBus?.emit({
-          type: 'agent_output',
-          payload: { taskId, kind: 'error', content: output.content }
-        })
-        return {}
-
-      case 'reasoning':
-        this.#uiBus?.emit({
-          type: 'agent_output',
-          payload: { taskId, kind: 'reasoning', content: output.content }
-        })
-        return {}
-
-      case 'tool_call': {
-        const tool = this.#toolRegistry.get(output.call.toolName)
-        const isRisky = tool?.riskLevel === 'risky'
-
-        // Execute the tool with proper context
-        const toolContext = {
-          taskId,
-          actorId: this.#agent.id,
-          baseDir: this.#baseDir,
-          confirmedInteractionId: context.confirmedInteractionId,
-          artifactStore: this.#artifactStore
-        }
-        const result = await this.#toolExecutor.execute(output.call, toolContext)
-        // Inject result back into context for agent to use
-        context.toolResults.set(output.call.toolCallId, result)
-        this.#persistToolResultIfMissing(taskId, output.call.toolCallId, output.call.toolName, result, context)
-        if (isRisky) {
-          context.confirmedInteractionId = undefined
-        }
-        // No domain event for tool calls (they go to AuditLog)
-        return {}
-      }
-
-      case 'interaction': {
-        // Request user interaction via UIP
-        const event: DomainEvent = {
-          type: 'UserInteractionRequested',
-          payload: {
-            taskId,
-            interactionId: output.request.interactionId,
-            kind: output.request.kind,
-            purpose: output.request.purpose,
-            display: output.request.display,
-            options: output.request.options,
-            validation: output.request.validation,
-            authorActorId: this.#agent.id
-          }
-        }
-        return { event, pause: true }
-      }
-
-      case 'done': {
-        const event: DomainEvent = {
-          type: 'TaskCompleted',
-          payload: {
-            taskId,
-            summary: output.summary,
-            authorActorId: this.#agent.id
-          }
-        }
-        return { event, terminal: true }
-      }
-
-      case 'failed': {
-        const event: DomainEvent = {
-          type: 'TaskFailed',
-          payload: {
-            taskId,
-            reason: output.reason,
-            authorActorId: this.#agent.id
-          }
-        }
-        return { event, terminal: true }
-      }
-
-      default: {
-        // Type guard - should never reach here
-        const _exhaustive: never = output
-        return _exhaustive
-      }
-    }
-  }
-
-  #formatError(error: unknown): string {
-    if (error instanceof Error) return error.message || String(error)
-    return String(error)
-  }
-
-  #persistToolResultIfMissing(
-    taskId: string,
-    toolCallId: string,
-    toolName: string,
-    result: ToolResult,
-    context: AgentContext
-  ): void {
-    const alreadyExists = context.conversationHistory.some(
-      (message) => message.role === 'tool' && message.toolCallId === toolCallId
-    )
-    if (alreadyExists) return
-
-    context.persistMessage({
-      role: 'tool',
-      toolCallId,
-      toolName,
-      content: JSON.stringify(result.output),
-    })
-    this.#telemetry.emit({
-      type: 'tool_result_persisted',
-      payload: { taskId, toolCallId, toolName, isError: result.isError },
-    })
-  }
-
-  async #repairConversationHistory(taskId: string, conversationHistory: LLMMessage[]): Promise<void> {
-    console.log('[DEBUG] repairing history for', taskId, 'length:', conversationHistory.length)
-    const existingToolResults = new Set<string>()
-    for (const message of conversationHistory) {
-      if (message.role === 'tool') {
-        existingToolResults.add(message.toolCallId)
-      }
-    }
-
-    const desiredToolCalls: Array<{ toolCallId: string; toolName: string; arguments: Record<string, unknown> }> = []
-    for (const message of conversationHistory) {
-      if (message.role !== 'assistant') continue
-      for (const toolCall of message.toolCalls ?? []) {
-        desiredToolCalls.push({
-          toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
-          arguments: toolCall.arguments,
-        })
-      }
-    }
-
-    if (desiredToolCalls.length === 0) return
-
-    const auditEntries = this.#auditLog.readByTask(taskId)
-    const toolCompletionById = new Map<string, { toolName: string; output: unknown; isError: boolean }>()
-    for (const entry of auditEntries) {
-      if (entry.type !== 'ToolCallCompleted') continue
-      toolCompletionById.set(entry.payload.toolCallId, {
-        toolName: entry.payload.toolName,
-        output: entry.payload.output,
-        isError: entry.payload.isError,
-      })
-    }
-
-    let repairedToolResults = 0
-    let retriedToolCalls = 0
-
-    for (const toolCall of desiredToolCalls) {
-      if (existingToolResults.has(toolCall.toolCallId)) continue
-
-      const completed = toolCompletionById.get(toolCall.toolCallId)
-      if (completed) {
-        const toolMessage: LLMMessage = {
-          role: 'tool',
-          toolCallId: toolCall.toolCallId,
-          toolName: completed.toolName,
-          content: JSON.stringify(completed.output),
-        }
-        this.#conversationStore.append(taskId, toolMessage)
-        conversationHistory.push(toolMessage)
-        existingToolResults.add(toolCall.toolCallId)
-        repairedToolResults += 1
-        continue
-      }
-
-      const tool = this.#toolRegistry.get(toolCall.toolName)
-      
-      if (!tool) {
-        // Auto-close dangling unknown tools with error
-        const toolMessage: LLMMessage = {
-          role: 'tool',
-          toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
-          content: JSON.stringify({ isError: true, error: 'Tool execution interrupted (Unknown tool)' }),
-        }
-        this.#conversationStore.append(taskId, toolMessage)
-        conversationHistory.push(toolMessage)
-        existingToolResults.add(toolCall.toolCallId)
-        repairedToolResults += 1
-        continue
-      }
-
-      if (tool.riskLevel !== 'safe') {
-        // Risky tool: Skip repair.
-        // Leave it dangling so the Agent can handle it (re-request confirmation or execute if approved).
-        continue
-      }
-
-      const retryResult = await this.#toolExecutor.execute(
-        {
-          toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
-          arguments: toolCall.arguments,
-        },
-        {
-          taskId,
-          actorId: this.#agent.id,
-          baseDir: this.#baseDir,
-          artifactStore: this.#artifactStore,
-        }
-      )
-
-      const toolMessage: LLMMessage = {
-        role: 'tool',
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        content: JSON.stringify(retryResult.output),
-      }
-      this.#conversationStore.append(taskId, toolMessage)
-      conversationHistory.push(toolMessage)
-      existingToolResults.add(toolCall.toolCallId)
-      retriedToolCalls += 1
-    }
-
-    if (repairedToolResults > 0 || retriedToolCalls > 0) {
-      this.#telemetry.emit({
-        type: 'conversation_repair_applied',
-        payload: { taskId, repairedToolResults, retriedToolCalls },
-      })
-    }
-  }
-
-  /**
-   * Check if conversation history is in a state where it's safe to inject new user messages
-   * or pause execution.
-   * 
-   * Safe means: No pending tool calls (all tool calls have corresponding results).
-   */
-  #isConversationSafeToInject(history: readonly LLMMessage[]): boolean {
-    // Iterate backwards to find the last assistant message
-    for (let i = history.length - 1; i >= 0; i--) {
-      const msg = history[i]
-      if (msg.role === 'user') return true // Reached user message, previous turns assumed safe
-      
-      if (msg.role === 'assistant') {
-        if (!msg.toolCalls || msg.toolCalls.length === 0) return true
-        
-        // Found assistant with tool calls. Check if all have results in subsequent messages.
-        const pendingCallIds = new Set(msg.toolCalls.map(c => c.toolCallId))
-        
-        // Scan forward from this message
-        for (let j = i + 1; j < history.length; j++) {
-          const nextMsg = history[j]
-          if (nextMsg.role === 'tool') {
-            pendingCallIds.delete(nextMsg.toolCallId)
-          }
-        }
-        
-        return pendingCallIds.size === 0
-      }
-    }
-    return true
-  }
-
-  #processPendingInstructions(taskId: string, context: AgentContext): void {
-    const queue = this.#pendingInstructions.get(taskId)
-    if (!queue || queue.length === 0) return
-
-    if (this.#isConversationSafeToInject(context.conversationHistory)) {
-      // Drain queue
-      while (queue.length > 0) {
-        const instruction = queue.shift()
-        if (instruction) {
-          const message: LLMMessage = {
-            role: 'user',
-            content: instruction
-          }
-          context.persistMessage(message)
-        }
-      }
-    }
   }
 }

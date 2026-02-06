@@ -6,9 +6,10 @@ import { JsonlEventStore } from '../../src/infra/jsonlEventStore.js'
 import { JsonlAuditLog } from '../../src/infra/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../../src/infra/jsonlConversationStore.js'
 import { TaskService } from '../../src/application/taskService.js'
-import { InteractionService } from '../../src/application/interactionService.js'
 import { ContextBuilder } from '../../src/application/contextBuilder.js'
 import { AgentRuntime } from '../../src/agents/runtime.js'
+import { ConversationManager } from '../../src/agents/conversationManager.js'
+import { OutputHandler } from '../../src/agents/outputHandler.js'
 import { DefaultCoAuthorAgent } from '../../src/agents/defaultAgent.js'
 import { FakeLLMClient } from '../../src/infra/fakeLLMClient.js'
 import { DefaultToolRegistry } from '../../src/infra/toolRegistry.js'
@@ -31,22 +32,41 @@ function createTestInfra(dir: string) {
   const toolRegistry = new DefaultToolRegistry()
   const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
   const taskService = new TaskService(store, DEFAULT_USER_ACTOR_ID)
-  const interactionService = new InteractionService(store, DEFAULT_USER_ACTOR_ID)
   const contextBuilder = new ContextBuilder(dir)
   const llm = new FakeLLMClient()
   const agent = new DefaultCoAuthorAgent({ contextBuilder })
 
-  const runtime = new AgentRuntime({
-    store,
+  const artifactStore = {
+    readFile: async () => '',
+    readFileRange: async () => '',
+    listDir: async () => [],
+    writeFile: async () => {}
+  }
+
+  const conversationManager = new ConversationManager({
     conversationStore,
     auditLog,
+    toolRegistry,
+    toolExecutor,
+    artifactStore
+  })
+
+  const outputHandler = new OutputHandler({
+    toolExecutor,
+    toolRegistry,
+    artifactStore,
+    conversationManager
+  })
+
+  const runtime = new AgentRuntime({
+    store,
     taskService,
-    interactionService,
     agent,
     llm,
     toolRegistry,
-    toolExecutor,
-    baseDir: dir
+    baseDir: dir,
+    conversationManager,
+    outputHandler
   })
 
   return { store, conversationStore, taskService, runtime, llm }

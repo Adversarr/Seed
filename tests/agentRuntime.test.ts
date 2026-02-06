@@ -9,6 +9,8 @@ import { TaskService } from '../src/application/taskService.js'
 import { InteractionService } from '../src/application/interactionService.js'
 import { ContextBuilder } from '../src/application/contextBuilder.js'
 import { AgentRuntime } from '../src/agents/runtime.js'
+import { ConversationManager } from '../src/agents/conversationManager.js'
+import { OutputHandler } from '../src/agents/outputHandler.js'
 import { DefaultCoAuthorAgent } from '../src/agents/defaultAgent.js'
 import { FakeLLMClient } from '../src/infra/fakeLLMClient.js'
 import { DefaultToolRegistry } from '../src/infra/toolRegistry.js'
@@ -60,18 +62,30 @@ function createTestInfra(dir: string, opts?: { llm?: LLMClient, toolExecutor?: T
   const llm = opts?.llm ?? new FakeLLMClient()
   const agent = new DefaultCoAuthorAgent({ contextBuilder })
 
+  const conversationManager = new ConversationManager({
+    conversationStore,
+    auditLog,
+    toolRegistry,
+    toolExecutor,
+    artifactStore
+  })
+
+  const outputHandler = new OutputHandler({
+    toolExecutor,
+    toolRegistry,
+    artifactStore,
+    conversationManager
+  })
+
   const runtime = new AgentRuntime({
     store,
-    conversationStore,
-    artifactStore,
-    auditLog,
     taskService,
-    interactionService,
     agent,
     llm,
     toolRegistry,
-    toolExecutor,
-    baseDir: dir
+    baseDir: dir,
+    conversationManager,
+    outputHandler
   })
 
   return { store, conversationStore, taskService, interactionService, runtime, llm, agent, toolRegistry }

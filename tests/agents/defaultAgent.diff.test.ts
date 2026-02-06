@@ -58,7 +58,6 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
     tools: mockTools,
     baseDir: '/tmp',
     conversationHistory: [],
-    toolResults: new Map(),
     persistMessage: vi.fn()
   }
 

@@ -67,7 +67,6 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
       tools: mockTools,
       baseDir: '/tmp',
       conversationHistory: history,
-      toolResults: new Map(),
       persistMessage,
       pendingInteractionResponse: {
         interactionId: 'ui_1',
@@ -120,7 +119,6 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
       tools: mockTools,
       baseDir: '/tmp',
       conversationHistory: history,
-      toolResults: new Map(),
       persistMessage,
       pendingInteractionResponse: {
         interactionId: 'ui_1',
