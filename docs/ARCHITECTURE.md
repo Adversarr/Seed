@@ -359,6 +359,23 @@ Agents choose different models based on the step:
 - **writer**: High-quality LaTeX text generation
 - **reasoning**: Strategy selection, consistency checks, extracting descriptions from code
 
+### 5.4 Concurrency & State Management
+
+To ensure conversation history integrity (Tool Use Protocol), the Runtime enforces:
+
+1.  **Safe Pause**:
+    - Pausing (`/pause`) is cooperative. It only takes effect when the conversation history is in a "Safe Point" (no pending tool calls).
+    - If a tool batch is running, the Runtime waits for all tool results to be persisted before pausing.
+
+2.  **Instruction Queueing**:
+    - New instructions (`/continue`, `/refine`) arriving during unsafe states (e.g., while tools are executing) are queued.
+    - They are injected into history only when the state becomes safe (after tool results are written).
+    - This prevents User messages from interleaving between Tool Calls and Tool Results.
+
+3.  **Auto-Repair**:
+    - On resume/start, the Runtime scans for "dangling" tool calls (missing results).
+    - If results cannot be recovered from AuditLog, it injects an "Interrupted" error result to close the conversation loop, allowing the task to proceed.
+
 ---
 
 ## 6. Directory Structure

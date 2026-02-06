@@ -49,6 +49,7 @@ export class AgentRuntime {
   #inFlight = new Set<string>() // Track in-flight task operations
   #pausedTasks = new Set<string>() // Track paused tasks
   #queuedInstructionTasks = new Set<string>()
+  #pendingInstructions = new Map<string, string[]>() // Queue for instructions added during unsafe states
 
   constructor(opts: {
     store: EventStore
@@ -185,12 +186,24 @@ export class AgentRuntime {
         const taskId = task.taskId
         this.#pausedTasks.delete(taskId) // Instruction implies resume
 
-        // Inject instruction into conversation history
-        const message: LLMMessage = {
-          role: 'user',
-          content: event.payload.instruction
+        // Check if safe to inject immediately
+        const history = this.#conversationStore.getMessages(taskId)
+        if (this.#isConversationSafeToInject(history)) {
+          const message: LLMMessage = {
+            role: 'user',
+            content: event.payload.instruction
+          }
+          this.#conversationStore.append(taskId, message)
+        } else {
+          // Queue instruction
+          const queue = this.#pendingInstructions.get(taskId) ?? []
+          queue.push(event.payload.instruction)
+          this.#pendingInstructions.set(taskId, queue)
         }
-        this.#conversationStore.append(taskId, message)
+
+        if (task.status === 'awaiting_user') {
+          return
+        }
 
         if (this.#inFlight.has(taskId)) {
           this.#queuedInstructionTasks.add(taskId)
@@ -213,12 +226,21 @@ export class AgentRuntime {
     while (true) {
       await this.executeTask(taskId)
 
-      const shouldRerun = this.#queuedInstructionTasks.has(taskId)
-      if (!shouldRerun) return
+      const task = this.#taskService.getTask(taskId)
+      if (!task) return
+      if (task.status === 'awaiting_user' || task.status === 'paused') return
+
+      // Check if we have queued instruction tasks OR pending instructions in queue
+      const hasQueuedTask = this.#queuedInstructionTasks.has(taskId)
+      const hasPendingInstructions = (this.#pendingInstructions.get(taskId)?.length ?? 0) > 0
+      
+      if (!hasQueuedTask && !hasPendingInstructions) return
 
       this.#queuedInstructionTasks.delete(taskId)
 
       if (!this.#isRunning) return
+      // If paused, we stop (unless we are just draining instructions which implies resume? 
+      // No, TaskInstructionAdded removed pause. But if user paused again?)
       if (this.#pausedTasks.has(taskId)) return
     }
   }
@@ -329,9 +351,16 @@ export class AgentRuntime {
     }
 
     try {
+      // Process any pending instructions before starting/resuming the loop
+      // This handles cases where instructions were queued while task was inFlight
+      this.#processPendingInstructions(taskId, context)
+
       for await (const output of this.#agent.run(task, context)) {
-        // Check for pause signal
-        if (this.#pausedTasks.has(taskId)) {
+        // Process pending instructions (if safe)
+        this.#processPendingInstructions(taskId, context)
+
+        // Check for pause signal - ONLY if safe
+        if (this.#pausedTasks.has(taskId) && this.#isConversationSafeToInject(context.conversationHistory)) {
           break
         }
 
@@ -511,6 +540,7 @@ export class AgentRuntime {
   }
 
   async #repairConversationHistory(taskId: string, conversationHistory: LLMMessage[]): Promise<void> {
+    console.log('[DEBUG] repairing history for', taskId, 'length:', conversationHistory.length)
     const existingToolResults = new Set<string>()
     for (const message of conversationHistory) {
       if (message.role === 'tool') {
@@ -565,7 +595,27 @@ export class AgentRuntime {
       }
 
       const tool = this.#toolRegistry.get(toolCall.toolName)
-      if (!tool || tool.riskLevel !== 'safe') continue
+      
+      if (!tool) {
+        // Auto-close dangling unknown tools with error
+        const toolMessage: LLMMessage = {
+          role: 'tool',
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          content: JSON.stringify({ isError: true, error: 'Tool execution interrupted (Unknown tool)' }),
+        }
+        this.#conversationStore.append(taskId, toolMessage)
+        conversationHistory.push(toolMessage)
+        existingToolResults.add(toolCall.toolCallId)
+        repairedToolResults += 1
+        continue
+      }
+
+      if (tool.riskLevel !== 'safe') {
+        // Risky tool: Skip repair.
+        // Leave it dangling so the Agent can handle it (re-request confirmation or execute if approved).
+        continue
+      }
 
       const retryResult = await this.#toolExecutor.execute(
         {
@@ -598,6 +648,57 @@ export class AgentRuntime {
         type: 'conversation_repair_applied',
         payload: { taskId, repairedToolResults, retriedToolCalls },
       })
+    }
+  }
+
+  /**
+   * Check if conversation history is in a state where it's safe to inject new user messages
+   * or pause execution.
+   * 
+   * Safe means: No pending tool calls (all tool calls have corresponding results).
+   */
+  #isConversationSafeToInject(history: readonly LLMMessage[]): boolean {
+    // Iterate backwards to find the last assistant message
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i]
+      if (msg.role === 'user') return true // Reached user message, previous turns assumed safe
+      
+      if (msg.role === 'assistant') {
+        if (!msg.toolCalls || msg.toolCalls.length === 0) return true
+        
+        // Found assistant with tool calls. Check if all have results in subsequent messages.
+        const pendingCallIds = new Set(msg.toolCalls.map(c => c.toolCallId))
+        
+        // Scan forward from this message
+        for (let j = i + 1; j < history.length; j++) {
+          const nextMsg = history[j]
+          if (nextMsg.role === 'tool') {
+            pendingCallIds.delete(nextMsg.toolCallId)
+          }
+        }
+        
+        return pendingCallIds.size === 0
+      }
+    }
+    return true
+  }
+
+  #processPendingInstructions(taskId: string, context: AgentContext): void {
+    const queue = this.#pendingInstructions.get(taskId)
+    if (!queue || queue.length === 0) return
+
+    if (this.#isConversationSafeToInject(context.conversationHistory)) {
+      // Drain queue
+      while (queue.length > 0) {
+        const instruction = queue.shift()
+        if (instruction) {
+          const message: LLMMessage = {
+            role: 'user',
+            content: instruction
+          }
+          context.persistMessage(message)
+        }
+      }
     }
   }
 }

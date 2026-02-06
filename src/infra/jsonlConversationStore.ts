@@ -94,6 +94,7 @@ export class JsonlConversationStore implements ConversationStore {
 
   getMessages(taskId: string): LLMMessage[] {
     const rows = this.#readRows()
+
     return rows
       .filter((r) => r.taskId === taskId)
       .sort((a, b) => a.index - b.index)
