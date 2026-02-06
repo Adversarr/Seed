@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout, Static } from 'ink'
+import { parse, setOptions } from 'marked'
+import type { Renderer } from 'marked'
+import TerminalRenderer from 'marked-terminal'
 import TextInput from 'ink-text-input'
 import type { App } from '../app/createApp.js'
 import { InteractionPanel } from './components/InteractionPanel.js'
@@ -11,12 +14,36 @@ type Props = {
   app: App
 }
 
-type StaticEntry = {
+type PlainStaticEntry = {
   id: string
+  variant: 'plain'
   lines: string[]
   color?: string
   dim?: boolean
   bold?: boolean
+}
+
+type MarkdownStaticEntry = {
+  id: string
+  variant: 'markdown'
+  prefix?: string
+  content: string
+}
+
+type StaticEntry = PlainStaticEntry | MarkdownStaticEntry
+
+function renderMarkdownToTerminalText(markdown: string, width: number): string {
+  if (!markdown) return ''
+  const safeWidth = Math.max(20, width)
+  const renderer = new TerminalRenderer({
+    width: safeWidth,
+    reflowText: true,
+    showSectionPrefix: false
+  }) as unknown as Renderer
+  setOptions({
+    renderer
+  })
+  return parse(markdown).trimEnd()
 }
 
 export function MainTui(props: Props) {
@@ -29,10 +56,16 @@ export function MainTui(props: Props) {
   const [pendingInteraction, setPendingInteraction] = useState<UserInteractionRequestedPayload | null>(null)
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null)
   const [showTasks, setShowTasks] = useState(false)
+  const [showVerbose, setShowVerbose] = useState(false)
   const logSequence = useRef(0)
   const hasAutoOpenedTasks = useRef(false)
+  const showVerboseRef = useRef(false)
 
-  const addLog = (
+  useEffect(() => {
+    showVerboseRef.current = showVerbose
+  }, [showVerbose])
+
+  const addPlainLog = (
     content: string,
     options: { prefix?: string; color?: string; dim?: boolean; bold?: boolean } = {}
   ): void => {
@@ -43,8 +76,9 @@ export function MainTui(props: Props) {
         }
         return line
       })
-      const nextEntry: StaticEntry = {
+      const nextEntry: PlainStaticEntry = {
         id: `${Date.now()}-${logSequence.current++}`,
+        variant: 'plain',
         lines,
         color: options.color,
         dim: options.dim,
@@ -56,9 +90,22 @@ export function MainTui(props: Props) {
     })
   }
 
+  const addMarkdownLog = (content: string, options: { prefix?: string } = {}): void => {
+    setCompletedEntries((previousEntries) => {
+      const nextEntry: MarkdownStaticEntry = {
+        id: `${Date.now()}-${logSequence.current++}`,
+        variant: 'markdown',
+        prefix: options.prefix,
+        content
+      }
+      const nextEntries = [...previousEntries, nextEntry]
+      return nextEntries.slice(-2000)
+    })
+  }
+
   const setReplayOutput = (lines: string[]): void => {
     for (const line of lines) {
-      addLog(line, { color: 'cyan', dim: true })
+      addPlainLog(line, { color: 'cyan', dim: true })
     }
   }
 
@@ -93,14 +140,14 @@ export function MainTui(props: Props) {
         setShowTasks(true)
       }
     } catch (e) {
-      addLog(`Failed to refresh: ${e}`, { color: 'red' })
+      addPlainLog(`Failed to refresh: ${e}`, { color: 'red' })
     }
   }
 
   useEffect(() => {
     app.agentRuntime.start()
     refresh().catch((e) => setStatus(e instanceof Error ? e.message : String(e)))
-    addLog('Welcome to CoAuthor. Type /help for commands.', { color: 'cyan', dim: true })
+    addPlainLog('Welcome to CoAuthor. Type /help for commands.', { color: 'cyan', dim: true })
 
     const storeSub = app.store.events$.subscribe(() => {
       refresh().catch(console.error)
@@ -108,23 +155,21 @@ export function MainTui(props: Props) {
     
     const uiBusSub = app.uiBus.events$.subscribe((event) => {
       if (event.type === 'agent_output') {
-        const isThinking = event.payload.kind === 'reasoning'
-        if (isThinking) {
-          addLog(event.payload.content, {
-            prefix: '󰧑 ',
-            color: 'yellow',
-            dim: true
-          })
+        if (event.payload.kind === 'reasoning') {
+          addPlainLog(event.payload.content, { prefix: '󰧑 ', color: 'yellow', dim: true })
+        } else if (event.payload.kind === 'verbose') {
+          if (showVerboseRef.current) {
+            addPlainLog(event.payload.content, { prefix: '· ', color: 'cyan', dim: true })
+          }
+        } else if (event.payload.kind === 'error') {
+          addPlainLog(event.payload.content, { prefix: '⚠ ', color: 'red', bold: true })
         } else {
-          addLog(event.payload.content, {
-            prefix: '󰍥 ',
-            // color: 'green'
-          })
+          addMarkdownLog(event.payload.content, { prefix: '󰍥 ' })
         }
       }
       if (event.type === 'audit_entry') {
         const line = formatAuditEntry(event.payload)
-        addLog(line, { color: 'cyan', dim: true })
+        addPlainLog(line, { color: 'cyan', dim: true })
       }
     })
     return () => {
@@ -141,7 +186,7 @@ export function MainTui(props: Props) {
       const summary = optionId 
         ? `Selected: ${option?.label || optionId}` 
         : `Input: ${inputValue || ''}`
-      addLog(summary, { prefix: '← ', color: 'white' })
+      addPlainLog(summary, { prefix: '← ', color: 'white' })
       
       await app.interactionService.respondToInteraction(
         pendingInteraction.taskId,
@@ -160,7 +205,7 @@ export function MainTui(props: Props) {
     setInput('')
     if (!trimmed) return
 
-    addLog(trimmed, { prefix: '← ', color: 'white', bold: true })
+    addPlainLog(trimmed, { prefix: '← ', color: 'white', bold: true })
 
     await handleCommand(trimmed, {
       app,
@@ -169,7 +214,8 @@ export function MainTui(props: Props) {
       setReplayOutput,
       focusedTaskId,
       setFocusedTaskId,
-      setShowTasks
+      setShowTasks,
+      setShowVerbose
     })
   }
 
@@ -197,16 +243,23 @@ export function MainTui(props: Props) {
       <Static items={completedEntries}>
         {(entry) => (
           <Box key={entry.id} flexDirection="column" paddingX={1}>
-            {entry.lines.map((line, index) => (
-              <Text
-                key={`${entry.id}-${index}`}
-                color={entry.color}
-                dimColor={entry.dim}
-                bold={entry.bold}
-              >
-                {line}
+            {entry.variant === 'plain' ? (
+              entry.lines.map((line, index) => (
+                <Text
+                  key={`${entry.id}-${index}`}
+                  color={entry.color}
+                  dimColor={entry.dim}
+                  bold={entry.bold}
+                >
+                  {line}
+                </Text>
+              ))
+            ) : (
+              <Text>
+                {entry.prefix ?? ''}
+                {renderMarkdownToTerminalText(entry.content, columns - 4)}
               </Text>
-            ))}
+            )}
           </Box>
         )}
       </Static>

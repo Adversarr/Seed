@@ -62,7 +62,7 @@ export class DefaultCoAuthorAgent implements Agent {
     for (const toolCall of pendingCalls) {
       const tool = context.tools.get(toolCall.toolName)
       if (!tool) {
-         yield { kind: 'text', content: `Unknown tool in pending call: ${toolCall.toolName}` }
+         yield { kind: 'error', content: `Unknown tool in pending call: ${toolCall.toolName}` }
          continue
       }
 
@@ -73,10 +73,10 @@ export class DefaultCoAuthorAgent implements Agent {
            yield* this.#executeToolCall(toolCall, context)
         } else if (context.pendingInteractionResponse) {
            // We have a response, but it's not approval (checked by confirmedInteractionId)
-           // So it's a rejection.
-           yield { kind: 'text', content: `Skipping tool ${toolCall.toolName}: User rejected.` }
-           
-           const rejectionMessage: LLMMessage = {
+          // So it's a rejection.
+          yield { kind: 'verbose', content: `Skipping tool ${toolCall.toolName}: User rejected.` }
+          
+          const rejectionMessage: LLMMessage = {
              role: 'tool',
              toolCallId: toolCall.toolCallId,
              toolName: toolCall.toolName,
@@ -150,7 +150,7 @@ export class DefaultCoAuthorAgent implements Agent {
     let iteration = 0
     while (iteration < this.#maxIterations) {
       iteration++
-      // yield { kind: 'text', content: `[Iteration ${iteration}] Calling LLM...` }
+      yield { kind: 'verbose', content: `[Iteration ${iteration}] Calling LLM...` }
 
       // Get tool definitions for LLM
       const toolDefs = context.tools.list().map(t => ({
@@ -200,7 +200,7 @@ export class DefaultCoAuthorAgent implements Agent {
       for (const toolCall of llmResponse.toolCalls) {
         const tool = context.tools.get(toolCall.toolName)
         if (!tool) {
-          yield { kind: 'text', content: `Unknown tool: ${toolCall.toolName}` }
+          yield { kind: 'error', content: `Unknown tool: ${toolCall.toolName}` }
           continue
         }
 
@@ -247,7 +247,7 @@ export class DefaultCoAuthorAgent implements Agent {
     toolCall: ToolCallRequest,
     context: AgentContext
   ): AsyncGenerator<AgentOutput> {
-    // yield { kind: 'text', content: `Executing tool: ${toolCall.toolName}` }
+    yield { kind: 'verbose', content: `Executing tool: ${toolCall.toolName}` }
     yield { kind: 'tool_call', call: toolCall }
 
     // Get result (injected by runtime)
@@ -267,7 +267,7 @@ export class DefaultCoAuthorAgent implements Agent {
       }
       
       if (result.isError) {
-        yield { kind: 'text', content: `Tool failed: ${JSON.stringify(result.output)}` }
+        yield { kind: 'error', content: `Tool failed: ${JSON.stringify(result.output)}` }
       }
     }
   }

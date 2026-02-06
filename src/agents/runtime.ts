@@ -304,6 +304,20 @@ export class AgentRuntime {
         })
         return {}
 
+      case 'verbose':
+        this.#uiBus?.emit({
+          type: 'agent_output',
+          payload: { taskId, kind: 'verbose', content: output.content }
+        })
+        return {}
+
+      case 'error':
+        this.#uiBus?.emit({
+          type: 'agent_output',
+          payload: { taskId, kind: 'error', content: output.content }
+        })
+        return {}
+
       case 'reasoning':
         this.#uiBus?.emit({
           type: 'agent_output',

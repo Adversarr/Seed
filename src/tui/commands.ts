@@ -8,6 +8,7 @@ export type CommandContext = {
   focusedTaskId: string | null
   setFocusedTaskId: (id: string | null) => void
   setShowTasks: (show: boolean) => void
+  setShowVerbose: (show: boolean | ((previous: boolean) => boolean)) => void
 }
 
 export async function handleCommand(line: string, ctx: CommandContext) {
@@ -96,7 +97,34 @@ export async function handleCommand(line: string, ctx: CommandContext) {
       case 'help':
       case 'h':
       case '?': {
-        ctx.setStatus('Commands: /new <title>, /tasks, /cancel [id], /replay [id], /exit')
+        ctx.setStatus('Commands: /new <title>, /tasks, /cancel [id], /replay [id], /verbose [on|off], /exit')
+        return
+      }
+
+      case 'verbose': {
+        const arg = (args[0] ?? '').toLowerCase()
+        const shouldEnable = arg === 'on' || arg === '1' || arg === 'true'
+        const shouldDisable = arg === 'off' || arg === '0' || arg === 'false'
+
+        if (!arg) {
+          ctx.setShowVerbose((previous: boolean) => !previous)
+          ctx.setStatus('Verbose output toggled')
+          return
+        }
+
+        if (shouldEnable) {
+          ctx.setShowVerbose(true)
+          ctx.setStatus('Verbose output enabled')
+          return
+        }
+
+        if (shouldDisable) {
+          ctx.setShowVerbose(false)
+          ctx.setStatus('Verbose output disabled')
+          return
+        }
+
+        ctx.setStatus('Usage: /verbose [on|off]')
         return
       }
 

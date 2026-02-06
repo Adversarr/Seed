@@ -65,9 +65,9 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
   it('should generate Diff for editFile in interaction request', async () => {
     const generator = agent.run(mockTask, mockContext)
     
-    // 1. Text yield (Calling LLM...)
+    // 1. Verbose yield (Calling LLM...)
     let result = await generator.next()
-    expect(result.value).toMatchObject({ kind: 'text' })
+    expect(result.value).toMatchObject({ kind: 'verbose' })
 
     // 2. Interaction yield (Confirm)
     result = await generator.next()

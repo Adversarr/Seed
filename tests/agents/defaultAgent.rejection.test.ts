@@ -82,13 +82,13 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
     // 1. Expect text yield "Skipping tool..."
     const result1 = await generator.next()
     expect(result1.value).toMatchObject({ 
-      kind: 'text',
+      kind: 'verbose',
       content: expect.stringContaining('User rejected')
     })
 
-    // 2. Expect iteration text (this advances the generator past the persistMessage call)
+    // 2. Expect iteration verbose (this advances the generator past the persistMessage call)
     const result2 = await generator.next()
-    expect(result2.value).toMatchObject({ kind: 'text', content: expect.stringContaining('Iteration') })
+    expect(result2.value).toMatchObject({ kind: 'verbose', content: expect.stringContaining('Iteration') })
 
     // Now expect persisted rejection message
     expect(persistMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -132,10 +132,10 @@ describe('DefaultCoAuthorAgent Rejection Handling', () => {
 
     const generator = agent.run(mockTask, mockContext)
 
-    // 1. Expect "Executing tool"
+    // 1. Expect "Executing tool" verbose
     const result1 = await generator.next()
     expect(result1.value).toMatchObject({ 
-      kind: 'text',
+      kind: 'verbose',
       content: expect.stringContaining('Executing tool')
     })
 
