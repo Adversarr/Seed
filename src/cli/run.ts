@@ -20,7 +20,7 @@ export async function runCli(opts: {
   io: IO
 }): Promise<number> {
   const { argv, baseDir, io } = opts
-  const app = createApp({ baseDir })
+  const app = await createApp({ baseDir })
 
   const parser = yargs(argv)
     .scriptName('coauthor')

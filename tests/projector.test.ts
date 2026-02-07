@@ -49,18 +49,18 @@ describe('Projection', () => {
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl')
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
-    store.append('t1', [{ 
+    await store.append('t1', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 't1', title: 'T1', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
-    store.append('t2', [{ 
+    await store.append('t2', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 't2', title: 'T2', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
 
-    const s1 = runProjection({
+    const s1 = await runProjection({
       store,
       name: 'tasks',
       defaultState: defaultTasksProjectionState,
@@ -68,7 +68,7 @@ describe('Projection', () => {
     })
     expect(s1.tasks.map((t) => t.taskId).sort()).toEqual(['t1', 't2'])
 
-    const s2 = runProjection({
+    const s2 = await runProjection({
       store,
       name: 'tasks',
       defaultState: defaultTasksProjectionState,

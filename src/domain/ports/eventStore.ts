@@ -5,7 +5,7 @@
  * Infrastructure layer provides implementations.
  */
 
-import type { Observable } from 'rxjs'
+import type { Subscribable } from './subscribable.js'
 import type { DomainEvent, StoredEvent } from '../events.js'
 
 /**
@@ -16,15 +16,15 @@ import type { DomainEvent, StoredEvent } from '../events.js'
  */
 export interface EventStore {
   /**
-   * Observable stream of new events.
+   * Subscribable stream of new events.
    * Emits each StoredEvent as it is appended.
    */
-  readonly events$: Observable<StoredEvent>
+  readonly events$: Subscribable<StoredEvent>
 
   /**
    * Initialize the storage schema (create tables, files, etc.)
    */
-  ensureSchema(): void
+  ensureSchema(): Promise<void>
 
   /**
    * Append events to a stream.
@@ -33,7 +33,7 @@ export interface EventStore {
    * @param events - Events to append
    * @returns The stored events with assigned IDs and sequence numbers
    */
-  append(streamId: string, events: DomainEvent[]): StoredEvent[]
+  append(streamId: string, events: DomainEvent[]): Promise<StoredEvent[]>
 
   /**
    * Read all events from the store.
@@ -41,7 +41,7 @@ export interface EventStore {
    * @param fromIdExclusive - Start reading after this event ID (0 = from beginning)
    * @returns All events after the specified ID
    */
-  readAll(fromIdExclusive?: number): StoredEvent[]
+  readAll(fromIdExclusive?: number): Promise<StoredEvent[]>
 
   /**
    * Read events from a specific stream.
@@ -50,7 +50,7 @@ export interface EventStore {
    * @param fromSeqInclusive - Start reading from this sequence number (1 = from beginning)
    * @returns Events in the stream from the specified sequence
    */
-  readStream(streamId: string, fromSeqInclusive?: number): StoredEvent[]
+  readStream(streamId: string, fromSeqInclusive?: number): Promise<StoredEvent[]>
 
   /**
    * Read a single event by ID.
@@ -58,7 +58,7 @@ export interface EventStore {
    * @param id - The event ID
    * @returns The event or null if not found
    */
-  readById(id: number): StoredEvent | null
+  readById(id: number): Promise<StoredEvent | null>
 
   /**
    * Get projection state.
@@ -67,10 +67,10 @@ export interface EventStore {
    * @param defaultState - Default state if projection doesn't exist
    * @returns Current cursor position and state
    */
-  getProjection<TState>(name: string, defaultState: TState): {
+  getProjection<TState>(name: string, defaultState: TState): Promise<{
     cursorEventId: number
     state: TState
-  }
+  }>
 
   /**
    * Save projection state.
@@ -79,5 +79,5 @@ export interface EventStore {
    * @param cursorEventId - Last processed event ID
    * @param state - Current projection state
    */
-  saveProjection<TState>(name: string, cursorEventId: number, state: TState): void
+  saveProjection<TState>(name: string, cursorEventId: number, state: TState): Promise<void>
 }

@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod'
-import type { Observable } from 'rxjs'
+import type { Subscribable } from './subscribable.js'
 
 // ============================================================================
 // Audit Log Entry Types
@@ -75,15 +75,15 @@ export const AuditLogEntrySchema = z.discriminatedUnion('type', [
  */
 export interface AuditLog {
   /**
-   * Observable stream of new audit entries.
+   * Subscribable stream of new audit entries.
    * Emits each StoredAuditEntry as it is appended.
    */
-  readonly entries$: Observable<StoredAuditEntry>
+  readonly entries$: Subscribable<StoredAuditEntry>
 
   /**
    * Initialize the storage (create file if needed).
    */
-  ensureSchema(): void
+  ensureSchema(): Promise<void>
 
   /**
    * Append an audit entry.
@@ -91,7 +91,7 @@ export interface AuditLog {
    * @param entry - The audit entry to append
    * @returns The stored entry with assigned ID
    */
-  append(entry: AuditLogEntry): StoredAuditEntry
+  append(entry: AuditLogEntry): Promise<StoredAuditEntry>
 
   /**
    * Read all audit entries for a task.
@@ -99,7 +99,7 @@ export interface AuditLog {
    * @param taskId - The task ID to filter by
    * @returns All audit entries for the task
    */
-  readByTask(taskId: string): StoredAuditEntry[]
+  readByTask(taskId: string): Promise<StoredAuditEntry[]>
 
   /**
    * Read all audit entries.
@@ -107,5 +107,5 @@ export interface AuditLog {
    * @param fromIdExclusive - Start reading after this ID (0 = from beginning)
    * @returns All entries after the specified ID
    */
-  readAll(fromIdExclusive?: number): StoredAuditEntry[]
+  readAll(fromIdExclusive?: number): Promise<StoredAuditEntry[]>
 }

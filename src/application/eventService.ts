@@ -16,7 +16,7 @@ export class EventService {
   /**
    * Replay all events or events for a specific stream.
    */
-  replayEvents(streamId?: string): StoredEvent[] {
+  async replayEvents(streamId?: string): Promise<StoredEvent[]> {
     if (!streamId) {
       return this.#store.readAll(0)
     }
@@ -26,14 +26,14 @@ export class EventService {
   /**
    * Get a single event by ID.
    */
-  getEventById(id: number): StoredEvent | null {
+  async getEventById(id: number): Promise<StoredEvent | null> {
     return this.#store.readById(id)
   }
 
   /**
    * Get events after a specific ID.
    */
-  getEventsAfter(fromIdExclusive: number): StoredEvent[] {
+  async getEventsAfter(fromIdExclusive: number): Promise<StoredEvent[]> {
     return this.#store.readAll(fromIdExclusive)
   }
 }

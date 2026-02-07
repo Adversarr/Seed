@@ -78,8 +78,8 @@ export class DefaultCoAuthorAgent implements Agent {
   async *#toolLoop(task: TaskView, context: AgentContext): AsyncGenerator<AgentOutput> {
     // Seed conversation if fresh
     if (context.conversationHistory.length === 0) {
-      context.persistMessage({ role: 'system', content: this.#contextBuilder.buildSystemPrompt() })
-      context.persistMessage({ role: 'user', content: this.#buildTaskPrompt(task) })
+      await context.persistMessage({ role: 'system', content: await this.#contextBuilder.buildSystemPrompt() })
+      await context.persistMessage({ role: 'user', content: this.#buildTaskPrompt(task) })
     }
 
     // Process any pending tool calls from previous execution
@@ -106,7 +106,7 @@ export class DefaultCoAuthorAgent implements Agent {
 
       // Persist assistant message
       if (llmResponse.content || llmResponse.reasoning || llmResponse.toolCalls) {
-        context.persistMessage({
+        await context.persistMessage({
           role: 'assistant',
           content: llmResponse.content,
           reasoning: llmResponse.reasoning,

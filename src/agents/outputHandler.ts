@@ -37,7 +37,7 @@ export type OutputContext = {
   baseDir: string
   confirmedInteractionId?: string
   conversationHistory: readonly LLMMessage[]
-  persistMessage: (m: LLMMessage) => void
+  persistMessage: (m: LLMMessage) => Promise<void>
 }
 
 /**
@@ -114,7 +114,7 @@ export class OutputHandler {
           } catch (error) {
             const errMessage = error instanceof Error ? error.message : String(error)
             
-            this.#conversationManager.persistToolResultIfMissing(
+            await this.#conversationManager.persistToolResultIfMissing(
               ctx.taskId,
               output.call.toolCallId,
               output.call.toolName,
@@ -151,7 +151,7 @@ export class OutputHandler {
         const result: ToolResult = await this.#toolExecutor.execute(output.call, toolContext)
 
         // Persist into conversation (idempotent)
-        this.#conversationManager.persistToolResultIfMissing(
+        await this.#conversationManager.persistToolResultIfMissing(
           ctx.taskId,
           output.call.toolCallId,
           output.call.toolName,
@@ -228,7 +228,7 @@ export class OutputHandler {
    *
    * This ensures live TUI shows the same request + rejection lines that /replay does.
    */
-  handleRejections(ctx: OutputContext): void {
+  async handleRejections(ctx: OutputContext): Promise<void> {
     const history = ctx.conversationHistory
 
     // Walk backwards to find the last assistant message with tool calls
@@ -260,7 +260,7 @@ export class OutputHandler {
         const result = this.#toolExecutor.recordRejection(call, toolContext)
 
         // Persist rejection into conversation history
-        this.#conversationManager.persistToolResultIfMissing(
+        await this.#conversationManager.persistToolResultIfMissing(
           ctx.taskId,
           tc.toolCallId,
           tc.toolName,

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFile, access } from 'node:fs/promises'
 import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { App } from '../app/createApp.js'
 
@@ -64,7 +64,7 @@ export async function handleCommand(line: string, ctx: CommandContext) {
           ctx.setStatus('Open task list to select focus')
           return
         }
-        const exists = ctx.app.taskService.getTask(targetId)
+        const exists = await ctx.app.taskService.getTask(targetId)
         if (!exists) {
           ctx.setStatus(`Task not found: ${targetId}`)
           return
@@ -77,7 +77,7 @@ export async function handleCommand(line: string, ctx: CommandContext) {
 
       case 'next':
       case 'prev': {
-        const state = ctx.app.taskService.listTasks()
+        const state = await ctx.app.taskService.listTasks()
         const list = state.tasks
         if (list.length === 0) {
           ctx.setStatus('No tasks available')
@@ -174,12 +174,12 @@ export async function handleCommand(line: string, ctx: CommandContext) {
       case 'replay':
       case 'r':
       case 'log': {
-        const targetId = resolveTargetTaskId(args[0], ctx)
+        const targetId = await resolveTargetTaskId(args[0], ctx)
         if (!targetId) {
           ctx.setStatus('No task found to replay')
           return
         }
-        const messages = ctx.app.conversationStore.getMessages(targetId)
+        const messages = await ctx.app.conversationStore.getMessages(targetId)
         const entries = messages.flatMap((message) => buildReplayEntries(message))
         ctx.setReplayOutput(
           entries.length > 0
@@ -191,8 +191,8 @@ export async function handleCommand(line: string, ctx: CommandContext) {
       }
 
       case 'replay-raw': {
-        const targetId = resolveTargetTaskId(args[0], ctx)
-        const rawLines = readConversationRawLines(ctx.app.conversationsPath)
+        const targetId = await resolveTargetTaskId(args[0], ctx)
+        const rawLines = await readConversationRawLines(ctx.app.conversationsPath)
         const filteredLines = targetId
           ? rawLines.filter((line) => line.includes(`"taskId":"${targetId}"`))
           : rawLines
@@ -267,11 +267,11 @@ export async function handleCommand(line: string, ctx: CommandContext) {
   }
 }
 
-function resolveTargetTaskId(explicitTaskId: string | undefined, ctx: CommandContext): string | null {
+async function resolveTargetTaskId(explicitTaskId: string | undefined, ctx: CommandContext): Promise<string | null> {
   const trimmed = explicitTaskId?.trim()
   if (trimmed) return trimmed
   if (ctx.focusedTaskId) return ctx.focusedTaskId
-  const state = ctx.app.taskService.listTasks()
+  const state = await ctx.app.taskService.listTasks()
   if (state.tasks.length === 0) return null
   const sorted = [...state.tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   return sorted[0]?.taskId ?? null
@@ -377,8 +377,12 @@ function truncateLongString(value: string): string {
   return value.slice(0, sliceLength) + TOOL_OUTPUT_SUFFIX
 }
 
-function readConversationRawLines(path: string): string[] {
-  if (!existsSync(path)) return []
-  const raw = readFileSync(path, 'utf8')
+async function readConversationRawLines(path: string): Promise<string[]> {
+  try {
+    await access(path)
+  } catch {
+    return []
+  }
+  const raw = await readFile(path, 'utf8')
   return raw.split('\n').filter((line) => line.trim().length > 0)
 }

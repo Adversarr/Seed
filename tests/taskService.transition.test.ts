@@ -10,9 +10,9 @@ class InMemoryEventStore implements EventStore {
   private events: StoredEvent[] = []
   public events$ = new Subject<StoredEvent>()
 
-  ensureSchema() {}
+  async ensureSchema(): Promise<void> {}
   
-  append(streamId: string, events: DomainEvent[]): StoredEvent[] {
+  async append(streamId: string, events: DomainEvent[]): Promise<StoredEvent[]> {
     const currentStreamEvents = this.events.filter(ev => ev.streamId === streamId)
     const newStoredEvents = events.map((e, i) => ({
       id: this.events.length + i + 1,
@@ -26,24 +26,24 @@ class InMemoryEventStore implements EventStore {
     return newStoredEvents
   }
   
-  readStream(streamId: string): StoredEvent[] {
+  async readStream(streamId: string): Promise<StoredEvent[]> {
     return this.events.filter(e => e.streamId === streamId)
   }
 
-  readAll(fromIdExclusive?: number): StoredEvent[] {
+  async readAll(fromIdExclusive?: number): Promise<StoredEvent[]> {
      const startId = fromIdExclusive ?? 0
      return this.events.filter(e => e.id > startId)
   }
 
-  readById(id: number): StoredEvent | null {
+  async readById(id: number): Promise<StoredEvent | null> {
       return this.events.find(e => e.id === id) || null
   }
   
-  getProjection<TState>(name: string, defaultState: TState): { cursorEventId: number, state: TState } {
+  async getProjection<TState>(name: string, defaultState: TState): Promise<{ cursorEventId: number, state: TState }> {
     return { cursorEventId: 0, state: defaultState }
   }
 
-  saveProjection() {}
+  async saveProjection(): Promise<void> {}
 }
 
 describe('TaskService State Transitions', () => {
@@ -53,27 +53,27 @@ describe('TaskService State Transitions', () => {
     return { store, service }
   }
 
-  const createTask = (store: InMemoryEventStore, taskId: string) => {
-    store.append(taskId, [{
+  const createTask = async (store: InMemoryEventStore, taskId: string) => {
+    await store.append(taskId, [{
       type: 'TaskCreated',
       payload: { taskId, title: 'Test Task', intent: 'test', priority: 'normal', agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
   }
 
-  test('allows valid transitions', () => {
+  test('allows valid transitions', async () => {
     const { store, service } = setup()
     const taskId = 't1'
-    createTask(store, taskId)
+    await createTask(store, taskId)
 
     // open -> in_progress (TaskStarted)
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'TaskStarted',
       payload: { taskId, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID }
     }])
-    expect(service.getTask(taskId)?.status).toBe('in_progress')
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
 
     // in_progress -> awaiting_user (UserInteractionRequested)
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'UserInteractionRequested',
       payload: { 
         taskId, 
@@ -86,66 +86,66 @@ describe('TaskService State Transitions', () => {
         authorActorId: DEFAULT_AGENT_ACTOR_ID 
       }
     }])
-    expect(service.getTask(taskId)?.status).toBe('awaiting_user')
+    expect((await service.getTask(taskId))?.status).toBe('awaiting_user')
 
     // awaiting_user -> in_progress (UserInteractionResponded)
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'UserInteractionResponded',
       payload: { taskId, interactionId: 'i1', selectedOptionId: 'ok', authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
-    expect(service.getTask(taskId)?.status).toBe('in_progress')
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
 
     // in_progress -> done (TaskCompleted)
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'TaskCompleted',
       payload: { taskId, summary: 'done', authorActorId: DEFAULT_AGENT_ACTOR_ID }
     }])
-    expect(service.getTask(taskId)?.status).toBe('done')
+    expect((await service.getTask(taskId))?.status).toBe('done')
 
     // done -> in_progress (TaskInstructionAdded - Re-activation)
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'TaskInstructionAdded',
       payload: { taskId, instruction: 'more work', authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
-    expect(service.getTask(taskId)?.status).toBe('in_progress')
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
   })
 
-  test('prevents invalid transitions', () => {
+  test('prevents invalid transitions', async () => {
     const { store, service } = setup()
     const taskId = 't2'
-    createTask(store, taskId)
+    await createTask(store, taskId)
 
     // Move to canceled
-    store.append(taskId, [{
+    await store.append(taskId, [{
         type: 'TaskStarted',
         payload: { taskId, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID }
     }])
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'TaskCanceled',
       payload: { taskId, reason: 'cancel', authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
-    expect(service.getTask(taskId)?.status).toBe('canceled')
+    expect((await service.getTask(taskId))?.status).toBe('canceled')
 
     // canceled -> in_progress (TaskResumed) - Should Fail/Ignore
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'TaskResumed',
       payload: { taskId, authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
     // Should stay canceled
-    expect(service.getTask(taskId)?.status).toBe('canceled') 
+    expect((await service.getTask(taskId))?.status).toBe('canceled') 
   })
 
-  test('prevents bypassing interaction response', () => {
+  test('prevents bypassing interaction response', async () => {
     const { store, service } = setup()
     const taskId = 't3'
-    createTask(store, taskId)
+    await createTask(store, taskId)
 
     // Move to awaiting_user
-    store.append(taskId, [{
+    await store.append(taskId, [{
         type: 'TaskStarted',
         payload: { taskId, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID }
     }])
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'UserInteractionRequested',
       payload: { 
         taskId, 
@@ -158,28 +158,28 @@ describe('TaskService State Transitions', () => {
         authorActorId: DEFAULT_AGENT_ACTOR_ID 
       }
     }])
-    expect(service.getTask(taskId)?.status).toBe('awaiting_user')
+    expect((await service.getTask(taskId))?.status).toBe('awaiting_user')
 
     // awaiting_user -> in_progress (TaskResumed) - Should Fail/Ignore
     // User should respond, not just resume
-    store.append(taskId, [{
+    await store.append(taskId, [{
       type: 'TaskResumed',
       payload: { taskId, authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
-    expect(service.getTask(taskId)?.status).toBe('awaiting_user')
+    expect((await service.getTask(taskId))?.status).toBe('awaiting_user')
   })
   
-  test('TaskInstructionAdded overrides awaiting_user', () => {
+  test('TaskInstructionAdded overrides awaiting_user', async () => {
       const { store, service } = setup()
       const taskId = 't4'
-      createTask(store, taskId)
+      await createTask(store, taskId)
   
       // Move to awaiting_user
-      store.append(taskId, [{
+      await store.append(taskId, [{
           type: 'TaskStarted',
           payload: { taskId, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID }
       }])
-      store.append(taskId, [{
+      await store.append(taskId, [{
         type: 'UserInteractionRequested',
         payload: { 
             taskId, 
@@ -194,11 +194,11 @@ describe('TaskService State Transitions', () => {
       }])
       
       // awaiting_user -> in_progress (TaskInstructionAdded)
-      store.append(taskId, [{
+      await store.append(taskId, [{
         type: 'TaskInstructionAdded',
         payload: { taskId, instruction: 'nevermind do this', authorActorId: DEFAULT_USER_ACTOR_ID }
       }])
-      expect(service.getTask(taskId)?.status).toBe('in_progress')
+      expect((await service.getTask(taskId))?.status).toBe('in_progress')
   })
 })
 
@@ -209,59 +209,59 @@ describe('TaskService Command Validation', () => {
     return { store, service }
   }
 
-  const createTask = (service: TaskService) => {
-    return service.createTask({
+  const createTask = async (service: TaskService) => {
+    return (await service.createTask({
       title: 'Test Task',
       agentId: DEFAULT_AGENT_ACTOR_ID
-    }).taskId
+    })).taskId
   }
 
-  test('throws when cancelling a task that cannot be canceled', () => {
+  test('throws when cancelling a task that cannot be canceled', async () => {
     const { store, service } = setup()
-    const taskId = createTask(service)
+    const taskId = await createTask(service)
 
     // open -> canceled (Valid)
-    service.cancelTask(taskId)
-    expect(service.getTask(taskId)?.status).toBe('canceled')
+    await service.cancelTask(taskId)
+    expect((await service.getTask(taskId))?.status).toBe('canceled')
 
     // canceled -> canceled (Invalid? Actually TaskCanceled is not in allowed transitions for canceled)
     // canTransition('canceled', 'TaskCanceled') -> false
-    expect(() => service.cancelTask(taskId)).toThrow(/Invalid transition/)
+    await expect(service.cancelTask(taskId)).rejects.toThrow(/Invalid transition/)
   })
 
-  test('throws when pausing a task that is not in progress', () => {
+  test('throws when pausing a task that is not in progress', async () => {
     const { store, service } = setup()
-    const taskId = createTask(service)
+    const taskId = await createTask(service)
 
     // open -> paused (Invalid, must be in_progress?)
     // canTransition('open', 'TaskPaused') -> false
-    expect(() => service.pauseTask(taskId)).toThrow(/Invalid transition/)
+    await expect(service.pauseTask(taskId)).rejects.toThrow(/Invalid transition/)
   })
 
-  test('throws when resuming a task that is not paused', () => {
+  test('throws when resuming a task that is not paused', async () => {
     const { store, service } = setup()
-    const taskId = createTask(service)
+    const taskId = await createTask(service)
 
     // open -> resumed (Invalid)
-    expect(() => service.resumeTask(taskId)).toThrow(/Invalid transition/)
+    await expect(service.resumeTask(taskId)).rejects.toThrow(/Invalid transition/)
   })
 
-  test('throws when adding instruction to task that forbids it (none currently forbid it)', () => {
+  test('throws when adding instruction to task that forbids it (none currently forbid it)', async () => {
     const { store, service } = setup()
-    const taskId = createTask(service)
+    const taskId = await createTask(service)
     
     // TaskInstructionAdded is always allowed
-    service.addInstruction(taskId, 'inst')
-    expect(service.getTask(taskId)?.status).toBe('in_progress') // open -> in_progress implicit?
+    await service.addInstruction(taskId, 'inst')
+    expect((await service.getTask(taskId))?.status).toBe('in_progress') // open -> in_progress implicit?
     // Wait, TaskInstructionAdded returns true in canTransition.
     // And reducer sets status to 'in_progress'.
     // So this should work.
     
-    service.cancelTask(taskId)
-    expect(service.getTask(taskId)?.status).toBe('canceled')
+    await service.cancelTask(taskId)
+    expect((await service.getTask(taskId))?.status).toBe('canceled')
     
     // canceled -> in_progress (via TaskInstructionAdded)
-    service.addInstruction(taskId, 'wake up')
-    expect(service.getTask(taskId)?.status).toBe('in_progress')
+    await service.addInstruction(taskId, 'wake up')
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
   })
 })

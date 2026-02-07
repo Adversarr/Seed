@@ -16,7 +16,7 @@ export function registerAuditCommand(parser: Argv, app: App, io: IO): Argv {
       if (action === 'list') {
         const taskId = args.taskId ? String(args.taskId) : undefined
         const limit = Number(args.limit)
-        const entries = app.auditService.getRecentEntries(taskId, limit)
+        const entries = await app.auditService.getRecentEntries(taskId, limit)
         
         if (entries.length === 0) {
           io.stdout('No audit entries found\n')

@@ -62,9 +62,9 @@ export class TaskService {
   }
 
   // Create new task event
-  createTask(opts: CreateTaskOptions): { taskId: string } {
+  async createTask(opts: CreateTaskOptions): Promise<{ taskId: string }> {
     const taskId = nanoid()
-    this.#store.append(taskId, [
+    await this.#store.append(taskId, [
       {
         type: 'TaskCreated',
         payload: {
@@ -82,7 +82,7 @@ export class TaskService {
   }
 
   // Build tasks projection from events
-  listTasks(): TasksProjectionState {
+  async listTasks(): Promise<TasksProjectionState> {
     return runProjection<TasksProjectionState>({
       store: this.#store,
       name: 'tasks',
@@ -92,22 +92,22 @@ export class TaskService {
   }
 
   // Get task by ID from projection
-  getTask(taskId: string): TaskView | null {
-    const state = this.listTasks()
+  async getTask(taskId: string): Promise<TaskView | null> {
+    const state = await this.listTasks()
     return state.tasks.find(t => t.taskId === taskId) ?? null
   }
 
   /**
    * Cancel a task.
    */
-  cancelTask(taskId: string, reason?: string): void {
-    const task = this.getTask(taskId)
+  async cancelTask(taskId: string, reason?: string): Promise<void> {
+    const task = await this.getTask(taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
     if (!this.canTransition(task.status, 'TaskCanceled')) {
       throw new Error(`Invalid transition: cannot cancel task in state ${task.status}`)
     }
 
-    this.#store.append(taskId, [
+    await this.#store.append(taskId, [
       {
         type: 'TaskCanceled',
         payload: {
@@ -122,14 +122,14 @@ export class TaskService {
   /**
    * Pause a task.
    */
-  pauseTask(taskId: string, reason?: string): void {
-    const task = this.getTask(taskId)
+  async pauseTask(taskId: string, reason?: string): Promise<void> {
+    const task = await this.getTask(taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
     if (!this.canTransition(task.status, 'TaskPaused')) {
       throw new Error(`Invalid transition: cannot pause task in state ${task.status}`)
     }
 
-    this.#store.append(taskId, [
+    await this.#store.append(taskId, [
       {
         type: 'TaskPaused',
         payload: {
@@ -144,14 +144,14 @@ export class TaskService {
   /**
    * Resume a task.
    */
-  resumeTask(taskId: string, reason?: string): void {
-    const task = this.getTask(taskId)
+  async resumeTask(taskId: string, reason?: string): Promise<void> {
+    const task = await this.getTask(taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
     if (!this.canTransition(task.status, 'TaskResumed')) {
       throw new Error(`Invalid transition: cannot resume task in state ${task.status}`)
     }
 
-    this.#store.append(taskId, [
+    await this.#store.append(taskId, [
       {
         type: 'TaskResumed',
         payload: {
@@ -166,14 +166,14 @@ export class TaskService {
   /**
    * Add an instruction to a task (refinement).
    */
-  addInstruction(taskId: string, instruction: string): void {
-    const task = this.getTask(taskId)
+  async addInstruction(taskId: string, instruction: string): Promise<void> {
+    const task = await this.getTask(taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
     if (!this.canTransition(task.status, 'TaskInstructionAdded')) {
       throw new Error(`Invalid transition: cannot add instruction to task in state ${task.status}`)
     }
 
-    this.#store.append(taskId, [
+    await this.#store.append(taskId, [
       {
         type: 'TaskInstructionAdded',
         payload: {

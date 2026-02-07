@@ -22,13 +22,13 @@ export function registerInteractCommand(parser: Argv, app: App, io: IO): Argv {
         if (!choice) throw new Error('interact respond requires choice (option id)')
         
         // Get the pending interaction to get the interactionId
-        const pending = app.interactionService.getPendingInteraction(taskId)
+        const pending = await app.interactionService.getPendingInteraction(taskId)
         if (!pending) {
           throw new Error(`No pending interaction for task ${taskId}`)
         }
         
         const text = args.text ? String(args.text) : undefined
-        app.interactionService.respondToInteraction(taskId, pending.interactionId, {
+        await app.interactionService.respondToInteraction(taskId, pending.interactionId, {
           selectedOptionId: choice,
           inputValue: text
         })
@@ -41,7 +41,7 @@ export function registerInteractCommand(parser: Argv, app: App, io: IO): Argv {
         
         if (taskId) {
           // Get pending interaction for specific task
-          const pending = app.interactionService.getPendingInteraction(taskId)
+          const pending = await app.interactionService.getPendingInteraction(taskId)
           if (pending) {
             io.stdout(`Pending interaction for task ${taskId}:\n`)
             io.stdout(`  ID: ${pending.interactionId}\n`)
@@ -60,14 +60,14 @@ export function registerInteractCommand(parser: Argv, app: App, io: IO): Argv {
           }
         } else {
           // List all pending interactions
-          const tasks = app.taskService.listTasks().tasks
+          const tasks = (await app.taskService.listTasks()).tasks
           const awaitingTasks = tasks.filter(t => t.status === 'awaiting_user')
           if (awaitingTasks.length === 0) {
             io.stdout('No pending interactions\n')
           } else {
             io.stdout('Pending interactions:\n')
             for (const t of awaitingTasks) {
-              const pending = app.interactionService.getPendingInteraction(t.taskId)
+              const pending = await app.interactionService.getPendingInteraction(t.taskId)
               if (pending) {
                 io.stdout(`  ${t.taskId}: [${pending.kind}] ${pending.display.title}\n`)
               }

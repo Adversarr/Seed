@@ -24,17 +24,17 @@ import type { ArtifactStore } from '../../src/domain/ports/artifactStore.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeInfra(dir: string) {
+async function makeInfra(dir: string) {
   const store = new JsonlEventStore({
     eventsPath: join(dir, 'events.jsonl'),
     projectionsPath: join(dir, 'projections.jsonl')
   })
-  store.ensureSchema()
+  await store.ensureSchema()
 
   const conversationStore = new JsonlConversationStore({
     conversationsPath: join(dir, 'conversations.jsonl')
   })
-  conversationStore.ensureSchema()
+  await conversationStore.ensureSchema()
 
   const artifactStore: ArtifactStore = {
     readFile: async () => '',
@@ -92,9 +92,9 @@ function stubAgent(id: string): Agent {
 // ---------------------------------------------------------------------------
 
 describe('RuntimeManager — Agent Registration', () => {
-  test('first registered agent becomes default', () => {
+  test('first registered agent becomes default', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
 
     const manager = new RuntimeManager(infra)
     const agentA = stubAgent('agent_a')
@@ -109,9 +109,9 @@ describe('RuntimeManager — Agent Registration', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('throws when no agents registered and defaultAgentId accessed', () => {
+  test('throws when no agents registered and defaultAgentId accessed', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
 
     expect(() => manager.defaultAgentId).toThrow('No agents registered')
@@ -119,9 +119,9 @@ describe('RuntimeManager — Agent Registration', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('agents map exposes registered agents', () => {
+  test('agents map exposes registered agents', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
 
     const agentA = stubAgent('agent_a')
@@ -135,9 +135,9 @@ describe('RuntimeManager — Agent Registration', () => {
 })
 
 describe('RuntimeManager — Lifecycle', () => {
-  test('start()/stop() toggles isRunning', () => {
+  test('start()/stop() toggles isRunning', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(stubAgent(DEFAULT_AGENT_ACTOR_ID))
 
@@ -150,9 +150,9 @@ describe('RuntimeManager — Lifecycle', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('double start is idempotent', () => {
+  test('double start is idempotent', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(stubAgent(DEFAULT_AGENT_ACTOR_ID))
 
@@ -165,17 +165,15 @@ describe('RuntimeManager — Lifecycle', () => {
   })
 
   test('stop cleans up runtimes', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(new DefaultCoAuthorAgent({ contextBuilder: new ContextBuilder(dir) }))
 
     manager.start()
-    infra.taskService.createTask({ title: 'T', agentId: DEFAULT_AGENT_ACTOR_ID })
-    await vi.advanceTimersByTimeAsync(50)
+    await infra.taskService.createTask({ title: 'T', agentId: DEFAULT_AGENT_ACTOR_ID })
+    await manager.waitForIdle()
     manager.stop()
-    vi.useRealTimers()
 
     // After stop, isRunning should be false
     expect(manager.isRunning).toBe(false)
@@ -186,25 +184,23 @@ describe('RuntimeManager — Lifecycle', () => {
 
 describe('RuntimeManager — Event Routing', () => {
   test('routes TaskCreated to correct agent', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(new DefaultCoAuthorAgent({ contextBuilder: new ContextBuilder(dir) }))
 
     manager.start()
 
-    const { taskId } = infra.taskService.createTask({
+    const { taskId } = await infra.taskService.createTask({
       title: 'Routed',
       agentId: DEFAULT_AGENT_ACTOR_ID
     })
 
-    await vi.advanceTimersByTimeAsync(50)
+    await manager.waitForIdle()
     manager.stop()
-    vi.useRealTimers()
 
     // Task should have been executed and completed
-    const events = infra.store.readStream(taskId, 1)
+    const events = await infra.store.readStream(taskId, 1)
     expect(events.some(e => e.type === 'TaskStarted')).toBe(true)
     expect(events.some(e => e.type === 'TaskCompleted')).toBe(true)
 
@@ -212,16 +208,15 @@ describe('RuntimeManager — Event Routing', () => {
   })
 
   test('ignores TaskCreated for unregistered agent', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(stubAgent('agent_x'))
 
     manager.start()
 
     // Create task for an agent that isn't registered
-    infra.store.append('t_unknown', [{
+    await infra.store.append('t_unknown', [{
       type: 'TaskCreated',
       payload: {
         taskId: 't_unknown',
@@ -233,21 +228,19 @@ describe('RuntimeManager — Event Routing', () => {
       }
     }])
 
-    await vi.advanceTimersByTimeAsync(50)
+    await manager.waitForIdle()
     manager.stop()
-    vi.useRealTimers()
 
     // No TaskStarted should have been emitted
-    const events = infra.store.readStream('t_unknown', 1)
+    const events = await infra.store.readStream('t_unknown', 1)
     expect(events.some(e => e.type === 'TaskStarted')).toBe(false)
 
     rmSync(dir, { recursive: true, force: true })
   })
 
   test('routes TaskCanceled and cleans up runtime', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(new DefaultCoAuthorAgent({ contextBuilder: new ContextBuilder(dir) }))
 
@@ -256,7 +249,7 @@ describe('RuntimeManager — Event Routing', () => {
     // Manually append a TaskCreated + TaskCanceled in sequence
     // to verify RuntimeManager processes the cancel event
     const taskId = 'cancel-test-1'
-    infra.store.append(taskId, [{
+    await infra.store.append(taskId, [{
       type: 'TaskCreated',
       payload: {
         taskId,
@@ -268,20 +261,19 @@ describe('RuntimeManager — Event Routing', () => {
       }
     }])
 
-    await vi.advanceTimersByTimeAsync(50)
+    await manager.waitForIdle()
 
     // Now cancel it
-    infra.store.append(taskId, [{
+    await infra.store.append(taskId, [{
       type: 'TaskCanceled',
       payload: { taskId, authorActorId: DEFAULT_USER_ACTOR_ID }
     }])
 
-    await vi.advanceTimersByTimeAsync(10)
+    await manager.waitForIdle()
     manager.stop()
-    vi.useRealTimers()
 
     // The canceled event should be in the stream
-    const events = infra.store.readStream(taskId, 1)
+    const events = await infra.store.readStream(taskId, 1)
     expect(events.some(e => e.type === 'TaskCanceled')).toBe(true)
 
     rmSync(dir, { recursive: true, force: true })
@@ -289,7 +281,7 @@ describe('RuntimeManager — Event Routing', () => {
 
   test('executeTask throws for unknown task', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
     manager.registerAgent(stubAgent(DEFAULT_AGENT_ACTOR_ID))
 
@@ -301,9 +293,8 @@ describe('RuntimeManager — Event Routing', () => {
 
 describe('RuntimeManager — Multi-Agent Routing', () => {
   test('two registered agents each handle their own tasks', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
-    const infra = makeInfra(dir)
+    const infra = await makeInfra(dir)
     const manager = new RuntimeManager(infra)
 
     // Use proper stub agents — DefaultCoAuthorAgent uses private fields
@@ -317,16 +308,15 @@ describe('RuntimeManager — Multi-Agent Routing', () => {
     manager.start()
 
     // Create tasks for each agent
-    const { taskId: tA } = infra.taskService.createTask({ title: 'A', agentId: DEFAULT_AGENT_ACTOR_ID })
-    const { taskId: tB } = infra.taskService.createTask({ title: 'B', agentId: 'agent_b' })
+    const { taskId: tA } = await infra.taskService.createTask({ title: 'A', agentId: DEFAULT_AGENT_ACTOR_ID })
+    const { taskId: tB } = await infra.taskService.createTask({ title: 'B', agentId: 'agent_b' })
 
-    await vi.advanceTimersByTimeAsync(100)
+    await manager.waitForIdle()
     manager.stop()
-    vi.useRealTimers()
 
     // Both should have been started and completed
-    const eventsA = infra.store.readStream(tA, 1)
-    const eventsB = infra.store.readStream(tB, 1)
+    const eventsA = await infra.store.readStream(tA, 1)
+    const eventsB = await infra.store.readStream(tB, 1)
 
     expect(eventsA.some(e => e.type === 'TaskStarted')).toBe(true)
     expect(eventsA.some(e => e.type === 'TaskCompleted')).toBe(true)

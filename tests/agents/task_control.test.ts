@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import { JsonlEventStore } from '../../src/infra/jsonlEventStore.js'
 import { JsonlAuditLog } from '../../src/infra/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../../src/infra/jsonlConversationStore.js'
@@ -15,25 +15,26 @@ import { FakeLLMClient } from '../../src/infra/fakeLLMClient.js'
 import { DefaultToolRegistry } from '../../src/infra/toolRegistry.js'
 import { DefaultToolExecutor } from '../../src/infra/toolExecutor.js'
 import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../../src/domain/actor.js'
+import type { LLMClient } from '../../src/domain/ports/llmClient.js'
 
-function createTestInfra(dir: string) {
+async function createTestInfra(dir: string, opts?: { llm?: LLMClient }) {
   const store = new JsonlEventStore({
     eventsPath: join(dir, 'events.jsonl'),
     projectionsPath: join(dir, 'projections.jsonl')
   })
-  store.ensureSchema()
+  await store.ensureSchema()
 
   const conversationStore = new JsonlConversationStore({
     conversationsPath: join(dir, 'conversations.jsonl')
   })
-  conversationStore.ensureSchema()
+  await conversationStore.ensureSchema()
 
   const auditLog = new JsonlAuditLog({ auditPath: join(dir, 'audit.jsonl') })
   const toolRegistry = new DefaultToolRegistry()
   const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
   const taskService = new TaskService(store, DEFAULT_USER_ACTOR_ID)
   const contextBuilder = new ContextBuilder(dir)
-  const llm = new FakeLLMClient()
+  const llm = opts?.llm ?? new FakeLLMClient()
   const agent = new DefaultCoAuthorAgent({ contextBuilder })
 
   const artifactStore = {
@@ -74,82 +75,102 @@ function createTestInfra(dir: string) {
 
 describe('Task Control & Session', () => {
   test('Pause and Resume updates status and triggers execution', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-control-'))
-    const { store, taskService, manager } = createTestInfra(dir)
+
+    // Deferred LLM: first call blocks until we release it, allowing us to pause mid-execution
+    let releaseLLM!: () => void
+    const baseLLM = new FakeLLMClient()
+    let callCount = 0
+    const deferredLLM: LLMClient = {
+      async complete(options) {
+        callCount++
+        if (callCount === 1) {
+          await new Promise<void>(resolve => { releaseLLM = resolve })
+        }
+        return baseLLM.complete(options)
+      },
+      stream(options) { return baseLLM.stream(options) }
+    }
+
+    const { store, taskService, manager } = await createTestInfra(dir, { llm: deferredLLM })
 
     manager.start()
 
     // 1. Create task
-    const { taskId } = taskService.createTask({
+    const { taskId } = await taskService.createTask({
       title: 'Control Task',
       agentId: DEFAULT_AGENT_ACTOR_ID
     })
 
-    // 2. Pause task immediately
-    taskService.pauseTask(taskId, 'Hold on')
-    
-    // Check status is paused
-    let task = taskService.getTask(taskId)
+    // Give the event handler time to start the task (TaskStarted emitted before LLM call)
+    await new Promise(r => setTimeout(r, 20))
+
+    // Task should be in_progress (blocked on LLM)
+    let task = await taskService.getTask(taskId)
+    expect(task?.status).toBe('in_progress')
+
+    // 2. Pause task
+    await taskService.pauseTask(taskId, 'Hold on')
+    task = await taskService.getTask(taskId)
     expect(task?.status).toBe('paused')
 
-    // 3. Resume task
-    taskService.resumeTask(taskId, 'Go')
+    // Release LLM so first execution finishes
+    releaseLLM()
+    await manager.waitForIdle()
 
-    // Check status is in_progress
-    task = taskService.getTask(taskId)
+    // 3. Resume task
+    await taskService.resumeTask(taskId, 'Go')
+    task = await taskService.getTask(taskId)
     expect(task?.status).toBe('in_progress')
 
     // Allow runtime to process events
-    await vi.advanceTimersByTimeAsync(100)
+    await manager.waitForIdle()
 
     // Verify Agent ran (should have TaskCompleted)
-    const events = store.readStream(taskId)
+    const events = await store.readStream(taskId)
     expect(events.some(e => e.type === 'TaskCompleted')).toBe(true)
 
     manager.stop()
-    vi.useRealTimers()
     rmSync(dir, { recursive: true, force: true })
   })
 
   test('Add Instruction to Done task resumes it', async () => {
-    vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-session-'))
-    const { store, conversationStore, taskService, manager } = createTestInfra(dir)
+    const { store, conversationStore, taskService, manager } = await createTestInfra(dir)
 
     manager.start()
 
     // 1. Create and finish task
-    const { taskId } = taskService.createTask({
+    const { taskId } = await taskService.createTask({
       title: 'Session Task',
       agentId: DEFAULT_AGENT_ACTOR_ID
     })
 
-    await vi.advanceTimersByTimeAsync(100)
+    await manager.waitForIdle()
     
-    let task = taskService.getTask(taskId)
+    let task = await taskService.getTask(taskId)
     expect(task?.status).toBe('done')
-    const completedCount1 = store.readStream(taskId).filter(e => e.type === 'TaskCompleted').length
+    const completedCount1 = (await store.readStream(taskId)).filter(e => e.type === 'TaskCompleted').length
     expect(completedCount1).toBe(1)
 
     // 2. Add Instruction
     const newInstruction = 'Please refine this'
-    taskService.addInstruction(taskId, newInstruction)
+    await taskService.addInstruction(taskId, newInstruction)
 
     // Check status updated immediately to in_progress
-    task = taskService.getTask(taskId)
+    task = await taskService.getTask(taskId)
     expect(task?.status).toBe('in_progress')
 
     // 3. Allow runtime to process
-    await vi.advanceTimersByTimeAsync(100)
+    await manager.waitForIdle()
 
     // 4. Verify Agent ran again (TaskCompleted count increased)
-    const events = store.readStream(taskId)
+    const events = await store.readStream(taskId)
     const completedCount2 = events.filter(e => e.type === 'TaskCompleted').length
     expect(completedCount2).toBe(2)
 
     // 5. Verify conversation history has the instruction
-    const messages = conversationStore.getMessages(taskId)
+    const messages = await conversationStore.getMessages(taskId)
     const userMessages = messages.filter(m => m.role === 'user')
     // 1st: Initial intent (inserted by ContextBuilder? No, ContextBuilder puts it in System/User prompt).
     // Actually, DefaultAgent puts task intent in the prompt.
@@ -160,7 +181,6 @@ describe('Task Control & Session', () => {
     expect(instructionMsg).toBeDefined()
 
     manager.stop()
-    vi.useRealTimers()
     rmSync(dir, { recursive: true, force: true })
   })
 })

@@ -84,7 +84,7 @@ export type AgentContext = {
    * Call this after each LLM response or tool result to ensure
    * the message survives pauses, restarts, and crashes.
    */
-  persistMessage(message: LLMMessage): void
+  persistMessage(message: LLMMessage): Promise<void>
 }
 
 // ============================================================================

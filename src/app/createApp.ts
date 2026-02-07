@@ -101,7 +101,7 @@ export type CreateAppOptions = {
  * 
  * This is the composition root where all dependencies are assembled.
  */
-export function createApp(opts: CreateAppOptions): App {
+export async function createApp(opts: CreateAppOptions): Promise<App> {
   const baseDir = resolve(opts.baseDir)
   const currentActorId = opts.currentActorId ?? DEFAULT_USER_ACTOR_ID
   const config = opts.config ?? loadAppConfig(process.env)
@@ -111,7 +111,7 @@ export function createApp(opts: CreateAppOptions): App {
   // Event Store (User ↔ Agent decisions)
   const eventsPath = opts.eventsPath ?? join(baseDir, '.coauthor', 'events.jsonl')
   const store = new JsonlEventStore({ eventsPath, projectionsPath: opts.projectionsPath })
-  store.ensureSchema()
+  await store.ensureSchema()
 
   // Artifact Store (File access)
   const artifactStore = new FsArtifactStore(baseDir)
@@ -119,13 +119,13 @@ export function createApp(opts: CreateAppOptions): App {
   // Audit Log (Agent ↔ Tools/Files)
   const auditLogPath = opts.auditLogPath ?? join(baseDir, '.coauthor', 'audit.jsonl')
   const auditLog = new JsonlAuditLog({ auditPath: auditLogPath })
-  auditLog.ensureSchema()
+  await auditLog.ensureSchema()
 
   // Conversation Store (Agent ↔ LLM context persistence)
   const conversationsPath = opts.conversationsPath ?? join(baseDir, '.coauthor', 'conversations.jsonl')
   const conversationStore = opts.conversationStore ?? new JsonlConversationStore({ conversationsPath })
   if (!opts.conversationStore) {
-    conversationStore.ensureSchema()
+    await conversationStore.ensureSchema()
   }
 
   // Tool Registry

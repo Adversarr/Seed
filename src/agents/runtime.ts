@@ -139,7 +139,7 @@ export class AgentRuntime {
 
     // Check conversation safety: if there are dangling tool calls, we must
     // queue the instruction so it gets injected AFTER the tool results.
-    const history = this.#conversationManager.store.getMessages(this.#taskId)
+    const history = await this.#conversationManager.store.getMessages(this.#taskId)
     if (!this.#conversationManager.isSafeToInject(history)) {
       this.#pendingInstructions.push(instruction)
       this.#hasQueuedInstruction = true
@@ -148,7 +148,7 @@ export class AgentRuntime {
     }
 
     // Safe to inject directly and re-execute
-    this.#conversationManager.store.append(this.#taskId, {
+    await this.#conversationManager.store.append(this.#taskId, {
       role: 'user',
       content: instruction
     } as LLMMessage)
@@ -165,7 +165,7 @@ export class AgentRuntime {
    * Can be called directly (manual execution) or by RuntimeManager.
    */
   async execute(): Promise<{ taskId: string; events: DomainEvent[] }> {
-    const task = this.#taskService.getTask(this.#taskId)
+    const task = await this.#taskService.getTask(this.#taskId)
     if (!task) {
       throw new Error(`Task not found: ${this.#taskId}`)
     }
@@ -181,7 +181,7 @@ export class AgentRuntime {
       type: 'TaskStarted',
       payload: { taskId: this.#taskId, agentId: this.#agent.id, authorActorId: this.#agent.id }
     }
-    this.#store.append(this.#taskId, [startedEvent])
+    await this.#store.append(this.#taskId, [startedEvent])
 
     const emittedEvents: DomainEvent[] = [startedEvent]
     // Clear the sentinel — actual instructions are tracked in #pendingInstructions.
@@ -201,7 +201,7 @@ export class AgentRuntime {
   async resume(
     response: UserInteractionRespondedPayload
   ): Promise<{ taskId: string; events: DomainEvent[] }> {
-    const task = this.#taskService.getTask(this.#taskId)
+    const task = await this.#taskService.getTask(this.#taskId)
     if (!task) {
       throw new Error(`Task not found: ${this.#taskId}`)
     }
@@ -227,7 +227,7 @@ export class AgentRuntime {
       while (true) {
         await this.execute()
 
-        const task = this.#taskService.getTask(this.#taskId)
+        const task = await this.#taskService.getTask(this.#taskId)
         if (!task) return
         if (task.status === 'awaiting_user' || task.status === 'paused') return
 
@@ -283,7 +283,7 @@ export class AgentRuntime {
     // If user rejected a risky tool, record rejection via OutputHandler
     // (emits audit entries for live TUI display + persists to conversation)
     if (pendingResponse && pendingResponse.selectedOptionId !== 'approve') {
-      this.#outputHandler.handleRejections(outputCtx)
+      await this.#outputHandler.handleRejections(outputCtx)
     }
 
     const context: AgentContext = {
@@ -297,13 +297,13 @@ export class AgentRuntime {
 
     try {
       // Drain any instructions queued before this loop started
-      this.#conversationManager.drainPendingInstructions(
+      await this.#conversationManager.drainPendingInstructions(
         this.#pendingInstructions, conversationHistory, persistMessage
       )
 
       for await (const output of this.#agent.run(task, context)) {
         // Drain pending instructions between yields (if safe)
-        this.#conversationManager.drainPendingInstructions(
+        await this.#conversationManager.drainPendingInstructions(
           this.#pendingInstructions, conversationHistory, persistMessage
         )
 
@@ -318,14 +318,14 @@ export class AgentRuntime {
         const result = await this.#outputHandler.handle(output, outputCtx)
 
         if (result.event) {
-          const currentTask = this.#taskService.getTask(taskId)
+          const currentTask = await this.#taskService.getTask(taskId)
           if (!currentTask) throw new Error(`Task not found: ${taskId}`)
 
           if (!this.#taskService.canTransition(currentTask.status, result.event.type)) {
              throw new Error(`Invalid transition: cannot emit ${result.event.type} in state ${currentTask.status}`)
           }
 
-          this.#store.append(taskId, [result.event])
+          await this.#store.append(taskId, [result.event])
           emittedEvents.push(result.event)
         }
 
@@ -333,7 +333,7 @@ export class AgentRuntime {
         if (result.terminal) break
       }
     } catch (error) {
-      const currentTask = this.#taskService.getTask(taskId)
+      const currentTask = await this.#taskService.getTask(taskId)
       
       if (currentTask && this.#taskService.canTransition(currentTask.status, 'TaskFailed')) {
         const failureEvent: DomainEvent = {
@@ -344,7 +344,7 @@ export class AgentRuntime {
             authorActorId: this.#agent.id
           }
         }
-        this.#store.append(taskId, [failureEvent])
+        await this.#store.append(taskId, [failureEvent])
         emittedEvents.push(failureEvent)
       }
       throw error

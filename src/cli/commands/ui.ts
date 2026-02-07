@@ -5,7 +5,7 @@ export function registerUiCommand(parser: Argv, app: App, defaultBaseDir: string
   return parser.command('ui [baseDir]', 'Start Ink UI', (y: Argv) => y.positional('baseDir', { type: 'string' }), async (args: Arguments) => {
     const baseDirArgument = typeof args.baseDir === 'string' ? args.baseDir.trim() : ''
     const baseDir = baseDirArgument || defaultBaseDir
-    const appForUi = baseDir === app.baseDir ? app : createApp({ baseDir })
+    const appForUi = baseDir === app.baseDir ? app : await createApp({ baseDir })
     const { runMainTui } = await import('../../tui/run.js')
     await runMainTui(appForUi)
   })

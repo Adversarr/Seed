@@ -76,7 +76,7 @@ export interface ConversationStore {
   /**
    * Initialize storage (create file if needed).
    */
-  ensureSchema(): void
+  ensureSchema(): Promise<void>
 
   /**
    * Append a message to a task's conversation history.
@@ -85,7 +85,7 @@ export interface ConversationStore {
    * @param message - The LLM message to append
    * @returns The stored entry with assigned ID and index
    */
-  append(taskId: string, message: LLMMessage): StoredConversationEntry
+  append(taskId: string, message: LLMMessage): Promise<StoredConversationEntry>
 
   /**
    * Get all messages for a task, ordered by index.
@@ -93,7 +93,7 @@ export interface ConversationStore {
    * @param taskId - The task ID
    * @returns Messages in order, or empty array if none
    */
-  getMessages(taskId: string): LLMMessage[]
+  getMessages(taskId: string): Promise<LLMMessage[]>
 
   /**
    * Truncate conversation history, keeping only the last N messages.
@@ -102,7 +102,7 @@ export interface ConversationStore {
    * @param taskId - The task ID
    * @param keepLastN - Number of recent messages to keep
    */
-  truncate(taskId: string, keepLastN: number): void
+  truncate(taskId: string, keepLastN: number): Promise<void>
 
   /**
    * Clear all messages for a task.
@@ -110,7 +110,7 @@ export interface ConversationStore {
    *
    * @param taskId - The task ID
    */
-  clear(taskId: string): void
+  clear(taskId: string): Promise<void>
 
   /**
    * Read all entries (for debugging/testing).
@@ -118,5 +118,5 @@ export interface ConversationStore {
    * @param fromIdExclusive - Start reading after this ID (0 = from beginning)
    * @returns All entries after the specified ID
    */
-  readAll(fromIdExclusive?: number): StoredConversationEntry[]
+  readAll(fromIdExclusive?: number): Promise<StoredConversationEntry[]>
 }

@@ -7,24 +7,24 @@ import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/act
 import type { StoredEvent } from '../src/domain/events.js'
 
 describe('EventStore', () => {
-  test('append/readStream keeps seq ordering', () => {
+  test('append/readStream keeps seq ordering', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
     const store = new JsonlEventStore({
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl')
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
-    store.append('t1', [{ 
+    await store.append('t1', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 't1', title: 'hello', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
-    store.append('t1', [{ 
+    await store.append('t1', [{ 
       type: 'TaskStarted', 
       payload: { taskId: 't1', agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID } 
     }])
 
-    const events = store.readStream('t1', 1)
+    const events = await store.readStream('t1', 1)
     expect(events.map((e) => e.seq)).toEqual([1, 2])
     expect(events[0]?.type).toBe('TaskCreated')
     expect(events[1]?.type).toBe('TaskStarted')
@@ -38,16 +38,16 @@ describe('EventStore', () => {
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl')
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
     const received: StoredEvent[] = []
     const subscription = store.events$.subscribe((e) => received.push(e))
 
-    store.append('t1', [{ 
+    await store.append('t1', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 't1', title: 'hello', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
-    store.append('t2', [{ 
+    await store.append('t2', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 't2', title: 'world', intent: '', priority: 'background' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
@@ -62,43 +62,43 @@ describe('EventStore', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('readAll returns globally ordered events by id', () => {
+  test('readAll returns globally ordered events by id', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
     const store = new JsonlEventStore({
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl')
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
-    store.append('a', [{ 
+    await store.append('a', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 'a', title: 'A', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
-    store.append('b', [{ 
+    await store.append('b', [{ 
       type: 'TaskCreated', 
       payload: { taskId: 'b', title: 'B', intent: '', priority: 'foreground' as const, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID } 
     }])
 
-    const events = store.readAll(0)
+    const events = await store.readAll(0)
     expect(events.length).toBe(2)
     expect(events[0]!.id).toBeLessThan(events[1]!.id)
 
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('saveProjection overwrites instead of appending (no bloat)', () => {
+  test('saveProjection overwrites instead of appending (no bloat)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'coauthor-'))
     const store = new JsonlEventStore({
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl')
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
     // Save projection multiple times
-    store.saveProjection('test', 1, { count: 1 })
-    store.saveProjection('test', 2, { count: 2 })
-    store.saveProjection('test', 3, { count: 3 })
-    store.saveProjection('other', 5, { foo: 'bar' })
+    await store.saveProjection('test', 1, { count: 1 })
+    await store.saveProjection('test', 2, { count: 2 })
+    await store.saveProjection('test', 3, { count: 3 })
+    await store.saveProjection('other', 5, { foo: 'bar' })
 
     // Read the file directly to verify no bloat
     const raw = readFileSync(join(dir, 'projections.jsonl'), 'utf8')
@@ -108,11 +108,11 @@ describe('EventStore', () => {
     expect(lines.length).toBe(2)
 
     // Verify the values are correct
-    const { cursorEventId, state } = store.getProjection('test', { count: 0 })
+    const { cursorEventId, state } = await store.getProjection('test', { count: 0 })
     expect(cursorEventId).toBe(3)
     expect(state).toEqual({ count: 3 })
 
-    const other = store.getProjection('other', { foo: '' })
+    const other = await store.getProjection('other', { foo: '' })
     expect(other.cursorEventId).toBe(5)
     expect(other.state).toEqual({ foo: 'bar' })
 

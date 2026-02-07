@@ -1,11 +1,12 @@
-import { readFileSync, existsSync } from 'node:fs'
+import { readFile, access } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { resolve } from 'node:path'
 import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { ArtifactRef } from '../domain/task.js'
 import type { TaskView } from './taskService.js'
 
-function readFileRange(absolutePath: string, lineStart: number, lineEnd: number): string {
-  const raw = readFileSync(absolutePath, 'utf8')
+async function readFileRange(absolutePath: string, lineStart: number, lineEnd: number): Promise<string> {
+  const raw = await readFile(absolutePath, 'utf8')
   const lines = raw.split('\n')
   const startIdx = Math.max(0, lineStart - 1)
   const endIdx = Math.min(lines.length - 1, lineEnd - 1)
@@ -14,11 +15,11 @@ function readFileRange(absolutePath: string, lineStart: number, lineEnd: number)
   return numbered.join('\n')
 }
 
-function renderArtifactRef(baseDir: string, ref: ArtifactRef): string {
+async function renderArtifactRef(baseDir: string, ref: ArtifactRef): Promise<string> {
   if (ref.kind === 'file_range') {
     const abs = resolve(baseDir, ref.path)
     try {
-      const content = readFileRange(abs, ref.lineStart, ref.lineEnd)
+      const content = await readFileRange(abs, ref.lineStart, ref.lineEnd)
       return `## File: ${ref.path} (L${ref.lineStart}-L${ref.lineEnd})\n\`\`\`\n${content}\n\`\`\``
     } catch {
       return `## File: ${ref.path} (L${ref.lineStart}-L${ref.lineEnd})\n(file not found)`
@@ -28,15 +29,13 @@ function renderArtifactRef(baseDir: string, ref: ArtifactRef): string {
   return `## Ref: ${ref.kind}\n(skipped)`
 }
 
-function tryReadFile(path: string): string | null {
+async function tryReadFile(path: string): Promise<string | null> {
   try {
-    if (existsSync(path)) {
-      return readFileSync(path, 'utf8')
-    }
+    await access(path, constants.F_OK)
+    return await readFile(path, 'utf8')
   } catch {
-    // Ignore
+    return null
   }
-  return null
 }
 
 export class ContextBuilder {
@@ -49,7 +48,7 @@ export class ContextBuilder {
   /**
    * Build system prompt for Tool Use workflow.
    */
-  buildSystemPrompt(): string {
+  async buildSystemPrompt(): Promise<string> {
     const parts: string[] = []
 
     // Replace environment placeholders in system prompt
@@ -64,19 +63,19 @@ export class ContextBuilder {
 
     // Try to load project-specific context files
     const outlinePath = resolve(this.#baseDir, 'OUTLINE.md')
-    const outline = tryReadFile(outlinePath)
+    const outline = await tryReadFile(outlinePath)
     if (outline) {
       parts.push(`\n## Project Outline\n${outline}`)
     }
 
     const briefPath = resolve(this.#baseDir, 'BRIEF.md')
-    const brief = tryReadFile(briefPath)
+    const brief = await tryReadFile(briefPath)
     if (brief) {
       parts.push(`\n## Project Brief\n${brief}`)
     }
 
     const stylePath = resolve(this.#baseDir, 'STYLE.md')
-    const style = tryReadFile(stylePath)
+    const style = await tryReadFile(stylePath)
     if (style) {
       parts.push(`\n## Style Guide\n${style}`)
     }
@@ -87,13 +86,13 @@ export class ContextBuilder {
   /**
    * Build initial messages for a task.
    */
-  buildTaskMessages(task: TaskView): LLMMessage[] {
+  async buildTaskMessages(task: TaskView): Promise<LLMMessage[]> {
     const messages: LLMMessage[] = []
 
     // System prompt
     messages.push({
       role: 'system',
-      content: this.buildSystemPrompt()
+      content: await this.buildSystemPrompt()
     })
 
     // User task
@@ -107,7 +106,7 @@ export class ContextBuilder {
     if (task.artifactRefs && task.artifactRefs.length > 0) {
       taskParts.push('\n## Referenced Files')
       for (const ref of task.artifactRefs) {
-        taskParts.push(renderArtifactRef(this.#baseDir, ref))
+        taskParts.push(await renderArtifactRef(this.#baseDir, ref))
       }
     }
 

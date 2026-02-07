@@ -161,7 +161,7 @@ export function MainTui(props: Props) {
 
       const awaitingTask = result.tasks.find((task) => task.status === 'awaiting_user')
       if (awaitingTask) {
-        const pending = app.interactionService.getPendingInteraction(awaitingTask.taskId)
+        const pending = await app.interactionService.getPendingInteraction(awaitingTask.taskId)
         setPendingInteraction(pending)
         if (pending && focusedTaskId !== awaitingTask.taskId) {
           setFocusedTaskId(awaitingTask.taskId)

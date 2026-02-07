@@ -1,10 +1,11 @@
-import { Subject, type Observable } from 'rxjs'
+import { Subject } from 'rxjs'
+import type { Subscribable } from '../domain/ports/subscribable.js'
 import type { UiBus, UiEvent } from '../domain/ports/uiBus.js'
 
 export class SubjectUiBus implements UiBus {
   readonly #subject = new Subject<UiEvent>()
 
-  get events$(): Observable<UiEvent> {
+  get events$(): Subscribable<UiEvent> {
     return this.#subject.asObservable()
   }
 

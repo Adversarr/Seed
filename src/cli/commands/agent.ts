@@ -31,7 +31,7 @@ export function registerAgentCommand(parser: Argv, app: App, io: IO): Argv {
         
         io.stdout(`Creating task for test: "${prompt}"...\n`)
         
-        const { taskId } = app.taskService.createTask({
+        const { taskId } = await app.taskService.createTask({
           title: 'Test Agent Task',
           intent: prompt,
           agentId: app.runtimeManager.defaultAgentId
@@ -62,14 +62,14 @@ async function executeTask(app: App, io: IO, taskId: string) {
   const res = await app.runtimeManager.executeTask(taskId)
   
   // Check final task state
-  const task = app.taskService.getTask(taskId)
+  const task = await app.taskService.getTask(taskId)
   if (!task) {
     io.stdout('Task not found after execution\n')
     return
   }
 
   if (task.status === 'awaiting_user') {
-    const pending = app.interactionService.getPendingInteraction(taskId)
+    const pending = await app.interactionService.getPendingInteraction(taskId)
     if (pending) {
       io.stdout(`\nAwaiting user input:\n`)
       io.stdout(`  Kind: ${pending.kind}\n`)

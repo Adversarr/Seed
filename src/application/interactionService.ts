@@ -53,14 +53,14 @@ export class InteractionService {
    * Request an interaction from the user.
    * Emits UserInteractionRequested event and returns the interactionId.
    */
-  requestInteraction(
+  async requestInteraction(
     taskId: string,
     request: InteractionRequest,
     authorActorId?: string
-  ): { interactionId: string } {
+  ): Promise<{ interactionId: string }> {
     const interactionId = `ui_${nanoid(12)}`
     
-    this.#store.append(taskId, [
+    await this.#store.append(taskId, [
       {
         type: 'UserInteractionRequested',
         payload: {
@@ -83,12 +83,12 @@ export class InteractionService {
    * Submit a response to an interaction.
    * Emits UserInteractionResponded event.
    */
-  respondToInteraction(
+  async respondToInteraction(
     taskId: string,
     interactionId: string,
     response: InteractionResponse
-  ): void {
-    this.#store.append(taskId, [
+  ): Promise<void> {
+    await this.#store.append(taskId, [
       {
         type: 'UserInteractionResponded',
         payload: {
@@ -107,8 +107,8 @@ export class InteractionService {
    * Get the pending interaction for a task (if any).
    * Returns the most recent unanswered interaction request.
    */
-  getPendingInteraction(taskId: string): UserInteractionRequestedPayload | null {
-    const events = this.#store.readStream(taskId)
+  async getPendingInteraction(taskId: string): Promise<UserInteractionRequestedPayload | null> {
+    const events = await this.#store.readStream(taskId)
     
     // Build a set of responded interaction IDs
     const respondedIds = new Set<string>()
@@ -134,11 +134,11 @@ export class InteractionService {
   /**
    * Get the response for a specific interaction (if any).
    */
-  getInteractionResponse(
+  async getInteractionResponse(
     taskId: string,
     interactionId: string
-  ): UserInteractionRespondedPayload | null {
-    const events = this.#store.readStream(taskId)
+  ): Promise<UserInteractionRespondedPayload | null> {
+    const events = await this.#store.readStream(taskId)
     
     for (const event of events) {
       if (
@@ -167,7 +167,7 @@ export class InteractionService {
     const startTime = Date.now()
     
     while (Date.now() - startTime < timeoutMs) {
-      const response = this.getInteractionResponse(taskId, interactionId)
+      const response = await this.getInteractionResponse(taskId, interactionId)
       if (response) {
         return response
       }

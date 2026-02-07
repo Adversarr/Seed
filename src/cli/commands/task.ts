@@ -39,13 +39,13 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
               })()
             : undefined
 
-        const { taskId } = app.taskService.createTask({ title, artifactRefs, agentId: app.runtimeManager.defaultAgentId })
+        const { taskId } = await app.taskService.createTask({ title, artifactRefs, agentId: app.runtimeManager.defaultAgentId })
         io.stdout(`${taskId}\n`)
         return
       }
 
       if (action === 'list') {
-        const state = app.taskService.listTasks()
+        const state = await app.taskService.listTasks()
         for (const t of state.tasks) {
           const statusIcon = getStatusIcon(t.status)
           io.stdout(`  ${statusIcon} ${t.taskId} [${t.status}] ${t.title}\n`)
@@ -58,7 +58,7 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
         const taskId = (positionalArgs[0] ?? '').trim()
         if (!taskId) throw new Error('task cancel requires taskId')
         const reason = args.reason ? String(args.reason) : undefined
-        app.taskService.cancelTask(taskId, reason)
+        await app.taskService.cancelTask(taskId, reason)
         io.stdout('canceled\n')
         return
       }
@@ -68,7 +68,7 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
         const taskId = (positionalArgs[0] ?? '').trim()
         if (!taskId) throw new Error('task pause requires taskId')
         const reason = args.reason ? String(args.reason) : undefined
-        app.taskService.pauseTask(taskId, reason)
+        await app.taskService.pauseTask(taskId, reason)
         io.stdout('paused\n')
         return
       }
@@ -78,7 +78,7 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
         const taskId = (positionalArgs[0] ?? '').trim()
         if (!taskId) throw new Error('task resume requires taskId')
         const reason = args.reason ? String(args.reason) : undefined
-        app.taskService.resumeTask(taskId, reason)
+        await app.taskService.resumeTask(taskId, reason)
         io.stdout('resumed\n')
         return
       }
@@ -89,7 +89,7 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
         if (!taskId) throw new Error(`task ${action} requires taskId`)
         const instruction = positionalArgs.slice(1).join(' ').trim()
         if (!instruction) throw new Error(`task ${action} requires instruction`)
-        app.taskService.addInstruction(taskId, instruction)
+        await app.taskService.addInstruction(taskId, instruction)
         io.stdout('instruction added\n')
         return
       }

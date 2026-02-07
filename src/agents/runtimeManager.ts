@@ -1,4 +1,4 @@
-import type { Subscription } from 'rxjs'
+import type { Subscription } from '../domain/ports/subscribable.js'
 import type { EventStore } from '../domain/ports/eventStore.js'
 import type { LLMClient } from '../domain/ports/llmClient.js'
 import type { ToolRegistry } from '../domain/ports/tool.js'
@@ -43,6 +43,8 @@ export class RuntimeManager {
   #defaultAgentId: string | null = null
   #isRunning = false
   #subscription: Subscription | null = null
+  /** Tracked in-flight event handler promises (for waitForIdle) */
+  readonly #pendingHandlers = new Set<Promise<void>>()
 
   constructor(opts: {
     store: EventStore
@@ -92,11 +94,22 @@ export class RuntimeManager {
     if (this.#isRunning) return
     this.#isRunning = true
 
-    this.#subscription = this.#store.events$.subscribe({
-      next: (event) => {
-        void this.#handleEvent(event)
-      }
+    this.#subscription = this.#store.events$.subscribe((event) => {
+      const p = this.#handleEvent(event).finally(() => {
+        this.#pendingHandlers.delete(p)
+      })
+      this.#pendingHandlers.add(p)
     })
+  }
+
+  /**
+   * Wait until all in-flight event handlers have settled.
+   * Useful in tests to await fire-and-forget processing.
+   */
+  async waitForIdle(): Promise<void> {
+    while (this.#pendingHandlers.size > 0) {
+      await Promise.all([...this.#pendingHandlers])
+    }
   }
 
   stop(): void {
@@ -123,7 +136,7 @@ export class RuntimeManager {
    * Used by CLI `agent run <taskId>` and `agent test`.
    */
   async executeTask(taskId: string): Promise<{ taskId: string; events: DomainEvent[] }> {
-    const task = this.#taskService.getTask(taskId)
+    const task = await this.#taskService.getTask(taskId)
     if (!task) {
       throw new Error(`Task not found: ${taskId}`)
     }
@@ -149,13 +162,13 @@ export class RuntimeManager {
       } catch (error) {
         console.error(`[RuntimeManager] Task handling failed for task ${taskId}:`, error)
       } finally {
-        this.#cleanupIfTerminal(taskId)
+        await this.#cleanupIfTerminal(taskId)
       }
     }
 
     // --- UserInteractionResponded ---
     if (event.type === 'UserInteractionResponded') {
-      const task = this.#taskService.getTask(event.payload.taskId)
+      const task = await this.#taskService.getTask(event.payload.taskId)
       if (!task) return
       if (!this.#agents.has(task.agentId)) return
 
@@ -169,7 +182,7 @@ export class RuntimeManager {
       } catch (error) {
         console.error(`[RuntimeManager] Resume failed for task ${taskId}:`, error)
       } finally {
-        this.#cleanupIfTerminal(taskId)
+        await this.#cleanupIfTerminal(taskId)
       }
     }
 
@@ -181,7 +194,7 @@ export class RuntimeManager {
 
     // --- TaskResumed ---
     if (event.type === 'TaskResumed') {
-      const task = this.#taskService.getTask(event.payload.taskId)
+      const task = await this.#taskService.getTask(event.payload.taskId)
       if (!task) return
       if (!this.#agents.has(task.agentId)) return
 
@@ -193,13 +206,13 @@ export class RuntimeManager {
       } catch (error) {
         console.error(`[RuntimeManager] Resume failed for task ${taskId}:`, error)
       } finally {
-        this.#cleanupIfTerminal(taskId)
+        await this.#cleanupIfTerminal(taskId)
       }
     }
 
     // --- TaskInstructionAdded ---
     if (event.type === 'TaskInstructionAdded') {
-      const task = this.#taskService.getTask(event.payload.taskId)
+      const task = await this.#taskService.getTask(event.payload.taskId)
       if (!task) return
       if (!this.#agents.has(task.agentId)) return
 
@@ -211,7 +224,7 @@ export class RuntimeManager {
       } catch (error) {
         console.error(`[RuntimeManager] Instruction handling failed for task ${taskId}:`, error)
       } finally {
-        this.#cleanupIfTerminal(taskId)
+        await this.#cleanupIfTerminal(taskId)
       }
     }
 
@@ -246,7 +259,7 @@ export class RuntimeManager {
    */
   async #drainPending(rt: AgentRuntime, taskId: string): Promise<void> {
     while (rt.hasPendingWork && this.#isRunning) {
-      const task = this.#taskService.getTask(taskId)
+      const task = await this.#taskService.getTask(taskId)
       if (!task) return
       if (task.status === 'awaiting_user' || task.status === 'paused' || task.status === 'canceled') return
       await rt.execute()
@@ -278,8 +291,8 @@ export class RuntimeManager {
     return rt
   }
 
-  #cleanupIfTerminal(taskId: string): void {
-    const task = this.#taskService.getTask(taskId)
+  async #cleanupIfTerminal(taskId: string): Promise<void> {
+    const task = await this.#taskService.getTask(taskId)
     if (!task) {
       this.#runtimes.delete(taskId)
       return

@@ -21,8 +21,8 @@ describe('Audit System', () => {
     rmSync(baseDir, { recursive: true, force: true })
   })
 
-  it('should append and read audit entries', () => {
-    const log = createAuditLog(auditPath)
+  it('should append and read audit entries', async () => {
+    const log = await createAuditLog(auditPath)
     const service = new AuditService(log)
 
     const entry1: AuditLogEntry = {
@@ -51,23 +51,23 @@ describe('Audit System', () => {
       }
     }
 
-    log.append(entry1)
-    log.append(entry2)
+    await log.append(entry1)
+    await log.append(entry2)
 
     // Test readAll
-    const all = log.readAll()
+    const all = await log.readAll()
     expect(all).toHaveLength(2)
     expect(all[0].id).toBe(1)
     expect(all[1].id).toBe(2)
 
     // Test readByTask
-    const taskEntries = log.readByTask('t1')
+    const taskEntries = await log.readByTask('t1')
     expect(taskEntries).toHaveLength(2)
-    const emptyEntries = log.readByTask('t2')
+    const emptyEntries = await log.readByTask('t2')
     expect(emptyEntries).toHaveLength(0)
 
     // Test AuditService
-    const recent = service.getRecentEntries('t1')
+    const recent = await service.getRecentEntries('t1')
     expect(recent).toHaveLength(2)
     expect(recent[0].id).toBe(2) // Sorted descending
     expect(recent[1].id).toBe(1)

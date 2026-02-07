@@ -12,7 +12,7 @@ export function registerLogCommand(parser: Argv, app: App, io: IO): Argv {
         .positional('streamId', { type: 'string' }),
     async (args: Arguments) => {
       const streamId = args.streamId ? String(args.streamId) : undefined
-      const events = app.eventService.replayEvents(streamId)
+      const events = await app.eventService.replayEvents(streamId)
       for (const e of events) {
         io.stdout(`${e.id} ${e.streamId}#${e.seq} ${e.type} ${JSON.stringify(e.payload)}\n`)
       }

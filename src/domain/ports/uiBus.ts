@@ -1,4 +1,4 @@
-import type { Observable } from 'rxjs'
+import type { Subscribable } from './subscribable.js'
 import type { StoredAuditEntry } from './auditLog.js'
 
 export type UiEvent =
@@ -12,6 +12,6 @@ export type UiEvent =
     }
 
 export interface UiBus {
-  readonly events$: Observable<UiEvent>
+  readonly events$: Subscribable<UiEvent>
   emit(event: UiEvent): void
 }

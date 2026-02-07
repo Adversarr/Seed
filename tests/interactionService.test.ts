@@ -20,51 +20,51 @@ describe('InteractionService', () => {
     rmSync(baseDir, { recursive: true, force: true })
   })
 
-  it('should request and respond to interactions', () => {
+  it('should request and respond to interactions', async () => {
     const store = new JsonlEventStore({ eventsPath })
-    store.ensureSchema()
+    await store.ensureSchema()
     const service = new InteractionService(store)
     const taskId = 't1'
 
     // Request
-    const { interactionId } = service.requestInteraction(taskId, {
+    const { interactionId } = await service.requestInteraction(taskId, {
       kind: 'Confirm',
       purpose: 'confirm_risky_action',
       display: { title: 'Confirm' }
     })
 
     // Get Pending
-    const pending = service.getPendingInteraction(taskId)
+    const pending = await service.getPendingInteraction(taskId)
     expect(pending).not.toBeNull()
     expect(pending?.interactionId).toBe(interactionId)
 
     // Respond
-    service.respondToInteraction(taskId, interactionId, { selectedOptionId: 'ok' })
+    await service.respondToInteraction(taskId, interactionId, { selectedOptionId: 'ok' })
 
     // Get Pending again (should be null)
-    const pendingAfter = service.getPendingInteraction(taskId)
+    const pendingAfter = await service.getPendingInteraction(taskId)
     expect(pendingAfter).toBeNull()
 
     // Get Response
-    const response = service.getInteractionResponse(taskId, interactionId)
+    const response = await service.getInteractionResponse(taskId, interactionId)
     expect(response).not.toBeNull()
     expect(response?.selectedOptionId).toBe('ok')
   })
 
   it('should wait for response', async () => {
     const store = new JsonlEventStore({ eventsPath })
-    store.ensureSchema()
+    await store.ensureSchema()
     const service = new InteractionService(store)
     const taskId = 't1'
-    const { interactionId } = service.requestInteraction(taskId, {
+    const { interactionId } = await service.requestInteraction(taskId, {
       kind: 'Input',
       purpose: 'request_info',
       display: { title: 'Input' }
     })
 
     // Simulate async response
-    setTimeout(() => {
-      service.respondToInteraction(taskId, interactionId, { inputValue: 'hello' })
+    setTimeout(async () => {
+      await service.respondToInteraction(taskId, interactionId, { inputValue: 'hello' })
     }, 50)
 
     const response = await service.waitForResponse(taskId, interactionId, { pollIntervalMs: 10 })

@@ -17,7 +17,7 @@ describe('TUI', () => {
     const conversationsPath = join(dir, 'conversations.jsonl')
     
     const baseDir = dir
-    const app = createApp({
+    const app = await createApp({
       baseDir,
       eventsPath,
       auditLogPath,
@@ -26,7 +26,7 @@ describe('TUI', () => {
       llm: new FakeLLMClient(),
     })
 
-    app.store.append('t1', [
+    await app.store.append('t1', [
       {
         type: 'TaskCreated',
         payload: {
@@ -42,7 +42,8 @@ describe('TUI', () => {
 
     const { lastFrame, unmount } = render(<MainTui app={app} />)
 
-    await new Promise((r) => setTimeout(r, 20))
+    // Wait for async state refresh to complete (reads tasks from store)
+    await new Promise((r) => setTimeout(r, 200))
     expect(lastFrame()).toMatch(/Tasks/)
     expect(lastFrame()).toMatch(/hello/)
 

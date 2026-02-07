@@ -56,15 +56,15 @@ describe('AgentRuntime - context recovery', () => {
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl'),
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
     const conversationStore = new JsonlConversationStore({
       conversationsPath: join(dir, 'conversations.jsonl'),
     })
-    conversationStore.ensureSchema()
+    await conversationStore.ensureSchema()
 
     const auditLog = new JsonlAuditLog({ auditPath: join(dir, 'audit.jsonl') })
-    auditLog.ensureSchema()
+    await auditLog.ensureSchema()
 
     const toolRegistry = new DefaultToolRegistry()
     const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
@@ -107,7 +107,7 @@ describe('AgentRuntime - context recovery', () => {
       outputHandler
     })
 
-    store.append('t1', [
+    await store.append('t1', [
       {
         type: 'TaskCreated',
         payload: {
@@ -121,12 +121,12 @@ describe('AgentRuntime - context recovery', () => {
       },
     ])
 
-    conversationStore.append('t1', {
+    await conversationStore.append('t1', {
       role: 'assistant',
       toolCalls: [{ toolCallId: 'tc_missing', toolName: 'safeEcho', arguments: { value: 'x' } }],
     })
 
-    auditLog.append({
+    await auditLog.append({
       type: 'ToolCallCompleted',
       payload: {
         toolCallId: 'tc_missing',
@@ -142,7 +142,7 @@ describe('AgentRuntime - context recovery', () => {
 
     await runtime.execute()
 
-    const repairedMessages = conversationStore.getMessages('t1')
+    const repairedMessages = await conversationStore.getMessages('t1')
     expect(repairedMessages.some((m) => m.role === 'tool' && m.toolCallId === 'tc_missing')).toBe(true)
 
     rmSync(dir, { recursive: true, force: true })
@@ -154,15 +154,15 @@ describe('AgentRuntime - context recovery', () => {
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl'),
     })
-    store.ensureSchema()
+    await store.ensureSchema()
 
     const conversationStore = new JsonlConversationStore({
       conversationsPath: join(dir, 'conversations.jsonl'),
     })
-    conversationStore.ensureSchema()
+    await conversationStore.ensureSchema()
 
     const auditLog = new JsonlAuditLog({ auditPath: join(dir, 'audit.jsonl') })
-    auditLog.ensureSchema()
+    await auditLog.ensureSchema()
 
     const toolRegistry = new DefaultToolRegistry()
     toolRegistry.register({
@@ -216,7 +216,7 @@ describe('AgentRuntime - context recovery', () => {
       outputHandler
     })
 
-    store.append('t1', [
+    await store.append('t1', [
       {
         type: 'TaskCreated',
         payload: {
@@ -232,7 +232,7 @@ describe('AgentRuntime - context recovery', () => {
 
     await runtime.execute()
 
-    const messages = conversationStore.getMessages('t1')
+    const messages = await conversationStore.getMessages('t1')
     expect(messages.some((m) => m.role === 'tool' && m.toolCallId === 'tc_1')).toBe(true)
 
     rmSync(dir, { recursive: true, force: true })

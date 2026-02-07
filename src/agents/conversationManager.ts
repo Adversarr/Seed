@@ -67,7 +67,7 @@ export class ConversationManager {
     agentId: string,
     baseDir: string
   ): Promise<LLMMessage[]> {
-    const history: LLMMessage[] = this.#conversationStore.getMessages(taskId)
+    const history: LLMMessage[] = await this.#conversationStore.getMessages(taskId)
     await this.#repairDanglingToolCalls(taskId, agentId, baseDir, history)
     return history
   }
@@ -116,9 +116,9 @@ export class ConversationManager {
   createPersistCallback(
     taskId: string,
     history: LLMMessage[]
-  ): (message: LLMMessage) => void {
-    return (message: LLMMessage) => {
-      this.#conversationStore.append(taskId, message)
+  ): (message: LLMMessage) => Promise<void> {
+    return async (message: LLMMessage) => {
+      await this.#conversationStore.append(taskId, message)
       history.push(message)
     }
   }
@@ -131,21 +131,21 @@ export class ConversationManager {
    * This is called by the OutputHandler after tool execution so that
    * tool results are durably recorded for crash recovery.
    */
-  persistToolResultIfMissing(
+  async persistToolResultIfMissing(
     taskId: string,
     toolCallId: string,
     toolName: string,
     resultOutput: unknown,
     isError: boolean,
     history: readonly LLMMessage[],
-    persistMessage: (m: LLMMessage) => void
-  ): void {
+    persistMessage: (m: LLMMessage) => Promise<void>
+  ): Promise<void> {
     const alreadyExists = history.some(
       (m) => m.role === 'tool' && m.toolCallId === toolCallId
     )
     if (alreadyExists) return
 
-    persistMessage({
+    await persistMessage({
       role: 'tool',
       toolCallId,
       toolName,
@@ -163,18 +163,18 @@ export class ConversationManager {
    * Drain a queue of pending user instructions into conversation history
    * when the history is in a safe state.
    */
-  drainPendingInstructions(
+  async drainPendingInstructions(
     queue: string[],
     history: readonly LLMMessage[],
-    persistMessage: (m: LLMMessage) => void
-  ): void {
+    persistMessage: (m: LLMMessage) => Promise<void>
+  ): Promise<void> {
     if (queue.length === 0) return
     if (!this.isSafeToInject(history)) return
 
     while (queue.length > 0) {
       const instruction = queue.shift()
       if (instruction) {
-        persistMessage({ role: 'user', content: instruction })
+        await persistMessage({ role: 'user', content: instruction })
       }
     }
   }
@@ -217,7 +217,7 @@ export class ConversationManager {
     if (desiredToolCalls.length === 0) return
 
     // Build lookup from AuditLog completions
-    const auditEntries = this.#auditLog.readByTask(taskId)
+    const auditEntries = await this.#auditLog.readByTask(taskId)
     const toolCompletionById = new Map<
       string,
       { toolName: string; output: unknown; isError: boolean }
@@ -246,7 +246,7 @@ export class ConversationManager {
           toolName: completed.toolName,
           content: JSON.stringify(completed.output),
         }
-        this.#conversationStore.append(taskId, msg)
+        await this.#conversationStore.append(taskId, msg)
         history.push(msg)
         existingToolResults.add(toolCall.toolCallId)
         repairedToolResults += 1
@@ -266,7 +266,7 @@ export class ConversationManager {
             error: 'Tool execution interrupted (Unknown tool)',
           }),
         }
-        this.#conversationStore.append(taskId, msg)
+        await this.#conversationStore.append(taskId, msg)
         history.push(msg)
         existingToolResults.add(toolCall.toolCallId)
         repairedToolResults += 1
@@ -299,7 +299,7 @@ export class ConversationManager {
         toolName: toolCall.toolName,
         content: JSON.stringify(retryResult.output),
       }
-      this.#conversationStore.append(taskId, msg)
+      await this.#conversationStore.append(taskId, msg)
       history.push(msg)
       existingToolResults.add(toolCall.toolCallId)
       retriedToolCalls += 1
