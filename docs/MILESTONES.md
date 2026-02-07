@@ -1,7 +1,7 @@
 # CoAuthor Milestones
 
 > Version: V0.1  
-> Last Updated: 2026-02-03  
+> Last Updated: 2026-02-07  
 > Status: Planning Document (Mutable)
 
 ---
@@ -496,11 +496,11 @@ export const UserFeedbackPostedPayloadSchema = z.object({
 npm run dev -- agent start
 
 # 2. Create task
-npm run dev -- task create "Improve introduction" --file chapters/01_intro.tex
+npm run dev -- task create "Improve introduction" --file chapters/01_intro.tex --lines 1-40
 
 # 3. Manually trigger Agent processing
-npm run dev -- agent handle <taskId>
-# Expected: Agent calls LLM, outputs plan (no events written yet)
+npm run dev -- agent run <taskId>
+# Expected: Agent calls LLM, executes tool-use loop, emits TaskStarted and AuditLog entries
 
 # 4. Verify projection checkpoint
 npm run dev -- task list

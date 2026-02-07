@@ -59,14 +59,17 @@ FAKE_LLM_CONFIG_PATH=./demo/fake-llm-config.ts
 
 ```bash
 npm run dev -- task create "Improve paper introduction" \
-  --intent "Edit the introduction.tex file to make the opening more engaging and clearly state the research contribution." \
-  --refs demo/paper
+  --file demo/paper/sections/introduction.tex \
+  --lines 1-200
+
+# Optional: add a more specific instruction
+npm run dev -- task continue <taskId> "Edit introduction.tex to make the opening more engaging and clearly state the research contribution."
 ```
 
-#### 2. Start the Agent
+#### 2. Run the Agent
 
 ```bash
-npm run dev -- agent start <taskId>
+npm run dev -- agent run <taskId>
 ```
 
 #### 3. Observe the Tool Loop
@@ -127,8 +130,9 @@ npm run dev
 ```
 
 Then use the TUI commands:
-- `task create "Demo task" --intent "..." --refs demo/paper`
-- `agent start <taskId>`
+- `task create "Demo task" --file demo/paper/sections/introduction.tex --lines 1-200`
+- `task continue <taskId> "Edit the intro for clarity and impact"`
+- `agent run <taskId>`
 
 ## Fake LLM Configuration
 

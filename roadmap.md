@@ -1,7 +1,7 @@
 # CoAuthor Vision and Interaction Design
 
 > Version: V0  
-> Last Updated: 2026-02-02  
+> Last Updated: 2026-02-07  
 > Status: Vision Document (Guideline)
 
 This document describes the product vision, user experience design, and interaction logic of CoAuthor.
@@ -18,11 +18,11 @@ This document describes the product vision, user experience design, and interact
 CoAuthor is a "co-author type system" for STEM academic writing:
 
 - **User = Reviewer/PI**: Proposes requirements, provides facts and assets (experiments, figures, code, data), and makes final decisions (accept/reject/adjust).
-- **LLM Agents = Co-author/Postdoc**: Proactively plans, drafts, and modifies paragraph by paragraph, producing reviewable plans and rollable patches, while maintaining consistency.
+- **LLM Agents = Co-author/Postdoc**: Proactively drafts and iterates paragraph by paragraph, using tool calls with auditable logs and UIP confirmation for risky actions.
 
 **Core Difference**: Writing cannot be verified for "correctness" using test cases like coding. Therefore, CoAuthor's engineering strategy is:
-- Replace "correctness" with **auditable, traceable, rollable, and compilable (LaTeX)**;
-- Replace "generation quality" with **plan-first, patch-first, and review-first**;
+- Replace "correctness" with **auditable, traceable, and compilable (LaTeX)**;
+- Replace "generation quality" with **tool-use loops, UIP review for risky actions, and auditability**;
 - Engineer "context understanding" into **Outline Contract + Stable Brief/Style + Local Paragraph Range + Asset Citation**.
 
 ---
@@ -34,13 +34,13 @@ CoAuthor is a "co-author type system" for STEM academic writing:
 1. **End-to-end Claude Code style main workflow**
    - User inputs requests via REPL (chat instructions or slash commands)
    - The system encapsulates requests into Tasks and enters a shared task pool (Billboard)
-   - Agent claims Task, builds context, first outputs a **modification plan (plan)**, then outputs a **patch (diff)**
-   - User reviews and confirms patch application
-   - File changes are monitored, and the Agent has "perception and rebase" capabilities for manual user modifications
+   - Agent claims Task, builds context, and executes a **tool-use loop**
+   - Risky actions (e.g., `editFile`) require UIP confirmation with a diff preview
+   - File changes are monitored, and the Agent can recover from manual user modifications via UIP
 
 2. **LaTeX-first Engineering**
    - Main artifacts are `.tex` files (can be included by chapter)
-   - Capability to perform minimal compilation checks after patch application (optional)
+   - Capability to perform minimal compilation checks after risky edits (optional)
 
 3. **OUTLINE.md Contract and Flexibility**
    - The outline is an independent Markdown document `OUTLINE.md`, which users can modify at any time
@@ -62,7 +62,7 @@ CoAuthor is a "co-author type system" for STEM academic writing:
 | Constraint | Description |
 |------|------|
 | Do not guess figure meanings | Result interpretation must come from user-provided asset metadata |
-| Patch → Review → Apply | Silent file overwriting is prohibited |
+| Risky Tool → UIP Review → Apply | Silent file overwriting is prohibited |
 | No detailed Task classification | Task types are determined by Agent workflow |
 
 ---
@@ -113,36 +113,20 @@ V0 provides a long-running REPL:
 
 | Command | Description |
 |------|------|
-| `/tasks` | List open / awaiting_review tasks |
+| `/tasks` | List open / awaiting_user tasks |
 | `/open <taskId>` | Attach to task thread |
-| `/accept [proposalId\|latest]` | Accept patch proposal |
-| `/reject [proposalId] [reason]` | Reject patch |
-| `/followup <text>` | Append feedback to the current thread |
+| `/pending [taskId]` | List pending UIPs |
+| `/respond <taskId> <optionId> [--text ...]` | Respond to a UIP |
+| `/followup <text>` | Append instruction to the current thread |
 | `/cancel` | Cancel current task |
 
-### 3.3 Plan-first Output Specification
+### 3.3 Tool-Use Output Specification
 
-For any task that modifies text, the Agent must output two structured artifacts according to a fixed template:
+For any task that modifies text, the Agent uses tool calls and UIP:
 
-#### 1) Plan
-
-```yaml
-Goal: Modification goal
-Issues: Identified issues
-Strategy: Strategy taken
-Scope: Change scope (which paragraphs/sections)
-Risks: Risk warnings
-Questions: Blocking questions (if needed)
-```
-
-#### 2) Patch Proposal
-
-- Unified diff format
-- Includes target file path
-- Includes baseRevision (for drift detection)
-- Includes proposalId
-
-The user sees the plan, then the patch, and finally applies it with `/accept`.
+1. **Safe tools** (`listFiles`, `readFile`) execute immediately.
+2. **Risky tools** (`editFile`) require UIP confirmation with a diff preview.
+3. If information or a decision is missing, the Agent issues a UIP (`request_info` / `choose_strategy`) before continuing.
 
 ---
 
@@ -153,23 +137,19 @@ The user sees the plan, then the patch, and finally applies it with `/accept`.
 ```
 User: /edit chapters/01_intro.tex:10-20 Make this paragraph more academic
 
-Agent: [claiming task...]
+Agent: [TaskStarted, agentId=agent_coauthor_default]
 
-Agent: [AgentPlanPosted]
-  Goal: Improve the academic quality of lines 10-20 in the introduction of Chapter 1
-  Issues: Current usage is colloquial
-  Strategy: Replace with passive voice, add academic terminology
-  Scope: 01_intro.tex lines 10-20
-  
-Agent: [PatchProposed]
+Agent: [ToolCallRequested: editFile]
   --- a/chapters/01_intro.tex
   +++ b/chapters/01_intro.tex
   @@ -10,5 +10,5 @@
   -This thing is really fast.
   +The proposed architecture demonstrates significant latency improvements.
 
-User: /accept
-Applied patch -> chapters/01_intro.tex
+System: [UserInteractionRequested: confirm_risky_action]
+
+User: /respond <approve_option_id>
+Applied edit -> chapters/01_intro.tex
 ```
 
 ### 4.2 Typical Scenario: User Manual Modification Mid-task
@@ -181,19 +161,17 @@ Agent: [TaskStarted, agentId=agent_coauthor_default]
 
 # User manually modifies 02_method.tex while Agent is working
 
-Agent: [AgentPlanPosted]
-  (Plan based on original file content)
-  
-Agent: [PatchProposed]
-  (Patch with baseRevision=abc123)
-
-User: /accept
+Agent: [ToolCallRequested: editFile]
+  (Diff based on original file content)
 
 # Apply fails due to file change
-System: [PatchConflicted]
-  baseRevision mismatch: expected=abc123 actual=xyz789
-  
-# User needs to re-trigger the task or resolve manually
+System: [ToolCallCompleted: editFile isError=true]
+
+System: [UserInteractionRequested: request_info]
+  "File changed while editing. Re-read and retry?"
+
+User: /respond <retry_option_id>
+Agent re-reads file and retries edit.
 ```
 
 ### 4.3 Typical Scenario: Multiple Candidates
@@ -201,11 +179,13 @@ System: [PatchConflicted]
 ```
 User: /tweak chapters/03_result.tex:100-105 Make this sentence more concise --n 3
 
-Agent: [PatchProposed] Option A (concise)
-Agent: [PatchProposed] Option B (formal)
-Agent: [PatchProposed] Option C (emphatic)
+Agent: [UserInteractionRequested: choose_strategy]
+  Option A (concise)
+  Option B (formal)
+  Option C (emphatic)
 
-User: /accept patch_optionB
+User: /respond <optionB_id>
+Agent: [ToolCallRequested: editFile] (apply selected option)
 ```
 
 ---
@@ -287,7 +267,8 @@ my-thesis/
 └── .coauthor/              # CoAuthor working directory
     ├── events.jsonl        # Event Store
     ├── projections.jsonl   # Projection checkpoints
-    └── patches/            # Patch history
+    ├── audit.jsonl         # Tool audit log
+    └── conversations.jsonl # Conversation history
 ```
 
 ---
@@ -300,5 +281,5 @@ my-thesis/
 | Verification | Test case | Compilable + Rollable |
 | Minimal Unit | Function/File | Paragraph |
 | Context | AST + LSP | OUTLINE + BRIEF + STYLE |
-| Main Workflow | Think → Act → Observe | Plan → Patch → Review |
+| Main Workflow | Think → Act → Observe | Tool Use → UIP → Review |
 | Adapter | CLI | CLI (V0) → Overleaf (V1) |

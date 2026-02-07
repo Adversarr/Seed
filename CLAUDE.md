@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CoAuthor is a co-authoring system for STEM academic writing using LLM agents. It provides a task-driven, event-sourced architecture for collaborative writing with LaTeX support.
 
-**Current Milestone:** M1 - Core event sourcing and CLI scaffolding complete.
+**Current Milestone:** M2 - Agent runtime with Tool Use + UIP complete (M3 planned).
 
 ## Common Commands
 
@@ -42,18 +42,25 @@ npx vitest run -t "should create task"       # Run tests matching pattern
 # Task operations
 npm run dev -- task create "Task title"         # Create a task
 npm run dev -- task list                        # List all tasks
-npm run dev -- task start <taskId>              # Start a task
-npm run dev -- task complete <taskId>           # Complete a task
+npm run dev -- task cancel <taskId>             # Cancel a task
+npm run dev -- task pause <taskId>              # Pause a task
+npm run dev -- task resume <taskId>             # Resume a task
+npm run dev -- task continue <taskId> "..."     # Add instruction to a task
+npm run dev -- task refine <taskId> "..."       # Add refinement instruction
 
-# Patch operations
-echo '<patch content>' | npm run dev -- patch propose <taskId> <targetPath>
-npm run dev -- patch accept <taskId> [proposalId|latest]
-npm run dev -- patch reject <taskId> <proposalId>
-npm run dev -- patch apply <taskId> <proposalId>
+# Agent operations
+npm run dev -- agent run <taskId>               # Execute a task once
+npm run dev -- agent test "say hello"           # Create and run a test task
+
+# User interaction (UIP)
+npm run dev -- interact pending [taskId]        # Show pending UIP(s)
+npm run dev -- interact respond <taskId> <optionId> [--text "..."]
+
+# Audit log
+npm run dev -- audit list [taskId] --limit 20
 
 # Event log
 npm run dev -- log replay [streamId]           # Replay events
-npm run dev -- log show [streamId]             # Show events
 
 # Terminal UI
 npm run dev                                     # Start Ink TUI (default)
@@ -79,35 +86,45 @@ See [docs/MILESTONES.md](docs/MILESTONES.md) for milestone planning.
 ```
 src/
 ├── index.ts              # CLI entry point
+├── agents/               # Agent runtime + output handling
 ├── app/
 │   └── createApp.ts      # App initialization with services
+├── application/          # Application services (Use Cases)
+│   ├── auditService.ts   # Audit log queries
+│   ├── contextBuilder.ts # LLM system+task context
+│   ├── eventService.ts   # Event replay use cases
+│   ├── interactionService.ts # UIP use cases
+│   ├── projector.ts      # Projection runner with checkpoint
+│   ├── taskService.ts    # Task use cases
+│   └── index.ts
+├── cli/                  # CLI interface
+│   ├── commands/         # CLI subcommands
+│   ├── run.ts            # CLI command parser (yargs)
+│   └── io.ts             # IO abstraction for testability
+├── config/               # Runtime configuration
 ├── domain/               # Domain layer (types, schemas)
 │   ├── actor.ts          # Actor types (User, Agent, System)
 │   ├── task.ts           # Task, ArtifactRef types
-│   ├── artifact.ts       # Artifact types (Figure, Table, etc.)
 │   ├── events.ts         # Domain events (Zod schemas)
 │   ├── index.ts          # Domain exports
 │   └── ports/            # Port interfaces
 │       ├── eventStore.ts # EventStore interface
+│       ├── llmClient.ts  # LLM client interface
+│       ├── tool.ts       # Tool registry interface
 │       └── index.ts
-├── application/          # Application services (Use Cases)
-│   ├── taskService.ts    # Task use cases
-│   ├── patchService.ts   # Patch use cases
-│   ├── eventService.ts   # Event replay use cases
-│   └── index.ts
-├── core/                 # Core utilities
-│   ├── projector.ts      # Projection runner with checkpoint
-│   └── projections.ts    # Projection reducers for read models
 ├── infra/                # Infrastructure adapters
-│   ├── jsonlEventStore.ts # JSONL-based event store
-│   └── logger.ts         # Pino logger
-├── cli/                  # CLI interface
-│   ├── run.ts            # CLI command parser (yargs)
-│   └── io.ts             # IO abstraction for testability
+│   ├── jsonlEventStore.ts   # JSONL-based event store
+│   ├── jsonlAuditLog.ts     # Tool audit log
+│   ├── jsonlConversationStore.ts # Conversation persistence
+│   ├── toolExecutor.ts      # Tool execution + audit
+│   ├── toolRegistry.ts      # Tool definitions
+│   ├── toolSchemaAdapter.ts # Tool schema adaptation
+│   └── tools/               # Built-in tool implementations
 ├── tui/                  # Terminal UI (Ink + React)
+│   ├── components/       # UI components
 │   ├── main.tsx          # Main TUI component
 │   └── run.ts            # TUI renderer
-└── patch/                # Patch handling
+└── patch/                # Unified diff helpers
     └── applyUnifiedPatch.ts  # Unified diff patch application
 
 tests/                    # Test files (vitest)
@@ -136,11 +153,11 @@ docs/                     # Documentation
 - No direct state mutations - only through events
 
 **Domain Events:**
-- Task lifecycle: `TaskCreated`, `TaskStarted`, `TaskCompleted`, `TaskFailed`, `TaskCanceled`
-- Plan & Patch: `AgentPlanPosted`, `PatchProposed`, `PatchAccepted`, `PatchRejected`, `PatchApplied`
-- Feedback: `UserFeedbackPosted`
-- Conflict: `PatchConflicted` (emitted when apply fails due to baseRevision mismatch)
+- Task lifecycle: `TaskCreated`, `TaskStarted`, `TaskCompleted`, `TaskFailed`, `TaskCanceled`, `TaskPaused`, `TaskResumed`
+- Instructions: `TaskInstructionAdded`
+- UIP: `UserInteractionRequested`, `UserInteractionResponded`
 - All events defined with Zod schemas in `src/domain/events.ts`
+- File modifications and command execution are recorded in AuditLog, not DomainEvents
 
 **Projections:**
 - `tasks` projection - Lists all tasks with current state and metadata
@@ -182,11 +199,10 @@ CLI/TUI → Application Services → Domain Ports ← Infrastructure Adapters
 - IO abstraction in CLI allows easy testing without actual stdin/stdout
 - Test services by verifying emitted events, not state
 
-**Patch Application:**
-- Uses unified diff format (RFC standard)
-- Base revision checking to prevent drift
-- Applied patches append `PatchApplied` event with new revision
-- Conflicts emit `PatchConflicted` event
+**Tool Use + Audit Log:**
+- Tool calls are executed through `ToolExecutor`
+- Tool calls are recorded in AuditLog (`ToolCallRequested` / `ToolCallCompleted`)
+- Risky tools trigger UIP confirmation with a diff preview
 
 **Database:**
 - JSONL stored in `.coauthor/` directory

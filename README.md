@@ -1,18 +1,19 @@
 # coauthor
 
-M0: Billboard basic closed-loop (runs even without LLM).
+M2: Agent runtime with Tool Use + UIP (User Interaction Points).
 
-## Quick Start (M0 closed-loop)
+## Quick Start (Tool Use + UIP)
 
 ```bash
 # 1) Create task (outputs taskId)
-npm run dev -- task create "demo"
+npm run dev -- task create "Improve introduction" --file demo/paper/sections/introduction.tex --lines 1-200
 
-# 2) Submit patch proposal (reads unified diff from stdin)
-npm run dev -- patch propose <taskId> demo/doc.tex < demo/patches/doc-hello-to-HELLO.diff
+# 2) Run agent on the task
+npm run dev -- agent run <taskId>
 
-# 3) Apply patch (actually modifies demo/doc.tex)
-npm run dev -- patch accept <taskId> latest
+# 3) If the agent is awaiting user input, inspect and respond
+npm run dev -- interact pending <taskId>
+npm run dev -- interact respond <taskId> <optionId> --text "optional text input"
 
 # 4) Replay event stream (confirm what happened)
 npm run dev -- log replay <taskId>
@@ -53,6 +54,6 @@ To output structured telemetry events to stdout:
 COAUTHOR_TELEMETRY_SINK=console npm run dev -- llm test --mode tool_use
 ```
 
-See [llm-context.md](file:///Users/yangjerry/Repo/coauthor/docs/llm-context.md) for context persistence and recovery semantics.
+See `docs/llm-context.md` for context persistence and recovery semantics.
 
-See [tool-schema.md](file:///Users/yangjerry/Repo/coauthor/docs/tool-schema.md) for tool schema adaptation and rollback toggles.
+See `docs/tool-schema.md` for tool schema adaptation and rollback toggles.

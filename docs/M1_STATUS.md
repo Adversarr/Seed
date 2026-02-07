@@ -51,7 +51,7 @@ The goal of the M1 phase was to "complete the system foundation without introduc
 - **Default Agent**: `DefaultCoAuthorAgent` implements the standard Claim -> Context -> Confirm/Loop workflow (implementation details at the time might have included plan output, but this is no longer a requirement for the current protocol).
 - **Verification**:
   - `tests/agentRuntime.test.ts` verifies task distribution, execution loops, and status updates.
-  - `npm run dev -- agent handle <taskId>` can manually trigger the full process.
+  - `npm run dev -- agent run <taskId>` can manually trigger the full process.
 
 ---
 
@@ -83,19 +83,12 @@ The system is currently in the M1 completed state. The core chain can be verifie
 npm run dev -- task create "Refactor class X" --file src/index.ts --lines 10-20
 
 # 2. Start Agent processing (using FakeLLM)
-# Will generate plan output and write to event stream (historical)
-npm run dev -- agent handle <taskId>
+# Executes the tool-use loop and emits TaskStarted + audit entries
+npm run dev -- agent run <taskId>
 
-# 3. View generated plan-related events (historical)
-npm run dev -- log replay | grep AgentPlanPosted
-
-# 4. Simulate concurrency conflict
-# First Propose Patch (historical)
-npm run dev -- patch propose <taskId> src/index.ts < my.patch
-# Manually modify file src/index.ts
-echo "change" >> src/index.ts
-# Attempt Apply (should fail)
-npm run dev -- patch accept <taskId> latest
+# 3. Inspect events and audit log
+npm run dev -- log replay <taskId>
+npm run dev -- audit list <taskId>
 ```
 
 ---
