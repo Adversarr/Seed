@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CoAuthor is a co-authoring system for STEM academic writing using LLM agents. It provides a task-driven, event-sourced architecture for collaborative writing with LaTeX support.
 
-**Current Milestone:** M2 - Agent runtime with Tool Use + UIP complete (M3 planned).
+**Current Milestone:** MVP with basic task management, agent execution, user interaction protocol (UIP), and terminal UI (TUI). Under MVP development (pre Ver 0), huge changes to architecture and domain model is acceptable and will happen frequently.
 
 ## Common Commands
 

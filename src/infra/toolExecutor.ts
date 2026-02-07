@@ -22,6 +22,44 @@ export class DefaultToolExecutor implements ToolExecutor {
     this.#auditLog = opts.auditLog
   }
 
+  recordRejection(call: ToolCallRequest, ctx: ToolContext): ToolResult {
+    const now = Date.now()
+
+    this.#auditLog.append({
+      type: 'ToolCallRequested',
+      payload: {
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        authorActorId: ctx.actorId,
+        taskId: ctx.taskId,
+        input: call.arguments as Record<string, unknown>,
+        timestamp: now
+      }
+    })
+
+    const result: ToolResult = {
+      toolCallId: call.toolCallId,
+      output: { isError: true, error: 'User rejected the request' },
+      isError: true
+    }
+
+    this.#auditLog.append({
+      type: 'ToolCallCompleted',
+      payload: {
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        authorActorId: ctx.actorId,
+        taskId: ctx.taskId,
+        output: result.output,
+        isError: true,
+        durationMs: 0,
+        timestamp: now
+      }
+    })
+
+    return result
+  }
+
   async execute(call: ToolCallRequest, ctx: ToolContext): Promise<ToolResult> {
     const startTime = Date.now()
 

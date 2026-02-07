@@ -267,9 +267,19 @@ export class AgentRuntime {
 
     const persistMessage = this.#conversationManager.createPersistCallback(taskId, conversationHistory)
 
-    // If user rejected a risky tool, inject rejection results BEFORE running agent
+    const outputCtx: OutputContext = {
+      taskId,
+      agentId: this.#agent.id,
+      baseDir: this.#baseDir,
+      confirmedInteractionId,
+      conversationHistory,
+      persistMessage
+    }
+
+    // If user rejected a risky tool, record rejection via OutputHandler
+    // (emits audit entries for live TUI display + persists to conversation)
     if (pendingResponse && pendingResponse.selectedOptionId !== 'approve') {
-      this.#injectRejectionResults(conversationHistory, persistMessage)
+      this.#outputHandler.handleRejections(outputCtx)
     }
 
     const context: AgentContext = {
@@ -278,15 +288,6 @@ export class AgentRuntime {
       baseDir: this.#baseDir,
       conversationHistory,
       pendingInteractionResponse: pendingResponse,
-      persistMessage
-    }
-
-    const outputCtx: OutputContext = {
-      taskId,
-      agentId: this.#agent.id,
-      baseDir: this.#baseDir,
-      confirmedInteractionId,
-      conversationHistory,
       persistMessage
     }
 
@@ -337,39 +338,4 @@ export class AgentRuntime {
     return { taskId, events: emittedEvents }
   }
 
-  // ======================== helpers ========================
-
-  /**
-   * Inject synthetic rejection tool results for dangling risky tool calls.
-   *
-   * Called before agent.run() when the user rejected a risky tool confirmation.
-   * This way the agent never sees the rejection flow — it just finds
-   * a `role: 'tool'` error message in history and can re-plan.
-   */
-  #injectRejectionResults(
-    conversationHistory: readonly LLMMessage[],
-    persistMessage: (m: LLMMessage) => void
-  ): void {
-    // Walk backwards to find the last assistant message with tool calls
-    for (let i = conversationHistory.length - 1; i >= 0; i--) {
-      const msg = conversationHistory[i]
-      if (msg.role !== 'assistant') continue
-      if (!msg.toolCalls || msg.toolCalls.length === 0) break
-
-      for (const tc of msg.toolCalls) {
-        const hasResult = conversationHistory.some(
-          m => m.role === 'tool' && m.toolCallId === tc.toolCallId
-        )
-        if (!hasResult) {
-          persistMessage({
-            role: 'tool',
-            toolCallId: tc.toolCallId,
-            toolName: tc.toolName,
-            content: JSON.stringify({ isError: true, error: 'User rejected the request' })
-          } as LLMMessage)
-        }
-      }
-      break // Only process the last assistant message
-    }
-  }
 }

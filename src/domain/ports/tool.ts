@@ -177,4 +177,17 @@ export interface ToolExecutor {
    * @returns Tool result
    */
   execute(call: ToolCallRequest, ctx: ToolContext): Promise<ToolResult>
+
+  /**
+   * Record a user-rejected tool call in the audit log.
+   *
+   * Emits both ToolCallRequested and ToolCallCompleted (isError: true)
+   * audit entries so the live TUI displays the request and rejection,
+   * matching what /replay shows from conversation history.
+   *
+   * @param call - The rejected tool call request
+   * @param ctx - Execution context
+   * @returns Tool result with the rejection error
+   */
+  recordRejection(call: ToolCallRequest, ctx: ToolContext): ToolResult
 }

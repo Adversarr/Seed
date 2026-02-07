@@ -26,7 +26,8 @@ describe('OutputHandler Tool Lifecycle', () => {
       toOpenAIFormat: vi.fn()
     }
     mockExecutor = {
-      execute: vi.fn().mockResolvedValue({ toolCallId: '1', output: 'done', isError: false })
+      execute: vi.fn().mockResolvedValue({ toolCallId: '1', output: 'done', isError: false }),
+      recordRejection: vi.fn((call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true }))
     }
     mockConversationManager = {
       persistToolResultIfMissing: vi.fn()
@@ -127,5 +128,69 @@ describe('OutputHandler Tool Lifecycle', () => {
 
     expect(safeTool.canExecute).toHaveBeenCalled()
     expect(mockExecutor.execute).toHaveBeenCalled()
+  })
+
+  it('should record rejection audit entries via handleRejections', () => {
+    const persistMessage = vi.fn()
+    const rejectionCtx = {
+      taskId: 't1',
+      agentId: 'a1',
+      baseDir: '/tmp',
+      conversationHistory: [
+        {
+          role: 'assistant' as const,
+          toolCalls: [
+            { toolCallId: 'tc1', toolName: 'risky-tool', arguments: { path: 'f.txt' } }
+          ]
+        }
+      ],
+      persistMessage
+    }
+
+    handler.handleRejections(rejectionCtx)
+
+    // recordRejection should be called for the dangling tool call
+    expect(mockExecutor.recordRejection).toHaveBeenCalledWith(
+      { toolCallId: 'tc1', toolName: 'risky-tool', arguments: { path: 'f.txt' } },
+      expect.objectContaining({ taskId: 't1', actorId: 'a1' })
+    )
+
+    // Conversation persistence should happen
+    expect(mockConversationManager.persistToolResultIfMissing).toHaveBeenCalledWith(
+      't1', 'tc1', 'risky-tool',
+      { isError: true, error: 'User rejected the request' },
+      true,
+      expect.anything(),
+      persistMessage
+    )
+  })
+
+  it('should not call recordRejection when tool result already exists', () => {
+    vi.mocked(mockExecutor.recordRejection).mockClear()
+
+    const rejectionCtx = {
+      taskId: 't1',
+      agentId: 'a1',
+      baseDir: '/tmp',
+      conversationHistory: [
+        {
+          role: 'assistant' as const,
+          toolCalls: [
+            { toolCallId: 'tc2', toolName: 'risky-tool', arguments: {} }
+          ]
+        },
+        {
+          role: 'tool' as const,
+          toolCallId: 'tc2',
+          content: '{"ok": true}'
+        }
+      ],
+      persistMessage: vi.fn()
+    }
+
+    handler.handleRejections(rejectionCtx)
+
+    // No rejection needed — result already exists
+    expect(mockExecutor.recordRejection).not.toHaveBeenCalled()
   })
 })

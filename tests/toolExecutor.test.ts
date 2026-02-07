@@ -46,6 +46,7 @@ describe('DefaultToolExecutor', () => {
   }
 
   it('should execute safe tool and log audit', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
     const result = await executor.execute({
       toolCallId: '1',
       toolName: 'safeTool',
@@ -59,6 +60,7 @@ describe('DefaultToolExecutor', () => {
   })
 
   it('should block risky tool without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
     const result = await executor.execute({
       toolCallId: '2',
       toolName: 'riskyTool',
@@ -67,10 +69,12 @@ describe('DefaultToolExecutor', () => {
 
     expect(result.isError).toBe(true)
     expect((result.output as any).error).toContain('requires user confirmation')
-    expect(mockAuditLog.append).toHaveBeenCalledTimes(2) // Previous 2 calls only
+    // Risk-blocked calls still get audited (Request + Complete with error)
+    expect(mockAuditLog.append).toHaveBeenCalledTimes(2)
   })
 
   it('should execute risky tool with confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
     const result = await executor.execute({
       toolCallId: '3',
       toolName: 'riskyTool',
@@ -78,6 +82,44 @@ describe('DefaultToolExecutor', () => {
     }, { ...context, confirmedInteractionId: 'ui_1' })
 
     expect(result.isError).toBe(false)
-    expect(mockAuditLog.append).toHaveBeenCalledTimes(4) // 2 previous + 2 new
+    expect(mockAuditLog.append).toHaveBeenCalledTimes(2) // Request + Complete
+  })
+
+  it('should record rejection with audit entries', () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+
+    const result = executor.recordRejection({
+      toolCallId: '4',
+      toolName: 'riskyTool',
+      arguments: { path: 'hello.txt' }
+    }, context)
+
+    expect(result.isError).toBe(true)
+    expect(result.toolCallId).toBe('4')
+    expect((result.output as any).error).toBe('User rejected the request')
+
+    // Should emit both ToolCallRequested and ToolCallCompleted
+    expect(mockAuditLog.append).toHaveBeenCalledTimes(2)
+    expect(mockAuditLog.append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'ToolCallRequested',
+        payload: expect.objectContaining({
+          toolCallId: '4',
+          toolName: 'riskyTool',
+          input: { path: 'hello.txt' }
+        })
+      })
+    )
+    expect(mockAuditLog.append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'ToolCallCompleted',
+        payload: expect.objectContaining({
+          toolCallId: '4',
+          toolName: 'riskyTool',
+          isError: true,
+          durationMs: 0
+        })
+      })
+    )
   })
 })

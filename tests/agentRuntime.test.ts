@@ -341,7 +341,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
         toolExecCount++
         await new Promise(resolve => setTimeout(resolve, 50))
         return { toolCallId: call.toolCallId, output: 'success', isError: false }
-      }
+      },
+      recordRejection: (call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true })
     }
 
     const { conversationStore, taskService, manager } = createTestInfra(dir, { 
@@ -407,7 +408,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       execute: async (call) => {
         await new Promise(resolve => { resolveTool = resolve })
         return { toolCallId: call.toolCallId, output: 'success', isError: false }
-      }
+      },
+      recordRejection: (call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true })
     }
 
     const { conversationStore, taskService, manager } = createTestInfra(dir, { 
@@ -494,7 +496,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     })
 
     const mockToolExecutor: ToolExecutor = {
-      execute: toolExec
+      execute: toolExec,
+      recordRejection: (call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true })
     }
 
     const { conversationStore, manager, taskService } = createTestInfra(dir, { llm: mockLLM, toolExecutor: mockToolExecutor })
@@ -567,7 +570,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     })
 
     const mockToolExecutor: ToolExecutor = {
-      execute: toolExec as any
+      execute: toolExec as any,
+      recordRejection: (call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true })
     }
 
     const { conversationStore, manager, taskService, interactionService, toolRegistry } = createTestInfra(dir, {
@@ -613,7 +617,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     })
 
     const mockToolExecutor: ToolExecutor = {
-      execute: toolExec as any
+      execute: toolExec as any,
+      recordRejection: vi.fn((call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true }))
     }
 
     const { conversationStore, manager, taskService, interactionService, toolRegistry } = createTestInfra(dir, {
@@ -639,6 +644,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     await vi.advanceTimersByTimeAsync(200)
 
     expect(toolExec).toHaveBeenCalledTimes(0)
+    // recordRejection should have been called (emits audit entries for live TUI)
+    expect(mockToolExecutor.recordRejection).toHaveBeenCalledTimes(1)
     const messages = conversationStore.getMessages(taskId)
     const toolMsg = messages.find(m => m.role === 'tool' && m.toolCallId === 'call_risky')
     expect(toolMsg).toBeDefined()
@@ -673,7 +680,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     })
 
     const mockToolExecutor: ToolExecutor = {
-      execute: toolExec as any
+      execute: toolExec as any,
+      recordRejection: (call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true })
     }
 
     const { store, conversationStore, manager, taskService, interactionService, toolRegistry } = createTestInfra(dir, {
@@ -750,7 +758,8 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       execute: async (call, ctx: any) => {
         await new Promise(resolve => setTimeout(resolve, 10))
         return { toolCallId: call.toolCallId, output: { ok: true, confirmedInteractionId: ctx.confirmedInteractionId }, isError: false } as ToolResult
-      }
+      },
+      recordRejection: (call) => ({ toolCallId: call.toolCallId, output: { isError: true, error: 'User rejected the request' }, isError: true })
     }
 
     const { conversationStore, manager, taskService, interactionService, toolRegistry } = createTestInfra(dir, {
