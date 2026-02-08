@@ -11,7 +11,10 @@ import {
   formatAuditEntry,
   truncateText,
   createSeparatorLine,
-  buildCommandLineFromInput
+  buildCommandLineFromInput,
+  sortTasksAsTree,
+  computeTaskDepths,
+  buildBreadcrumb
 } from './utils.js'
 import { LogOutput } from './components/LogOutput.js'
 import { TaskPane } from './components/TaskPane.js'
@@ -107,11 +110,24 @@ export function MainTui(props: Props) {
   const refresh = async (): Promise<void> => {
     try {
       const result = await app.taskService.listTasks()
-      const taskList = result.tasks.map((task) => ({
+
+      // Compute depths for enriched TaskView
+      const rawTasks = result.tasks.map((task) => ({
         taskId: task.taskId,
         title: task.title,
-        status: task.status
+        status: task.status,
+        parentTaskId: task.parentTaskId,
+        agentId: task.agentId,
+        childTaskIds: task.childTaskIds,
+        depth: 0,
+        summary: task.summary,
+        failureReason: task.failureReason
       }))
+      const depthMap = computeTaskDepths(rawTasks)
+      for (const t of rawTasks) t.depth = depthMap.get(t.taskId) ?? 0
+
+      // Sort into tree order (parents before children)
+      const taskList = sortTasksAsTree(rawTasks)
       setTasks(taskList)
 
       if (focusedTaskId) {
@@ -129,15 +145,39 @@ export function MainTui(props: Props) {
         })
       }
 
+      // --- Auto-focus subtasks / return-to-parent ---
+      // Priority: awaiting_user subtask > awaiting_user root > in_progress subtask
+
       const awaitingTask = result.tasks.find((task) => task.status === 'awaiting_user')
       if (awaitingTask) {
         const pending = await app.interactionService.getPendingInteraction(awaitingTask.taskId)
         setPendingInteraction(pending)
         if (pending && focusedTaskId !== awaitingTask.taskId) {
+          // Push current focus before switching (implicit stack via parentTaskId)
           setFocusedTaskId(awaitingTask.taskId)
         }
       } else {
         setPendingInteraction(null)
+
+        // If the currently focused task just completed and has a parent, pop back
+        const focusedTask = taskList.find((t) => t.taskId === focusedTaskId)
+        if (
+          focusedTask &&
+          focusedTask.parentTaskId &&
+          ['done', 'failed', 'canceled'].includes(focusedTask.status)
+        ) {
+          setFocusedTaskId(focusedTask.parentTaskId)
+        }
+
+        // If no task focused, auto-focus the first in_progress subtask (or root task)
+        if (!focusedTaskId || !taskList.some((t) => t.taskId === focusedTaskId)) {
+          const active = taskList.find(
+            (t) => t.status === 'in_progress' || t.status === 'awaiting_user'
+          )
+          if (active) {
+            setFocusedTaskId(active.taskId)
+          }
+        }
       }
 
       if (!awaitingTask && !hasAutoOpenedTasks.current && taskList.length > 0) {
@@ -248,6 +288,10 @@ export function MainTui(props: Props) {
     if (key.escape) {
       if (showTasks) setShowTasks(false)
     }
+    // Tab toggles task list
+    if (key.tab) {
+      setShowTasks((prev) => !prev)
+    }
     if (showTasks && tasks.length > 0) {
       if (key.upArrow) {
         setSelectedTaskIndex((prev) => Math.max(0, prev - 1))
@@ -265,6 +309,7 @@ export function MainTui(props: Props) {
   })
 
   const focusedTask = tasks.find((task) => task.taskId === focusedTaskId)
+  const breadcrumb = buildBreadcrumb(tasks, focusedTaskId)
   const columns = stdout?.columns ?? 80
   const rows = stdout?.rows ?? 24
   const statusLine = truncateText(status || '', columns - 2)
@@ -283,6 +328,7 @@ export function MainTui(props: Props) {
           rows={rows}
           columns={columns}
           statusLine={statusLine}
+          breadcrumb={breadcrumb}
         />
       ) : (
         <InteractionPane
@@ -295,6 +341,7 @@ export function MainTui(props: Props) {
           onInputSubmit={onSubmit}
           focusedTask={focusedTask}
           columns={columns}
+          breadcrumb={breadcrumb}
         />
       )}
     </Box>

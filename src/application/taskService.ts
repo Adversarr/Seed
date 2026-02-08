@@ -28,9 +28,13 @@ export type TaskView = {
   pendingInteractionId?: string   // ID of the interaction currently awaiting a response
   lastInteractionId?: string      // ID of the last interaction
   
-  // V1 Reserved: Subtask support
+  // Subtask support
   parentTaskId?: string
   childTaskIds?: string[]
+  
+  // Terminal output
+  summary?: string                // From TaskCompleted
+  failureReason?: string          // From TaskFailed
   
   createdAt: string
   updatedAt: string               // Time of the last event
@@ -50,6 +54,10 @@ export type CreateTaskOptions = {
   priority?: TaskPriority
   artifactRefs?: ArtifactRef[]
   agentId: string
+  /** Set for subtasks spawned by another task. */
+  parentTaskId?: string
+  /** Override the default author actor (e.g. agent-created subtasks). */
+  authorActorId?: string
 }
 
 export class TaskService {
@@ -74,7 +82,8 @@ export class TaskService {
           priority: opts.priority ?? 'foreground',
           artifactRefs: opts.artifactRefs,
           agentId: opts.agentId,
-          authorActorId: this.#currentActorId
+          parentTaskId: opts.parentTaskId,
+          authorActorId: opts.authorActorId ?? this.#currentActorId
         }
       }
     ])
@@ -222,6 +231,7 @@ export class TaskService {
 
     switch (event.type) {
       case 'TaskCreated': {
+        const parentId = event.payload.parentTaskId
         tasks.push({
           taskId: event.payload.taskId,
           title: event.payload.title,
@@ -233,11 +243,22 @@ export class TaskService {
           artifactRefs: event.payload.artifactRefs,
           pendingInteractionId: undefined,
           lastInteractionId: undefined,
-          parentTaskId: undefined,
+          parentTaskId: parentId,
           childTaskIds: undefined,
           createdAt: event.createdAt,
           updatedAt: event.createdAt
         })
+        // Maintain parent → child link
+        if (parentId) {
+          const parentIdx = findTaskIndex(parentId)
+          if (parentIdx !== -1) {
+            const parent = tasks[parentIdx]!
+            const children = parent.childTaskIds ?? []
+            if (!children.includes(event.payload.taskId)) {
+              parent.childTaskIds = [...children, event.payload.taskId]
+            }
+          }
+        }
         return { tasks }
       }
       case 'TaskStarted': {
@@ -284,6 +305,7 @@ export class TaskService {
         if (!this.canTransition(task.status, event.type)) return state
 
         task.status = 'done'
+        task.summary = event.payload.summary
         task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
         return { tasks }
@@ -295,6 +317,7 @@ export class TaskService {
         if (!this.canTransition(task.status, event.type)) return state
 
         task.status = 'failed'
+        task.failureReason = event.payload.reason
         task.pendingInteractionId = undefined
         task.updatedAt = event.createdAt
         return { tasks }

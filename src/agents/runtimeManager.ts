@@ -88,6 +88,10 @@ export class RuntimeManager {
     return this.#agents
   }
 
+  get toolRegistry(): ToolRegistry {
+    return this.#toolRegistry
+  }
+
   // ======================== lifecycle ========================
 
   start(): void {

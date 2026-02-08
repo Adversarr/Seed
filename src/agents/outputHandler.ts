@@ -38,6 +38,8 @@ export type OutputContext = {
   confirmedInteractionId?: string
   conversationHistory: readonly LLMMessage[]
   persistMessage: (m: LLMMessage) => Promise<void>
+  /** AbortSignal propagated to tool execution for cooperative cancellation. */
+  signal?: AbortSignal
 }
 
 /**
@@ -102,7 +104,8 @@ export class OutputHandler {
           actorId: ctx.agentId,
           baseDir: ctx.baseDir,
           confirmedInteractionId: ctx.confirmedInteractionId,
-          artifactStore: this.#artifactStore
+          artifactStore: this.#artifactStore,
+          signal: ctx.signal
         }
 
         // Universal Pre-Execution Check

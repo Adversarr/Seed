@@ -21,6 +21,7 @@ export const TaskCreatedPayloadSchema = z.object({
   priority: TaskPrioritySchema.default('foreground'),
   artifactRefs: z.array(ArtifactRefSchema).optional(),
   agentId: z.string().min(1),
+  parentTaskId: z.string().optional(),
   ...withAuthor
 })
 

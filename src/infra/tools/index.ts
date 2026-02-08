@@ -14,6 +14,8 @@ export { readFileTool } from './readFile.js'
 export { editFileTool } from './editFile.js'
 export { listFilesTool } from './listFiles.js'
 export { runCommandTool } from './runCommand.js'
+export { createSubtaskTool, registerSubtaskTools } from './createSubtaskTool.js'
+export type { SubtaskToolDeps, SubtaskToolResult } from './createSubtaskTool.js'
 
 /**
  * Register all built-in tools in the given registry.

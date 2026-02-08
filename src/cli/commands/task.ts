@@ -48,7 +48,8 @@ export function registerTaskCommand(parser: Argv, app: App, io: IO): Argv {
         const state = await app.taskService.listTasks()
         for (const t of state.tasks) {
           const statusIcon = getStatusIcon(t.status)
-          io.stdout(`  ${statusIcon} ${t.taskId} [${t.status}] ${t.title}\n`)
+          const parentTag = t.parentTaskId ? ` (subtask of ${t.parentTaskId})` : ''
+          io.stdout(`  ${statusIcon} ${t.taskId} [${t.status}] ${t.title}${parentTag}\n`)
         }
         return
       }

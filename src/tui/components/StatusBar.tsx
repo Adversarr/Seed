@@ -1,18 +1,24 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { TaskView } from '../types.js'
-import { getStatusIcon, createSeparatorLine } from '../utils.js'
+import { getStatusIcon, getStatusLabel, createSeparatorLine, truncateText } from '../utils.js'
 
 type Props = {
   focusedTask: TaskView | undefined
   columns: number
+  breadcrumb?: string[]
 }
 
-export function StatusBar({ focusedTask, columns }: Props) {
+export function StatusBar({ focusedTask, columns, breadcrumb }: Props) {
   const separatorLine = createSeparatorLine(columns)
   const taskTitle = focusedTask ? focusedTask.title : '(no task focused)'
   const taskStatus = focusedTask ? focusedTask.status : ''
   const statusIcon = getStatusIcon(taskStatus)
+  const statusLabel = focusedTask ? getStatusLabel(taskStatus) : ''
+  const agentLabel = focusedTask ? focusedTask.agentId.replace(/^agent_/, '') : ''
+  const breadcrumbText = breadcrumb && breadcrumb.length > 1
+    ? truncateText(breadcrumb.slice(0, -1).join(' › '), Math.max(10, columns - 40))
+    : ''
 
   return (
     <>
@@ -23,11 +29,22 @@ export function StatusBar({ focusedTask, columns }: Props) {
             CoAuthor
           </Text>
           <Text dimColor> │ </Text>
-          <Text color="yellow">FOCUSED: </Text>
-          <Text bold>{taskTitle}</Text>
+          {agentLabel ? (
+            <>
+              <Text color="magenta">{agentLabel}</Text>
+              <Text dimColor> │ </Text>
+            </>
+          ) : null}
+          {breadcrumbText ? (
+            <>
+              <Text dimColor>{breadcrumbText} › </Text>
+            </>
+          ) : null}
+          <Text bold>{truncateText(taskTitle, Math.max(10, columns - 50))}</Text>
           <Text> {statusIcon} </Text>
+          <Text color="yellow">{statusLabel}</Text>
         </Box>
-        <Text color="green">[●]</Text>
+        <Text dimColor>Tab:tasks │ Ctrl+D:exit</Text>
       </Box>
     </>
   )

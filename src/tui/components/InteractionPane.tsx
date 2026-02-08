@@ -16,6 +16,7 @@ type Props = {
   onInputSubmit: (value: string) => void
   focusedTask: TaskView | undefined
   columns: number
+  breadcrumb?: string[]
 }
 
 export function InteractionPane({
@@ -27,8 +28,15 @@ export function InteractionPane({
   onInputChange,
   onInputSubmit,
   focusedTask,
-  columns
+  columns,
+  breadcrumb
 }: Props) {
+  // Mode indicator: show what bare text input will do
+  const modeHint = focusedTask
+    ? `→ /continue to "${focusedTask.title.slice(0, 30)}"`
+    : '→ /new task'
+  const isSubtask = focusedTask && focusedTask.depth > 0
+
   return (
     <>
       <Text dimColor>{separatorLine}</Text>
@@ -41,15 +49,26 @@ export function InteractionPane({
             onSubmit={onInteractionSubmit}
           />
         ) : (
-          <InputPrompt
-            inputValue={inputValue}
-            onInputChange={onInputChange}
-            onInputSubmit={onInputSubmit}
-          />
+          <Box flexDirection="column">
+            {/* Mini-breadcrumb + mode indicator */}
+            <Box>
+              {isSubtask && breadcrumb && breadcrumb.length > 1 ? (
+                <Text dimColor color="cyan">
+                  {breadcrumb.join(' › ')} │{' '}
+                </Text>
+              ) : null}
+              <Text dimColor>{modeHint}</Text>
+            </Box>
+            <InputPrompt
+              inputValue={inputValue}
+              onInputChange={onInputChange}
+              onInputSubmit={onInputSubmit}
+            />
+          </Box>
         )}
       </Box>
 
-      <StatusBar focusedTask={focusedTask} columns={columns} />
+      <StatusBar focusedTask={focusedTask} columns={columns} breadcrumb={breadcrumb} />
     </>
   )
 }

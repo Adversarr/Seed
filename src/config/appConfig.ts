@@ -16,6 +16,8 @@ export type AppConfig = {
       modelByProfile: Record<LLMProfile, string>
     }
   }
+  /** Maximum nesting depth for subtasks (default 3). */
+  maxSubtaskDepth: number
 }
 
 const EnvSchema = z.object({
@@ -26,7 +28,8 @@ const EnvSchema = z.object({
   COAUTHOR_OPENAI_BASE_URL: z.string().min(1).optional(),
   COAUTHOR_OPENAI_MODEL_FAST: z.string().min(1).default('gpt-4o-mini'),
   COAUTHOR_OPENAI_MODEL_WRITER: z.string().min(1).default('gpt-4o'),
-  COAUTHOR_OPENAI_MODEL_REASONING: z.string().min(1).default('gpt-4o')
+  COAUTHOR_OPENAI_MODEL_REASONING: z.string().min(1).default('gpt-4o'),
+  COAUTHOR_MAX_SUBTASK_DEPTH: z.coerce.number().int().min(0).default(3)
 })
 
 export function loadAppConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -49,7 +52,8 @@ export function loadAppConfig(env: NodeJS.ProcessEnv): AppConfig {
           reasoning: parsed.COAUTHOR_OPENAI_MODEL_REASONING
         }
       }
-    }
+    },
+    maxSubtaskDepth: parsed.COAUTHOR_MAX_SUBTASK_DEPTH
   }
 
   return config

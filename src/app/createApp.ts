@@ -14,6 +14,7 @@ import { JsonlAuditLog } from '../infra/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../infra/jsonlConversationStore.js'
 import { DefaultToolRegistry } from '../infra/toolRegistry.js'
 import { registerBuiltinTools } from '../infra/tools/index.js'
+import { registerSubtaskTools } from '../infra/tools/createSubtaskTool.js'
 import { DefaultToolExecutor } from '../infra/toolExecutor.js'
 import { createUiBus } from '../infra/subjectUiBus.js'
 import { TaskService, EventService, InteractionService, AuditService } from '../application/index.js'
@@ -197,6 +198,15 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     outputHandler
   })
   runtimeManager.registerAgent(agent)
+
+  // Register subtask tools (one per agent) — must happen AFTER agent registration
+  registerSubtaskTools(toolRegistry, {
+    store,
+    taskService,
+    conversationStore,
+    runtimeManager,
+    maxSubtaskDepth: config.maxSubtaskDepth ?? 3
+  })
 
   return {
     baseDir,

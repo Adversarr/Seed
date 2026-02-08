@@ -29,4 +29,10 @@ export type TaskView = {
   taskId: string
   title: string
   status: string
+  parentTaskId?: string
+  agentId: string
+  childTaskIds?: string[]
+  depth: number
+  summary?: string
+  failureReason?: string
 }

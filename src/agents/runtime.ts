@@ -44,6 +44,8 @@ export class AgentRuntime {
   #isPaused = false
   #isCanceled = false
   #pendingInstructions: string[] = []
+  /** Controller for aborting blocked tool calls on cancel/pause. */
+  #abortController: AbortController | null = null
 
   constructor(opts: {
     taskId: string
@@ -108,9 +110,11 @@ export class AgentRuntime {
 
   /**
    * Signal cancellation. The agent loop will break at the next safe point.
+   * Also aborts any in-flight blocking tool calls immediately.
    */
   onCancel(): void {
     this.#isCanceled = true
+    this.#abortController?.abort()
   }
 
   /**
@@ -265,13 +269,18 @@ export class AgentRuntime {
 
     const persistMessage = this.#conversationManager.createPersistCallback(taskId, conversationHistory)
 
+    // Create a fresh AbortController for this loop invocation.
+    // Aborted on cancel so blocking tools (e.g. create_subtask) unblock.
+    this.#abortController = new AbortController()
+
     const outputCtx: OutputContext = {
       taskId,
       agentId: this.#agent.id,
       baseDir: this.#baseDir,
       confirmedInteractionId,
       conversationHistory,
-      persistMessage
+      persistMessage,
+      signal: this.#abortController.signal
     }
 
     // If user rejected a risky tool, record rejection via OutputHandler

@@ -72,6 +72,12 @@ export type ToolContext = {
    * If a risky tool is called without this, the executor should reject.
    */
   confirmedInteractionId?: string
+  /**
+   * AbortSignal for cooperative cancellation.
+   * Long-running tools (e.g. create_subtask) should listen for abort
+   * to react immediately when the parent task is canceled or paused.
+   */
+  signal?: AbortSignal
 }
 
 // ============================================================================

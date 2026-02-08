@@ -1,6 +1,7 @@
 import React from 'react'
 import type { TaskView } from '../types.js'
 import { TaskList } from './TaskList.js'
+import { TaskDetail } from './TaskDetail.js'
 
 type Props = {
   tasks: TaskView[]
@@ -9,6 +10,7 @@ type Props = {
   rows: number
   columns: number
   statusLine: string
+  breadcrumb?: string[]
 }
 
 export function TaskPane({
@@ -17,16 +19,25 @@ export function TaskPane({
   selectedTaskIndex,
   rows,
   columns,
-  statusLine
+  statusLine,
+  breadcrumb
 }: Props) {
+  const selectedTask = tasks[selectedTaskIndex]
+
   return (
-    <TaskList
-      tasks={tasks}
-      focusedTaskId={focusedTaskId}
-      selectedTaskIndex={selectedTaskIndex}
-      rows={rows}
-      columns={columns}
-      statusLine={statusLine}
-    />
+    <>
+      <TaskList
+        tasks={tasks}
+        focusedTaskId={focusedTaskId}
+        selectedTaskIndex={selectedTaskIndex}
+        rows={selectedTask ? Math.max(8, rows - 10) : rows}
+        columns={columns}
+        statusLine={statusLine}
+        breadcrumb={breadcrumb}
+      />
+      {selectedTask ? (
+        <TaskDetail task={selectedTask} allTasks={tasks} columns={columns} />
+      ) : null}
+    </>
   )
 }
