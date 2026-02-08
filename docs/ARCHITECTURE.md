@@ -384,19 +384,45 @@ memory leaks).
 
 To ensure conversation history integrity (Tool Use Protocol), the Runtime enforces:
 
-1.  **Safe Pause**:
+1.  **Per-Task Serialization (CC-001)**:
+    - `RuntimeManager` maintains a per-task `AsyncMutex` lock (`#taskLocks`).
+    - All execution-triggering event handlers (`TaskCreated`, `UserInteractionResponded`, `TaskResumed`, `TaskInstructionAdded`) are serialized per-task via `#withTaskLock()`.
+    - Lightweight signal handlers (`onPause`, `onCancel`) and terminal cleanup run outside the lock (they only set cooperative flags).
+    - Different tasks run in parallel; only events for the *same* task are serialized.
+
+2.  **Single-Flight Execution Guard (CC-008)**:
+    - `AgentRuntime.#isExecuting` prevents overlapping agent loops within the same runtime.
+    - The drain loop (`#executeAndDrainQueuedInstructions`) holds `#isExecuting = true` across the entire drain cycle, preventing false-idle windows.
+
+3.  **Safe Pause**:
     - Pausing (`/pause`) is cooperative. It only takes effect when the conversation history is in a "Safe Point" (no pending tool calls).
     - If a tool batch is running, the Runtime waits for all tool results to be persisted before pausing.
+    - Pause also aborts the `AbortController`, allowing blocked tools (e.g., `create_subtask`) to unblock immediately.
 
-2.  **Instruction Queueing**:
+4.  **Instruction Queueing**:
     - New instructions (`/continue`, `/refine`) arriving during unsafe states (e.g., while tools are executing) are queued in `AgentRuntime.#pendingInstructions`.
     - They are injected into history only when the state becomes safe (after tool results are written).
     - This prevents User messages from interleaving between Tool Calls and Tool Results.
     - After `execute()` completes, `RuntimeManager` drains any remaining queued instructions via a drain loop.
+    - Instructions are blocked on `paused` and `canceled` tasks (CC-004) — requires explicit resume first.
 
-3.  **Auto-Repair**:
+5.  **Auto-Repair**:
     - On resume/start, the Runtime scans for "dangling" tool calls (missing results).
     - If results cannot be recovered from AuditLog, it injects an "Interrupted" error result to close the conversation loop, allowing the task to proceed.
+
+6.  **Tool Cancellation Contract (PR-001/PR-003)**:
+    - `DefaultToolExecutor` performs an early abort check before tool execution.
+    - `runCommand` tool supports `AbortSignal`: kills child processes on abort.
+    - Tools receive `ctx.signal` for cooperative cancellation.
+
+7.  **UIP Response Validation (SA-002)**:
+    - `InteractionService.respondToInteraction()` validates that the response targets the currently pending interaction.
+    - Stale or duplicate responses are rejected with descriptive errors.
+    - `RuntimeManager` also performs inline validation before calling `rt.resume()`.
+
+8.  **Approval Binding (SA-001)**:
+    - Risky tool confirmations are bound to a specific `toolCallId` via display metadata.
+    - An approval for tool call A cannot be used to execute tool call B.
 
 ---
 

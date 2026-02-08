@@ -629,7 +629,7 @@ describe('createSubtaskTool', () => {
 
       const tool = toolRegistry.get(`create_subtask_${completingAgent.id}`)!
 
-      // Execute: should auto-start runtime, create child, child should complete
+      // Execute: should return error since RuntimeManager not running (auto-start removed per RD-004)
       const result = await tool.execute(
         { title: 'Auto-start child' },
         {
@@ -640,14 +640,11 @@ describe('createSubtaskTool', () => {
         }
       )
 
-      await runtimeManager.waitForIdle()
-
-      // Runtime should now be running
-      expect(runtimeManager.isRunning).toBe(true)
+      // RuntimeManager should NOT be running (auto-start was removed)
+      expect(runtimeManager.isRunning).toBe(false)
 
       const parsed = JSON.parse(result.output as string)
-      expect(parsed.subTaskStatus).toBe('Success')
-      expect(parsed.summary).toContain('Completed subtask')
+      expect(parsed.error).toBeDefined()
     } finally {
       runtimeManager.stop()
       rmSync(dir, { recursive: true, force: true })

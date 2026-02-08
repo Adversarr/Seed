@@ -8,6 +8,7 @@ import type { Agent } from './agent.js'
 import type { ConversationManager } from './conversationManager.js'
 import type { OutputHandler } from './outputHandler.js'
 import { AgentRuntime } from './runtime.js'
+import { AsyncMutex } from '../infra/asyncMutex.js'
 
 // ============================================================================
 // Runtime Manager — Multi-Agent Orchestrator
@@ -20,9 +21,14 @@ import { AgentRuntime } from './runtime.js'
  * task-scoped runtime. It creates runtimes on TaskCreated/TaskResumed
  * and destroys them when tasks reach terminal states.
  *
+ * **Concurrency model**: Every event handler and manual execution call is
+ * serialized per-task via an `AsyncMutex`. This ensures that for a given
+ * taskId, only one handler runs at a time, eliminating race conditions
+ * between overlapping event handlers (CC-001, CC-002, CC-006, CC-007).
+ *
  * Responsibilities:
  * - Agent registration (agent catalogue)
- * - Event subscription + routing by taskId
+ * - Event subscription + per-task serialized routing
  * - AgentRuntime creation / destruction
  * - Public API surface consumed by CLI and TUI
  */
@@ -39,6 +45,11 @@ export class RuntimeManager {
   readonly #agents = new Map<string, Agent>()
   /** taskId → task-scoped AgentRuntime */
   readonly #runtimes = new Map<string, AgentRuntime>()
+  /**
+   * Per-task mutex ensuring only one handler/execution runs at a time
+   * for each taskId. Eliminates overlapping handler races (CC-001).
+   */
+  readonly #taskLocks = new Map<string, AsyncMutex>()
 
   #defaultAgentId: string | null = null
   #isRunning = false
@@ -127,6 +138,7 @@ export class RuntimeManager {
       rt.onCancel()
     }
     this.#runtimes.clear()
+    this.#taskLocks.clear()
   }
 
   get isRunning(): boolean {
@@ -138,128 +150,171 @@ export class RuntimeManager {
   /**
    * Manually trigger execution for a specific task.
    * Used by CLI `agent run <taskId>` and `agent test`.
+   *
+   * Serialized via the per-task lock so it cannot overlap with
+   * event-driven execution for the same task (CC-007).
    */
   async executeTask(taskId: string): Promise<{ taskId: string; events: DomainEvent[] }> {
-    const task = await this.#taskService.getTask(taskId)
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`)
-    }
-    const rt = this.#getOrCreateRuntime(taskId, task.agentId)
-    return rt.execute()
+    const lock = this.#getTaskLock(taskId)
+    return lock.runExclusive(async () => {
+      const task = await this.#taskService.getTask(taskId)
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`)
+      }
+      const rt = this.#getOrCreateRuntime(taskId, task.agentId)
+      return this.#executeAndDrain(rt, taskId)
+    })
   }
 
   // ======================== event routing ========================
 
+  /**
+   * Route a stored event to the appropriate handler.
+   *
+   * All handlers that invoke runtime methods are serialized per-task
+   * via `#withTaskLock()`. This prevents overlapping execution of
+   * `execute()`, `resume()`, `onInstruction()`, etc. for the same task,
+   * which was the root cause of CC-001/CC-002/CC-006 bugs.
+   *
+   * Lightweight signals (`onPause`, `onCancel`) and cleanup are safe
+   * to run outside the lock since they only set cooperative flags.
+   */
   async #handleEvent(event: StoredEvent): Promise<void> {
     if (!this.#isRunning) return
 
-    // --- TaskCreated ---
-    if (event.type === 'TaskCreated') {
-      const { taskId, agentId } = event.payload
-      if (!this.#agents.has(agentId)) return // not our agent
+    const taskId = this.#extractTaskId(event)
+    if (!taskId) return
 
-      const rt = this.#getOrCreateRuntime(taskId, agentId)
-      if (rt.isExecuting) return
-
-      try {
-        await this.#executeAndDrain(rt, taskId)
-      } catch (error) {
-        console.error(`[RuntimeManager] Task handling failed for task ${taskId}:`, error)
-      } finally {
-        await this.#cleanupIfTerminal(taskId)
-      }
-    }
-
-    // --- UserInteractionResponded ---
-    if (event.type === 'UserInteractionResponded') {
-      const task = await this.#taskService.getTask(event.payload.taskId)
-      if (!task) return
-      if (!this.#agents.has(task.agentId)) return
-
-      const taskId = task.taskId
-      const rt = this.#getOrCreateRuntime(taskId, task.agentId)
-
-      try {
-        await rt.resume(event.payload)
-        // After resume, drain any queued instructions
-        await this.#drainPending(rt, taskId)
-      } catch (error) {
-        console.error(`[RuntimeManager] Resume failed for task ${taskId}:`, error)
-      } finally {
-        await this.#cleanupIfTerminal(taskId)
-      }
-    }
-
-    // --- TaskPaused ---
+    // --- TaskPaused: lightweight cooperative signal, no lock needed ---
     if (event.type === 'TaskPaused') {
-      const rt = this.#runtimes.get(event.payload.taskId)
+      const rt = this.#runtimes.get(taskId)
       if (rt) rt.onPause()
+      return
     }
 
-    // --- TaskResumed ---
-    if (event.type === 'TaskResumed') {
-      const task = await this.#taskService.getTask(event.payload.taskId)
-      if (!task) return
-      if (!this.#agents.has(task.agentId)) return
-
-      const taskId = task.taskId
-      const rt = this.#getOrCreateRuntime(taskId, task.agentId)
-
-      try {
-        await rt.onResume()
-      } catch (error) {
-        console.error(`[RuntimeManager] Resume failed for task ${taskId}:`, error)
-      } finally {
-        await this.#cleanupIfTerminal(taskId)
-      }
-    }
-
-    // --- TaskInstructionAdded ---
-    if (event.type === 'TaskInstructionAdded') {
-      const task = await this.#taskService.getTask(event.payload.taskId)
-      if (!task) return
-      if (!this.#agents.has(task.agentId)) return
-
-      const taskId = task.taskId
-      const rt = this.#getOrCreateRuntime(taskId, task.agentId)
-
-      try {
-        await rt.onInstruction(event.payload.instruction)
-      } catch (error) {
-        console.error(`[RuntimeManager] Instruction handling failed for task ${taskId}:`, error)
-      } finally {
-        await this.#cleanupIfTerminal(taskId)
-      }
-    }
-
-    // --- TaskCanceled (NEW — fixes missing handler bug) ---
+    // --- TaskCanceled: lightweight signal + cleanup ---
     if (event.type === 'TaskCanceled') {
-      const rt = this.#runtimes.get(event.payload.taskId)
+      const rt = this.#runtimes.get(taskId)
       if (rt) {
         rt.onCancel()
-        this.#runtimes.delete(event.payload.taskId)
+        this.#runtimes.delete(taskId)
       }
+      this.#cleanupTaskLock(taskId)
+      return
     }
 
-    // --- Terminal events: TaskCompleted, TaskFailed ---
+    // --- Terminal events: cleanup only ---
     if (event.type === 'TaskCompleted' || event.type === 'TaskFailed') {
-      this.#runtimes.delete(event.payload.taskId)
+      this.#runtimes.delete(taskId)
+      this.#cleanupTaskLock(taskId)
+      return
     }
+
+    // --- All other events: serialized per-task ---
+    await this.#withTaskLock(taskId, async () => {
+      if (!this.#isRunning) return
+
+      if (event.type === 'TaskCreated') {
+        const { agentId } = event.payload
+        if (!this.#agents.has(agentId)) return
+
+        const rt = this.#getOrCreateRuntime(taskId, agentId)
+        if (rt.isExecuting) return
+
+        await this.#executeAndDrain(rt, taskId)
+      }
+
+      if (event.type === 'UserInteractionResponded') {
+        const task = await this.#taskService.getTask(taskId)
+        if (!task) return
+        if (!this.#agents.has(task.agentId)) return
+
+        // Validate response matches the currently pending interaction (SA-002)
+        if (task.pendingInteractionId &&
+            task.pendingInteractionId !== event.payload.interactionId) {
+          console.warn(
+            `[RuntimeManager] Ignoring stale UIP response ${event.payload.interactionId}` +
+            ` for task ${taskId} (pending: ${task.pendingInteractionId})`
+          )
+          return
+        }
+
+        const rt = this.#getOrCreateRuntime(taskId, task.agentId)
+        await rt.resume(event.payload)
+        await this.#drainPending(rt, taskId)
+      }
+
+      if (event.type === 'TaskResumed') {
+        const task = await this.#taskService.getTask(taskId)
+        if (!task) return
+        if (!this.#agents.has(task.agentId)) return
+
+        const rt = this.#getOrCreateRuntime(taskId, task.agentId)
+        await rt.onResume()
+      }
+
+      if (event.type === 'TaskInstructionAdded') {
+        const task = await this.#taskService.getTask(taskId)
+        if (!task) return
+        if (!this.#agents.has(task.agentId)) return
+
+        const rt = this.#getOrCreateRuntime(taskId, task.agentId)
+        await rt.onInstruction(event.payload.instruction)
+      }
+
+      await this.#cleanupIfTerminal(taskId)
+    })
   }
 
   // ======================== helpers ========================
 
   /**
-   * Execute a runtime and drain any instructions queued during execution.
-   * This ensures queued instructions trigger re-execution.
+   * Get or create a per-task mutex for serialized event handling.
    */
-  async #executeAndDrain(rt: AgentRuntime, taskId: string): Promise<void> {
-    await rt.execute()
+  #getTaskLock(taskId: string): AsyncMutex {
+    let lock = this.#taskLocks.get(taskId)
+    if (!lock) {
+      lock = new AsyncMutex()
+      this.#taskLocks.set(taskId, lock)
+    }
+    return lock
+  }
+
+  /**
+   * Run `fn` while holding the per-task lock, with error logging.
+   * This is the single serialization point for all task operations.
+   */
+  async #withTaskLock(taskId: string, fn: () => Promise<void>): Promise<void> {
+    const lock = this.#getTaskLock(taskId)
+    await lock.runExclusive(async () => {
+      try {
+        await fn()
+      } catch (error) {
+        console.error(`[RuntimeManager] Handler failed for task ${taskId}:`, error)
+      }
+    })
+  }
+
+  /**
+   * Extract the taskId from any domain event's payload.
+   */
+  #extractTaskId(event: StoredEvent): string | undefined {
+    return (event.payload as { taskId?: string }).taskId
+  }
+
+  /**
+   * Execute a runtime and drain any instructions queued during execution.
+   * Caller must hold the per-task lock.
+   */
+  async #executeAndDrain(rt: AgentRuntime, taskId: string): Promise<{ taskId: string; events: DomainEvent[] }> {
+    const result = await rt.execute()
     await this.#drainPending(rt, taskId)
+    return result
   }
 
   /**
    * If the runtime has pending work (queued instructions), re-execute until drained.
+   * Caller must hold the per-task lock.
    */
   async #drainPending(rt: AgentRuntime, taskId: string): Promise<void> {
     while (rt.hasPendingWork && this.#isRunning) {
@@ -295,6 +350,10 @@ export class RuntimeManager {
     return rt
   }
 
+  /**
+   * Clean up runtime and lock for a task that has reached a terminal state.
+   * Caller must hold the per-task lock (or the task must be terminal).
+   */
   async #cleanupIfTerminal(taskId: string): Promise<void> {
     const task = await this.#taskService.getTask(taskId)
     if (!task) {
@@ -304,5 +363,13 @@ export class RuntimeManager {
     if (task.status === 'done' || task.status === 'failed' || task.status === 'canceled') {
       this.#runtimes.delete(taskId)
     }
+  }
+
+  /**
+   * Remove the per-task lock. Called after terminal events where no
+   * further handlers are expected for this task.
+   */
+  #cleanupTaskLock(taskId: string): void {
+    this.#taskLocks.delete(taskId)
   }
 }

@@ -9,7 +9,17 @@
  *
  * The tool subscribes to `EventStore.events$` for event-driven waiting
  * (no expensive projection polling). Supports AbortSignal for immediate
- * cancel/pause propagation.
+ * cancel/pause propagation — both cancel and pause abort the wait so the
+ * parent tool unblocks promptly.
+ *
+ * **Hardened against missed-event deadlocks (RD-001)**: After creating
+ * the child task, a catch-up check reads the child's current state. If
+ * the child already reached a terminal state before the subscription's
+ * filter activated, the tool resolves immediately.
+ *
+ * **Bounded waits (RD-001)**: A configurable timeout (default 5 min)
+ * prevents indefinite blocking. On timeout the child's current state
+ * is read — if terminal, the result is returned; otherwise an error.
  */
 
 import type { Tool, ToolContext, ToolResult, ToolRegistry } from '../../domain/ports/tool.js'
@@ -29,6 +39,8 @@ export type SubtaskToolDeps = {
   conversationStore: ConversationStore
   runtimeManager: RuntimeManager
   maxSubtaskDepth: number
+  /** Maximum time to wait for child task completion (ms). Default: 300_000 (5 min). */
+  subtaskTimeoutMs?: number
 }
 
 export type SubtaskToolResult = {
@@ -48,17 +60,21 @@ export type SubtaskToolResult = {
  * Walk the parentTaskId chain to compute the current nesting depth.
  * Returns 0 for a root task, 1 for its direct subtask, etc.
  *
- * NOTE: Each level triggers a full `listTasks()` projection rebuild.
- * Acceptable for modest depths (≤5), but for very deep hierarchies
- * consider caching the projection or adding a depth field to TaskView.
+ * Includes cycle detection: if a cycle is encountered, returns Infinity
+ * so the caller's depth check reliably rejects the subtask (PR-002).
  */
 async function computeDepth(
   taskService: TaskService,
   taskId: string
 ): Promise<number> {
   let depth = 0
+  const visited = new Set<string>()
   let current: TaskView | null = await taskService.getTask(taskId)
   while (current?.parentTaskId) {
+    if (visited.has(current.parentTaskId)) {
+      return Infinity // Cycle detected
+    }
+    visited.add(current.parentTaskId)
     depth++
     current = await taskService.getTask(current.parentTaskId)
   }
@@ -104,7 +120,10 @@ export function createSubtaskTool(
   agentDescription: string,
   deps: SubtaskToolDeps
 ): Tool {
-  const { store, taskService, conversationStore, runtimeManager, maxSubtaskDepth } = deps
+  const {
+    store, taskService, conversationStore, runtimeManager, maxSubtaskDepth,
+    subtaskTimeoutMs = 300_000  // 5 minutes default
+  } = deps
 
   return {
     name: `create_subtask_${agentId}`,
@@ -150,11 +169,17 @@ export function createSubtaskTool(
         }
       }
 
-      // --- Ensure RuntimeManager is running ---
-      // In CLI one-shot mode, RuntimeManager may not be started.
-      // We need it running so the child TaskCreated event triggers execution.
+      // --- Require RuntimeManager to be running (RD-004) ---
+      // Lifecycle ownership belongs to the application layer, not tools.
       if (!runtimeManager.isRunning) {
-        runtimeManager.start()
+        return {
+          toolCallId: '',
+          output: JSON.stringify({
+            error: 'RuntimeManager must be started before creating subtasks. ' +
+              'Ensure runtimeManager.start() is called at application initialization.'
+          }),
+          isError: true
+        }
       }
 
       // --- Early abort check ---
@@ -174,8 +199,6 @@ export function createSubtaskTool(
 
       // --- Subscribe to terminal events BEFORE creating child task ---
       // This eliminates any race between task creation and event subscription.
-      // The subscription activates immediately; the childTaskId filter is set
-      // once createTask() returns.
       let childTaskId = ''
       let cleanupWatcher: () => void = () => {}
 
@@ -200,9 +223,19 @@ export function createSubtaskTool(
         }
         ctx.signal?.addEventListener('abort', onAbort, { once: true })
 
+        // Timeout to prevent indefinite blocking (RD-001)
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+        if (subtaskTimeoutMs > 0) {
+          timeoutId = setTimeout(() => {
+            cleanup()
+            reject(new Error(`Subtask wait timed out after ${subtaskTimeoutMs}ms`))
+          }, subtaskTimeoutMs)
+        }
+
         function cleanup() {
           subscription.unsubscribe()
           ctx.signal?.removeEventListener('abort', onAbort)
+          if (timeoutId !== undefined) clearTimeout(timeoutId)
         }
         cleanupWatcher = cleanup
       })
@@ -218,11 +251,20 @@ export function createSubtaskTool(
       })
       childTaskId = createResult.taskId
 
+      // --- Catch-up check (RD-001) ---
+      // If the child task already reached a terminal state before the
+      // subscription filter activated (fast child), resolve immediately
+      // instead of waiting for a live event that already passed.
+      const catchUpTask = await taskService.getTask(childTaskId)
+      if (catchUpTask && isTerminalStatus(catchUpTask.status)) {
+        cleanupWatcher()
+        return buildResultFromTaskView(catchUpTask, childTaskId, agentId, conversationStore)
+      }
+
       // --- Wait for terminal event ---
       try {
         const terminalEvent = await terminalPromise
 
-        // Extract result
         const finalMessage = await extractFinalAssistantMessage(conversationStore, childTaskId)
 
         let result: SubtaskToolResult
@@ -271,17 +313,7 @@ export function createSubtaskTool(
       } catch (error) {
         // AbortSignal was triggered — cascade cancel to child
         if (error instanceof DOMException && error.name === 'AbortError') {
-          if (childTaskId) {
-            try {
-              const childTask = await taskService.getTask(childTaskId)
-              if (childTask && !['done', 'failed', 'canceled'].includes(childTask.status)) {
-                await taskService.cancelTask(childTaskId, 'Parent task canceled')
-              }
-            } catch {
-              // Best-effort cancel
-            }
-          }
-
+          await cascadeCancelChild(taskService, childTaskId)
           const result: SubtaskToolResult = {
             taskId: childTaskId || '',
             agentId,
@@ -294,11 +326,90 @@ export function createSubtaskTool(
             isError: false
           }
         }
+
+        // Timeout — check child state before failing
+        if (error instanceof Error && error.message.includes('timed out')) {
+          const timedOutTask = await taskService.getTask(childTaskId)
+          if (timedOutTask && isTerminalStatus(timedOutTask.status)) {
+            return buildResultFromTaskView(timedOutTask, childTaskId, agentId, conversationStore)
+          }
+          // Child still running — report timeout error
+          const result: SubtaskToolResult = {
+            taskId: childTaskId,
+            agentId,
+            subTaskStatus: 'Error',
+            failureReason: `Subtask timed out after ${subtaskTimeoutMs}ms and is still running`
+          }
+          return {
+            toolCallId: '',
+            output: JSON.stringify(result),
+            isError: true
+          }
+        }
+
         throw error
       } finally {
         cleanupWatcher()
       }
     }
+  }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+const TERMINAL_STATUSES = new Set(['done', 'failed', 'canceled'])
+
+function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status)
+}
+
+/**
+ * Best-effort cancel of a child task.
+ */
+async function cascadeCancelChild(taskService: TaskService, childTaskId: string): Promise<void> {
+  if (!childTaskId) return
+  try {
+    const childTask = await taskService.getTask(childTaskId)
+    if (childTask && !isTerminalStatus(childTask.status)) {
+      await taskService.cancelTask(childTaskId, 'Parent task canceled')
+    }
+  } catch {
+    // Best-effort cancel
+  }
+}
+
+/**
+ * Build a tool result from a terminal TaskView (used for catch-up and timeout recovery).
+ */
+async function buildResultFromTaskView(
+  task: TaskView,
+  childTaskId: string,
+  agentId: string,
+  conversationStore: ConversationStore
+): Promise<ToolResult> {
+  const finalMessage = await extractFinalAssistantMessage(conversationStore, childTaskId)
+
+  let result: SubtaskToolResult
+  switch (task.status) {
+    case 'done':
+      result = { taskId: childTaskId, agentId, subTaskStatus: 'Success', summary: task.summary, finalAssistantMessage: finalMessage }
+      break
+    case 'failed':
+      result = { taskId: childTaskId, agentId, subTaskStatus: 'Error', failureReason: task.failureReason, finalAssistantMessage: finalMessage }
+      break
+    case 'canceled':
+      result = { taskId: childTaskId, agentId, subTaskStatus: 'Cancel', failureReason: 'Task was canceled' }
+      break
+    default:
+      result = { taskId: childTaskId, agentId, subTaskStatus: 'Error', failureReason: `Unexpected status: ${task.status}` }
+  }
+
+  return {
+    toolCallId: '',
+    output: JSON.stringify(result),
+    isError: result.subTaskStatus === 'Error'
   }
 }
 

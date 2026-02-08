@@ -193,12 +193,13 @@ describe('TaskService State Transitions', () => {
         }
       }])
       
-      // awaiting_user -> in_progress (TaskInstructionAdded)
+      // awaiting_user stays awaiting_user on instruction (CC-004 fix:
+      // instruction should not silently override pending UIP)
       await store.append(taskId, [{
         type: 'TaskInstructionAdded',
         payload: { taskId, instruction: 'nevermind do this', authorActorId: DEFAULT_USER_ACTOR_ID }
       }])
-      expect((await service.getTask(taskId))?.status).toBe('in_progress')
+      expect((await service.getTask(taskId))?.status).toBe('awaiting_user')
   })
 })
 
@@ -246,22 +247,18 @@ describe('TaskService Command Validation', () => {
     await expect(service.resumeTask(taskId)).rejects.toThrow(/Invalid transition/)
   })
 
-  test('throws when adding instruction to task that forbids it (none currently forbid it)', async () => {
+  test('throws when adding instruction to canceled task (CC-004)', async () => {
     const { store, service } = setup()
     const taskId = await createTask(service)
     
-    // TaskInstructionAdded is always allowed
+    // TaskInstructionAdded moves open → in_progress
     await service.addInstruction(taskId, 'inst')
-    expect((await service.getTask(taskId))?.status).toBe('in_progress') // open -> in_progress implicit?
-    // Wait, TaskInstructionAdded returns true in canTransition.
-    // And reducer sets status to 'in_progress'.
-    // So this should work.
-    
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
+
     await service.cancelTask(taskId)
     expect((await service.getTask(taskId))?.status).toBe('canceled')
     
-    // canceled -> in_progress (via TaskInstructionAdded)
-    await service.addInstruction(taskId, 'wake up')
-    expect((await service.getTask(taskId))?.status).toBe('in_progress')
+    // canceled → instruction now throws (CC-004: paused/canceled block instructions)
+    await expect(service.addInstruction(taskId, 'wake up')).rejects.toThrow(/Invalid transition/)
   })
 })

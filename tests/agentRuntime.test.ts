@@ -13,6 +13,24 @@ import { ConversationManager } from '../src/agents/conversationManager.js'
 import { OutputHandler } from '../src/agents/outputHandler.js'
 import { DefaultCoAuthorAgent } from '../src/agents/defaultAgent.js'
 import { FakeLLMClient } from '../src/infra/fakeLLMClient.js'
+
+/**
+ * Wait for a pending interaction to appear for a task.
+ * Returns the pending interactionId once available.
+ */
+async function waitForPendingInteraction(
+  interactionService: InteractionService,
+  taskId: string,
+  timeoutMs = 5000
+): Promise<string> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const pending = await interactionService.getPendingInteraction(taskId)
+    if (pending) return pending.interactionId
+    await new Promise(r => setTimeout(r, 10))
+  }
+  throw new Error(`Timed out waiting for pending interaction on task ${taskId}`)
+}
 import { DefaultToolRegistry } from '../src/infra/toolRegistry.js'
 import { DefaultToolExecutor } from '../src/infra/toolExecutor.js'
 import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
@@ -604,7 +622,13 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     })
 
     manager.start()
-    await interactionService.respondToInteraction(taskId, 'ui_test', { selectedOptionId: 'approve' })
+    // TaskCreated was emitted before subscription — trigger execution explicitly.
+    // executeTask will pause at the UIP for the risky tool, then return.
+    const execPromise = manager.executeTask(taskId)
+    // Wait for the runtime to create the UIP for the risky tool
+    const pendingId = await waitForPendingInteraction(interactionService, taskId)
+    await execPromise // execution paused at UIP — safe to await now
+    await interactionService.respondToInteraction(taskId, pendingId, { selectedOptionId: 'approve' })
     await manager.waitForIdle()
 
     expect(toolExec).toHaveBeenCalledTimes(1)
@@ -649,7 +673,12 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
     })
 
     manager.start()
-    await interactionService.respondToInteraction(taskId, 'ui_test', { selectedOptionId: 'reject' })
+    // TaskCreated was emitted before subscription — trigger execution explicitly.
+    const execPromise = manager.executeTask(taskId)
+    // Wait for the runtime to create the UIP for the risky tool
+    const pendingId = await waitForPendingInteraction(interactionService, taskId)
+    await execPromise // execution paused at UIP
+    await interactionService.respondToInteraction(taskId, pendingId, { selectedOptionId: 'reject' })
     await manager.waitForIdle()
 
     expect(toolExec).toHaveBeenCalledTimes(0)
@@ -798,7 +827,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
         const option = r < 0.18 ? 'approve' : 'reject'
         await interactionService.respondToInteraction(taskId, pending.interactionId, { selectedOptionId: option })
       } else if (r < 0.55) {
-        await taskService.addInstruction(taskId, `instruction-${i}`)
+        try { await taskService.addInstruction(taskId, `instruction-${i}`) } catch {}
       } else if (r < 0.7) {
         try { await taskService.pauseTask(taskId, `pause-${i}`) } catch {}
       } else if (r < 0.85) {

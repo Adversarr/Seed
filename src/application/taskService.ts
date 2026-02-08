@@ -200,8 +200,11 @@ export class TaskService {
 
   // Check if state transition is valid
   canTransition(currentStatus: string, eventType: string): boolean {
-    // TaskInstructionAdded is a universal wake-up signal (7.1 requirement)
-    if (eventType === 'TaskInstructionAdded') return true 
+    // TaskInstructionAdded allowed from most states, but NOT from paused
+    // or canceled — those require explicit resume/restart (CC-004).
+    if (eventType === 'TaskInstructionAdded') {
+      return !['paused', 'canceled'].includes(currentStatus)
+    }
     
     switch (currentStatus) {
       case 'open':
@@ -212,13 +215,16 @@ export class TaskService {
       case 'awaiting_user':
         return ['UserInteractionResponded', 'TaskCanceled'].includes(eventType)
       case 'paused':
-        return ['TaskResumed', 'TaskCanceled'].includes(eventType)
+        // Allow TaskFailed from paused so error recovery works (CC-003)
+        return ['TaskResumed', 'TaskCanceled', 'TaskFailed'].includes(eventType)
       case 'done':
+        // Allow restart from done only (explicit re-execution)
         return ['TaskStarted'].includes(eventType)
       case 'failed':
       case 'canceled':
-        // Allow restart via TaskStarted (re-execution)
-        return ['TaskStarted'].includes(eventType)
+        // Disallow TaskStarted from terminal error states (RD-003).
+        // To re-run, create a new task. This prevents zombie restarts.
+        return false
       default:
         return false
     }
@@ -359,9 +365,14 @@ export class TaskService {
         const task = tasks[idx]!
         if (!this.canTransition(task.status, event.type)) return state
 
-        // If task was done/failed/canceled/paused, move back to in_progress
-        // If already in_progress, stay in_progress
-        task.status = 'in_progress'
+        // Only move to in_progress from states where it makes sense.
+        // Paused and canceled tasks are blocked by canTransition (CC-004).
+        // awaiting_user stays awaiting_user — instruction doesn't cancel UIP.
+        if (['open', 'done', 'failed'].includes(task.status)) {
+          task.status = 'in_progress'
+        }
+        // in_progress stays in_progress (already executing)
+        // awaiting_user stays awaiting_user (CC-004: no silent override)
         task.updatedAt = event.createdAt
         return { tasks }
       }

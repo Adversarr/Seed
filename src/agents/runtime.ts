@@ -19,6 +19,12 @@ import type { OutputHandler, OutputContext } from './outputHandler.js'
  * state (Maps, Sets) and the bugs they caused (key collisions, stale
  * entries, memory leaks).
  *
+ * **Concurrency model**: The runtime is designed as a non-reentrant actor.
+ * All entry points (`execute`, `resume`, `onResume`, `onInstruction`) are
+ * expected to be serialized by RuntimeManager's per-task lock. The internal
+ * `#isExecuting` flag is a safety net for detecting unexpected re-entrancy,
+ * not the primary concurrency guard.
+ *
  * Responsibilities:
  * - Agent loop orchestration (delegates output handling to OutputHandler)
  * - Pause / cancel signalling (cooperative, checked at safe yield points)
@@ -39,12 +45,20 @@ export class AgentRuntime {
   readonly #conversationManager: ConversationManager
   readonly #outputHandler: OutputHandler
 
-  // All state is scalar — no Maps or Sets needed for a single task.
+  /**
+   * True while the agent loop is in progress. Used as a safety net
+   * to detect unexpected re-entrancy; primary serialization is
+   * via RuntimeManager's per-task lock.
+   */
   #isExecuting = false
   #isPaused = false
   #isCanceled = false
   #pendingInstructions: string[] = []
-  /** Controller for aborting blocked tool calls on cancel/pause. */
+  /**
+   * Controller for aborting blocked tool calls on cancel AND pause.
+   * Both pause and cancel now abort via this controller so that
+   * long-running tools (e.g. create_subtask) unblock promptly (RD-002).
+   */
   #abortController: AbortController | null = null
 
   constructor(opts: {
@@ -91,14 +105,20 @@ export class AgentRuntime {
 
   /**
    * Signal that the task should pause at the next safe point.
-   * Cooperative: the agent loop checks this flag between yields.
+   *
+   * Also aborts in-flight blocking tool calls (e.g. create_subtask waits)
+   * so that pause takes effect promptly even when tools are blocked (RD-002).
+   * The AbortError is caught by the agent loop / tool and treated as a
+   * cooperative exit rather than a fatal error.
    */
   onPause(): void {
     this.#isPaused = true
+    this.#abortController?.abort()
   }
 
   /**
-   * Clear the pause signal and trigger re-execution.
+   * Clear the pause signal and trigger re-execution if idle.
+   * Called by RuntimeManager under the per-task lock.
    */
   async onResume(): Promise<void> {
     this.#isPaused = false
@@ -163,7 +183,7 @@ export class AgentRuntime {
    * Execute the agent workflow for this task.
    *
    * Main entry point — emits TaskStarted, runs the agent loop.
-   * Can be called directly (manual execution) or by RuntimeManager.
+   * Called by RuntimeManager (under per-task lock) or by the drain loop.
    */
   async execute(): Promise<{ taskId: string; events: DomainEvent[] }> {
     const task = await this.#taskService.getTask(this.#taskId)
@@ -185,8 +205,7 @@ export class AgentRuntime {
     await this.#store.append(this.#taskId, [startedEvent])
 
     const emittedEvents: DomainEvent[] = [startedEvent]
-    // Clear the sentinel — actual instructions are tracked in #pendingInstructions.
-    // New instructions arriving during this execute() will re-set the flag.
+
     this.#isExecuting = true
     try {
       return await this.#runAgentLoop(task, emittedEvents)
@@ -197,6 +216,7 @@ export class AgentRuntime {
 
   /**
    * Resume the agent workflow after a user interaction response.
+   * Called by RuntimeManager under the per-task lock.
    */
   async resume(
     response: UserInteractionRespondedPayload
@@ -219,25 +239,55 @@ export class AgentRuntime {
 
   // ======================== internal: drain loop ========================
 
+  /**
+   * Execute then drain queued instructions.
+   *
+   * The outer `#isExecuting` flag spans the entire drain cycle
+   * to prevent false-idle windows where another entry point could
+   * observe `#isExecuting === false` mid-drain (CC-008).
+   *
+   * Individual `execute()` calls within the loop set the flag
+   * redundantly (safe, since it's already true), and their
+   * `finally` blocks reset it — but we restore it immediately
+   * since the drain loop is still active.
+   */
   async #executeAndDrainQueuedInstructions(): Promise<void> {
     if (this.#isExecuting) return
 
     this.#isExecuting = true
     try {
-      while (true) {
-        await this.execute()
+      await this.#runExecute()
 
+      while (this.#pendingInstructions.length > 0) {
         const task = await this.#taskService.getTask(this.#taskId)
         if (!task) return
         if (task.status === 'awaiting_user' || task.status === 'paused') return
+        if (this.#isPaused || this.#isCanceled) return
 
-        if (this.#pendingInstructions.length === 0) return
-
-        if (this.#isPaused) return
-        if (this.#isCanceled) return
+        // Re-execute to drain pending instructions
+        this.#isExecuting = true  // restore in case inner execute's finally cleared it
+        await this.#runExecute()
       }
     } finally {
       this.#isExecuting = false
+    }
+  }
+
+  /**
+   * Inner execute helper that catches transition errors gracefully.
+   * If the task was concurrently moved to a non-startable state,
+   * we log and return rather than throwing (CC-003).
+   */
+  async #runExecute(): Promise<void> {
+    try {
+      await this.execute()
+    } catch (error) {
+      // Gracefully handle invalid transitions caused by concurrent
+      // pause/cancel rather than crashing the drain loop (CC-003)
+      if (error instanceof Error && error.message.startsWith('Invalid transition:')) {
+        return
+      }
+      throw error
     }
   }
 
@@ -267,6 +317,23 @@ export class AgentRuntime {
       ? pendingResponse.interactionId
       : undefined
 
+    // Extract the toolCallId that the confirmation was bound to (SA-001).
+    // This is stored in the interaction display metadata by buildConfirmInteraction.
+    let confirmedToolCallId: string | undefined
+    if (confirmedInteractionId && pendingResponse) {
+      // The metadata is available from the original interaction request in the store.
+      // We read the task's stream to find the matching request event.
+      const events = await this.#store.readStream(this.#taskId)
+      for (let i = events.length - 1; i >= 0; i--) {
+        const ev = events[i]
+        if (ev.type === 'UserInteractionRequested' &&
+            ev.payload.interactionId === confirmedInteractionId) {
+          confirmedToolCallId = (ev.payload.display?.metadata as Record<string, string> | undefined)?.toolCallId
+          break
+        }
+      }
+    }
+
     const persistMessage = this.#conversationManager.createPersistCallback(taskId, conversationHistory)
 
     // Create a fresh AbortController for this loop invocation.
@@ -278,6 +345,7 @@ export class AgentRuntime {
       agentId: this.#agent.id,
       baseDir: this.#baseDir,
       confirmedInteractionId,
+      confirmedToolCallId,
       conversationHistory,
       persistMessage,
       signal: this.#abortController.signal
@@ -325,7 +393,14 @@ export class AgentRuntime {
           if (!currentTask) throw new Error(`Task not found: ${taskId}`)
 
           if (!this.#taskService.canTransition(currentTask.status, result.event.type)) {
-             throw new Error(`Invalid transition: cannot emit ${result.event.type} in state ${currentTask.status}`)
+            // Graceful exit: task was concurrently paused/canceled.
+            // Instead of throwing, we break the loop — the event will
+            // not be persisted, and the pause/cancel takes precedence (CC-003).
+            console.warn(
+              `[AgentRuntime] Skipping ${result.event.type}: task ${taskId} ` +
+              `is in state ${currentTask.status}, breaking loop gracefully`
+            )
+            break
           }
 
           await this.#store.append(taskId, [result.event])

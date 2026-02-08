@@ -1,10 +1,18 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { runCommandTool } from '../../src/infra/tools/runCommand.js'
+import { EventEmitter } from 'node:events'
+
+// Helper: create a minimal mock ChildProcess (EventEmitter with .kill())
+function mockChildProcess() {
+  const cp = new EventEmitter() as any
+  cp.kill = vi.fn(() => { cp.emit('exit', null, 'SIGTERM') })
+  return cp
+}
 
 // Mock child_process
 const mockExec = vi.fn()
 vi.mock('node:child_process', () => ({
-  exec: (cmd: string, options: any, callback: any) => mockExec(cmd, options, callback)
+  exec: (...args: any[]) => mockExec(...args)
 }))
 
 describe('runCommandTool', () => {
@@ -14,7 +22,10 @@ describe('runCommandTool', () => {
     vi.clearAllMocks()
     // Default mock behavior: success
     mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
-      cb(null, { stdout: 'default output', stderr: '' })
+      const cp = mockChildProcess()
+      cb(null, 'default output', '')
+      queueMicrotask(() => cp.emit('exit', 0, null))
+      return cp
     })
   })
   
@@ -24,13 +35,16 @@ describe('runCommandTool', () => {
 
   it('should execute echo command', async () => {
     mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
-      // simulate echo
+      const cp = mockChildProcess()
+      // simulate echo — exec callback: (error, stdout: string, stderr: string)
       if (cmd.startsWith('echo')) {
         const output = cmd.replace('echo ', '').replace(/"/g, '')
-        cb(null, { stdout: output, stderr: '' })
+        cb(null, output, '')
       } else {
-        cb(null, { stdout: '', stderr: '' })
+        cb(null, '', '')
       }
+      queueMicrotask(() => cp.emit('exit', 0, null))
+      return cp
     })
 
     const result = await runCommandTool.execute({
@@ -45,12 +59,15 @@ describe('runCommandTool', () => {
 
   it('should handle command failure', async () => {
     mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
-      // simulate failure
+      const cp = mockChildProcess()
+      // simulate failure — error has stdout/stderr as string props
       const error: any = new Error('Command failed')
       error.code = 1
       error.stdout = ''
       error.stderr = 'some error'
-      cb(error, { stdout: '', stderr: 'some error' })
+      cb(error, '', 'some error')
+      queueMicrotask(() => cp.emit('exit', 1, null))
+      return cp
     })
 
     const result = await runCommandTool.execute({
@@ -63,15 +80,31 @@ describe('runCommandTool', () => {
   })
 
   it('should respect timeout', async () => {
-    // We verify that timeout is passed to exec options
+    mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
+      const cp = mockChildProcess()
+      cb(null, '', '')
+      queueMicrotask(() => cp.emit('exit', 0, null))
+      return cp
+    })
+
     const result = await runCommandTool.execute({
       command: 'sleep 2',
       timeout: 100
     }, { baseDir, taskId: 't1', actorId: 'a1' })
 
-    // Since we mock exec, it won't actually timeout unless we simulate it or check args.
-    // The real implementation relies on child_process handling timeout.
-    // We can just verify arguments here.
     expect(mockExec).toHaveBeenCalledWith('sleep 2', expect.objectContaining({ timeout: 100 }), expect.any(Function))
+  })
+
+  it('should return error when signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await runCommandTool.execute({
+      command: 'echo test'
+    }, { baseDir, taskId: 't1', actorId: 'a1', signal: controller.signal })
+
+    expect(result.isError).toBe(true)
+    expect((result.output as any).error).toContain('aborted')
+    expect(mockExec).not.toHaveBeenCalled()
   })
 })

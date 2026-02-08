@@ -94,7 +94,9 @@ export const InteractionDisplaySchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   content: z.unknown().optional(),
-  contentKind: ContentKindSchema.optional()
+  contentKind: ContentKindSchema.optional(),
+  /** Opaque metadata for binding context (e.g. toolCallId for approval). */
+  metadata: z.record(z.string()).optional()
 })
 
 export const InteractionValidationSchema = z.object({

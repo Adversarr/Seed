@@ -36,6 +36,11 @@ export type OutputContext = {
   agentId: string
   baseDir: string
   confirmedInteractionId?: string
+  /**
+   * The toolCallId that the confirmed interaction is bound to (SA-001).
+   * When set, only the tool call with this exact ID may use the confirmation.
+   */
+  confirmedToolCallId?: string
   conversationHistory: readonly LLMMessage[]
   persistMessage: (m: LLMMessage) => Promise<void>
   /** AbortSignal propagated to tool execution for cooperative cancellation. */
@@ -132,8 +137,14 @@ export class OutputHandler {
 
         const isRisky = tool?.riskLevel === 'risky'
 
-        // Risky tool without confirmation → emit UIP request, pause execution
-        if (isRisky && !ctx.confirmedInteractionId) {
+        // Risky tool: needs confirmation. Either unconfirmed, or confirmed
+        // for a different tool call (SA-001 — approval must be action-bound).
+        const needsConfirmation = isRisky && (
+          !ctx.confirmedInteractionId ||
+          (ctx.confirmedToolCallId && ctx.confirmedToolCallId !== output.call.toolCallId)
+        )
+
+        if (needsConfirmation) {
           const confirmReq = buildConfirmInteraction(output.call)
           const event: DomainEvent = {
             type: 'UserInteractionRequested',
@@ -165,7 +176,9 @@ export class OutputHandler {
         )
 
         if (isRisky) {
+          // Clear the one-time confirmation after use
           ctx.confirmedInteractionId = undefined
+          ctx.confirmedToolCallId = undefined
         }
 
         return {}

@@ -94,6 +94,15 @@ export class DefaultToolExecutor implements ToolExecutor {
       return result
     }
 
+    // Early abort check: if signal is already aborted, skip execution (PR-003)
+    if (ctx.signal?.aborted) {
+      return finalize({
+        toolCallId: call.toolCallId,
+        output: { error: 'Tool execution aborted: task was canceled or paused' },
+        isError: true
+      })
+    }
+
     const tool = this.#registry.get(call.toolName)
     if (!tool) {
       return finalize({

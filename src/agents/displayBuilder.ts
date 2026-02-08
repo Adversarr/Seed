@@ -72,12 +72,23 @@ export function buildRiskyToolDisplay(toolCall: ToolCallRequest): InteractionDis
  * Used by agents to request user approval before executing risky tools.
  * Returns a complete AgentInteractionRequest with a unique ID.
  */
+/**
+ * Build a standard UIP confirmation request for a risky tool call.
+ *
+ * The display includes `metadata.toolCallId` so that the OutputHandler
+ * can verify the approval is bound to the specific tool call being
+ * executed, preventing confused-deputy attacks (SA-001).
+ */
 export function buildConfirmInteraction(toolCall: ToolCallRequest): AgentInteractionRequest {
+  const display = buildRiskyToolDisplay(toolCall)
+  // Bind the tool call identity into the interaction metadata (SA-001)
+  display.metadata = { ...display.metadata, toolCallId: toolCall.toolCallId }
+
   return {
     interactionId: `ui_${nanoid(12)}`,
     kind: 'Confirm',
     purpose: 'confirm_risky_action',
-    display: buildRiskyToolDisplay(toolCall),
+    display,
     options: [
       { id: 'approve', label: 'Approve', style: 'danger' },
       { id: 'reject', label: 'Reject', style: 'default', isDefault: true }

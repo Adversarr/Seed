@@ -82,12 +82,31 @@ export class InteractionService {
   /**
    * Submit a response to an interaction.
    * Emits UserInteractionResponded event.
+   *
+   * Validates that the interactionId matches the task's currently pending
+   * interaction to prevent stale/duplicate responses from triggering
+   * unintended resumes (SA-002).
    */
   async respondToInteraction(
     taskId: string,
     interactionId: string,
     response: InteractionResponse
   ): Promise<void> {
+    // Validate the response targets the currently pending interaction (SA-002)
+    const pending = await this.getPendingInteraction(taskId)
+    if (!pending) {
+      throw new Error(
+        `No pending interaction for task ${taskId}. ` +
+        `Response to interaction ${interactionId} rejected.`
+      )
+    }
+    if (pending.interactionId !== interactionId) {
+      throw new Error(
+        `Interaction ${interactionId} is not the pending interaction for task ${taskId}. ` +
+        `Currently pending: ${pending.interactionId}. Stale/duplicate response rejected.`
+      )
+    }
+
     await this.#store.append(taskId, [
       {
         type: 'UserInteractionResponded',

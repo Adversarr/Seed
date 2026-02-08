@@ -3,15 +3,17 @@
  *
  * Executes a shell command in the workspace.
  * Risk level: risky (requires UIP confirmation)
+ *
+ * **Cancellation contract (PR-001)**: Supports AbortSignal via
+ * ctx.signal. When aborted, the child process is killed (SIGTERM)
+ * and the tool returns an error result indicating cancellation.
  */
 
-import { exec } from 'node:child_process'
-import { promisify } from 'node:util'
-import { nanoid } from 'nanoid'
+import { exec, type ChildProcess } from 'node:child_process'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
+import { nanoid } from 'nanoid'
 
 const MAX_OUTPUT_LENGTH = 10000
-const execAsync = promisify(exec)
 
 export const runCommandTool: Tool = {
   name: 'runCommand',
@@ -37,25 +39,54 @@ export const runCommandTool: Tool = {
     const command = args.command as string
     const timeout = (args.timeout as number) ?? 30000
 
+    // Early abort check (PR-001)
+    if (ctx.signal?.aborted) {
+      return {
+        toolCallId,
+        output: { error: 'Command execution aborted: task was canceled or paused', command },
+        isError: true
+      }
+    }
+
     try {
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: ctx.baseDir,
-        timeout,
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
+      const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        const child: ChildProcess = exec(command, {
+          cwd: ctx.baseDir,
+          timeout,
+          encoding: 'utf8',
+          maxBuffer: 1024 * 1024,
+        }, (error, stdout, stderr) => {
+          if (error) {
+            reject(Object.assign(error, {
+              stdout: stdout ?? '',
+              stderr: stderr ?? ''
+            }))
+          } else {
+            resolve({ stdout: stdout ?? '', stderr: stderr ?? '' })
+          }
+        })
+
+        // Kill child process on abort (PR-001)
+        const onAbort = () => {
+          child.kill('SIGTERM')
+          reject(new DOMException('Command aborted', 'AbortError'))
+        }
+        ctx.signal?.addEventListener('abort', onAbort, { once: true })
+
+        child.on('exit', () => {
+          ctx.signal?.removeEventListener('abort', onAbort)
+        })
       })
 
-      const stdoutText = stdout ?? ''
       const truncatedStdout =
-        stdoutText.length > MAX_OUTPUT_LENGTH
-          ? stdoutText.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
-          : stdoutText
+        result.stdout.length > MAX_OUTPUT_LENGTH
+          ? result.stdout.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
+          : result.stdout
 
-      const stderrText = stderr ?? ''
       const truncatedStderr =
-        stderrText.length > MAX_OUTPUT_LENGTH
-          ? stderrText.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
-          : stderrText
+        result.stderr.length > MAX_OUTPUT_LENGTH
+          ? result.stderr.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)'
+          : result.stderr
 
       return {
         toolCallId,
@@ -68,6 +99,15 @@ export const runCommandTool: Tool = {
         isError: false
       }
     } catch (error) {
+      // AbortError from signal
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return {
+          toolCallId,
+          output: { error: 'Command execution aborted: task was canceled or paused', command },
+          isError: true
+        }
+      }
+
       if (error && typeof error === 'object' && 'stdout' in error && 'stderr' in error) {
         const execError = error as { stdout: string; stderr: string; code?: number; signal?: NodeJS.Signals }
         const stderr = execError.stderr?.slice(0, MAX_OUTPUT_LENGTH) ?? ''
