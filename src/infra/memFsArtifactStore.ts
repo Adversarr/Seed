@@ -39,12 +39,12 @@ export class MemFsArtifactStore implements ArtifactStore {
     const resolved = this._resolve(path)
     // memfs readdir returns generic types, casting to match
     const entries = await fs.promises.readdir(resolved, { withFileTypes: true })
-    return entries.map(e => e.name.toString())
+    return entries.map((e: any) => e.name.toString())
   }
 
   async writeFile(path: string, content: string): Promise<void> {
     const resolved = this._resolve(path)
-    await fs.promises.writeFile(resolved, content, 'utf8')
+    await fs.promises.writeFile(resolved, content, { encoding: 'utf8' })
   }
 
   async exists(path: string): Promise<boolean> {

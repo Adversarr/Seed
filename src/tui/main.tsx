@@ -1,53 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Box, Text, useInput, useStdout, Static } from 'ink'
-import { parse, setOptions } from 'marked'
-import type { Renderer } from 'marked'
-import TerminalRenderer from 'marked-terminal'
-import TextInput from 'ink-text-input'
+import { Box, useInput, useStdout } from 'ink'
 import type { App } from '../app/createApp.js'
-import { InteractionPanel } from './components/InteractionPanel.js'
-import type { StoredAuditEntry } from '../domain/ports/auditLog.js'
+import { InteractionPane } from './components/InteractionPane.js'
 import type { UserInteractionRequestedPayload } from '../domain/events.js'
 import { handleCommand } from './commands.js'
 import type { ReplayEntry } from './commands.js'
 
+import type { PlainStaticEntry, MarkdownStaticEntry, StaticEntry, TaskView } from './types.js'
+import {
+  formatAuditEntry,
+  truncateText,
+  createSeparatorLine,
+  buildCommandLineFromInput
+} from './utils.js'
+import { LogOutput } from './components/LogOutput.js'
+import { TaskPane } from './components/TaskPane.js'
+
 type Props = {
   app: App
-}
-
-type PlainStaticEntry = {
-  id: string
-  variant: 'plain'
-  lines: string[]
-  color?: string
-  dim?: boolean
-  bold?: boolean
-}
-
-type MarkdownStaticEntry = {
-  id: string
-  variant: 'markdown'
-  prefix?: string
-  content: string
-  color?: string
-  dim?: boolean
-  bold?: boolean
-}
-
-type StaticEntry = PlainStaticEntry | MarkdownStaticEntry
-
-function renderMarkdownToTerminalText(markdown: string, width: number): string {
-  if (!markdown) return ''
-  const safeWidth = Math.max(20, width)
-  const renderer = new TerminalRenderer({
-    width: safeWidth,
-    reflowText: true,
-    showSectionPrefix: false
-  }) as unknown as Renderer
-  setOptions({
-    renderer
-  })
-  return parse(markdown).trimEnd()
 }
 
 export function MainTui(props: Props) {
@@ -55,7 +25,7 @@ export function MainTui(props: Props) {
   const { stdout } = useStdout()
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<string>('')
-  const [tasks, setTasks] = useState<Array<{ taskId: string; title: string; status: string }>>([])
+  const [tasks, setTasks] = useState<TaskView[]>([])
   const [completedEntries, setCompletedEntries] = useState<StaticEntry[]>([])
   const [pendingInteraction, setPendingInteraction] = useState<UserInteractionRequestedPayload | null>(null)
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null)
@@ -202,8 +172,11 @@ export function MainTui(props: Props) {
           }
         } else if (event.payload.kind === 'error') {
           addPlainLog(event.payload.content, { prefix: '✖ ', color: 'red', bold: true })
-        } else {
+        } else if (event.payload.kind === 'text') {
           addMarkdownLog(event.payload.content, { prefix: '→ ', color: 'green', bold: true })
+        } else {
+          // Unknown kind, log as plain text
+          addPlainLog(event.payload.content, { prefix: '? ' })
         }
       }
       if (event.type === 'audit_entry') {
@@ -292,9 +265,6 @@ export function MainTui(props: Props) {
   })
 
   const focusedTask = tasks.find((task) => task.taskId === focusedTaskId)
-  const taskTitle = focusedTask ? focusedTask.title : '(no task focused)'
-  const taskStatus = focusedTask ? focusedTask.status : ''
-  const statusIcon = getStatusIcon(taskStatus)
   const columns = stdout?.columns ?? 80
   const rows = stdout?.rows ?? 24
   const statusLine = truncateText(status || '', columns - 2)
@@ -303,218 +273,30 @@ export function MainTui(props: Props) {
   return (
     <Box flexDirection="column">
       {/* Permanent output - printed once, persists in terminal scrollback */}
-      <Static items={completedEntries}>
-        {(entry) => (
-          <Box key={entry.id} flexDirection="column" paddingX={1}>
-            {entry.variant === 'plain' ? (
-              entry.lines.map((line, index) => (
-                <Text
-                  key={`${entry.id}-${index}`}
-                  color={entry.color}
-                  dimColor={entry.dim}
-                  bold={entry.bold}
-                >
-                  {line}
-                </Text>
-              ))
-            ) : (
-              <Text color={entry.color} dimColor={entry.dim} bold={entry.bold}>
-                {entry.prefix ?? ''}
-                {renderMarkdownToTerminalText(entry.content, columns - 4)}
-              </Text>
-            )}
-          </Box>
-        )}
-      </Static>
+      <LogOutput entries={completedEntries} width={columns} />
 
       {showTasks ? (
-        <Box flexDirection="column" paddingX={1}>
-          <Box borderStyle="double" borderColor="white" flexDirection="column" padding={1}>
-            <Text bold underline>
-              Tasks (Press ESC to close)
-            </Text>
-            <Text dimColor>{statusLine || ' '}</Text>
-            <Box flexDirection="column" marginTop={1}>
-              {(() => {
-                const maximumTaskRows = Math.max(0, rows - 7)
-                const visibleTasks = tasks.slice(0, maximumTaskRows)
-                const hiddenTaskCount = Math.max(0, tasks.length - visibleTasks.length)
-
-                return (
-                  <>
-                    {visibleTasks.map((task) => {
-                      const isFocused = task.taskId === focusedTaskId
-                      const isSelected = tasks.indexOf(task) === selectedTaskIndex
-                      const taskSuffix = ` (${task.status}) [${task.taskId}]`
-                      const availableTitleWidth = Math.max(0, columns - taskSuffix.length - 6)
-                      const truncatedTitle = truncateText(task.title, availableTitleWidth)
-
-                      return (
-                        <Box key={task.taskId}>
-                          <Text color={isFocused ? 'green' : isSelected ? 'blue' : 'white'} bold={isFocused || isSelected}>
-                            {isSelected ? '> ' : '  '}
-                            {truncatedTitle}
-                          </Text>
-                          <Text dimColor>{` ${getStatusIcon(task.status)}${taskSuffix}`}</Text>
-                        </Box>
-                      )
-                    })}
-                    {hiddenTaskCount > 0 ? (
-                      <Text dimColor>{`… and ${hiddenTaskCount} more`}</Text>
-                    ) : null}
-                  </>
-                )
-              })()}
-            </Box>
-          </Box>
-        </Box>
+        <TaskPane
+          tasks={tasks}
+          focusedTaskId={focusedTaskId}
+          selectedTaskIndex={selectedTaskIndex}
+          rows={rows}
+          columns={columns}
+          statusLine={statusLine}
+        />
       ) : (
-        <>
-          <Text dimColor>{separatorLine}</Text>
-          <Box flexDirection="column" paddingX={1}>
-            <Text color="yellow">{statusLine || ' '}</Text>
-
-            {pendingInteraction ? (
-              <InteractionPanel pendingInteraction={pendingInteraction} onSubmit={onInteractionSubmit} />
-            ) : (
-              <Box>
-                <Text color="cyan">{'> '}</Text>
-                <TextInput value={input} onChange={setInput} onSubmit={onSubmit} />
-              </Box>
-            )}
-          </Box>
-
-          <Text dimColor>{separatorLine}</Text>
-          <Box height={1} width="100%" paddingX={1}>
-            <Box flexGrow={1}>
-              <Text color="cyan" bold>
-                CoAuthor
-              </Text>
-              <Text dimColor> │ </Text>
-              <Text color="yellow">FOCUSED: </Text>
-              <Text bold>{taskTitle}</Text>
-              <Text> {statusIcon} </Text>
-            </Box>
-            <Text color="green">[●]</Text>
-          </Box>
-        </>
+        <InteractionPane
+          separatorLine={separatorLine}
+          statusLine={statusLine}
+          pendingInteraction={pendingInteraction}
+          onInteractionSubmit={onInteractionSubmit}
+          inputValue={input}
+          onInputChange={setInput}
+          onInputSubmit={onSubmit}
+          focusedTask={focusedTask}
+          columns={columns}
+        />
       )}
     </Box>
   )
-}
-
-function getStatusIcon(status: string): string {
-  switch (status) {
-    case 'open': return '⚪'
-    case 'in_progress': return '🔵'
-    case 'awaiting_user': return '🟡'
-    case 'paused': return '⏸️'
-    case 'done': return '🟢'
-    case 'failed': return '🔴'
-    case 'canceled': return '⚪'
-    default: return ' '
-  }
-}
-
-const toolFormatters: Record<string, (output: any) => string | null> = {
-  readFile: (output: any) => {
-    if (output && typeof output.path === 'string' && typeof output.lineCount === 'number') {
-      return `Read ${output.path} (${output.lineCount} lines)`
-    }
-    return null
-  },
-  listFiles: (output: any) => {
-    if (output && typeof output.path === 'string' && typeof output.count === 'number') {
-      return `List ${output.path} (${output.count} entries)`
-    }
-    return null
-  }
-}
-
-function formatAuditEntry(entry: StoredAuditEntry): {
-  line: string
-  color?: string
-  dim?: boolean
-  bold?: boolean
-} {
-  if (entry.type === 'ToolCallRequested') {
-    const input = formatToolPayload(entry.payload.input, 200)
-    return {
-      line: ` → ${entry.payload.toolName} ${input}`,
-      color: 'gray',
-      dim: true
-    }
-  }
-
-  let output: string
-  const formatter = toolFormatters[entry.payload.toolName]
-  const formattedCustom = formatter ? formatter(entry.payload.output) : null
-
-  if (formattedCustom) {
-    output = formattedCustom
-  } else {
-    output = formatToolPayload(entry.payload.output, 200)
-  }
-
-  if (entry.payload.isError) {
-    return {
-      line: ` ✖ ${entry.payload.toolName} error (${entry.payload.durationMs}ms) ${output}`,
-      color: 'red',
-      bold: true
-    }
-  }
-  return {
-    line: ` ✓ ${entry.payload.toolName} ok (${entry.payload.durationMs}ms) ${output}`,
-    color: 'gray',
-    dim: true
-  }
-}
-
-function formatToolPayload(value: unknown, maxLength: number): string {
-  if (typeof value === 'string') {
-    return truncateLongString(value, maxLength)
-  }
-  const raw = JSON.stringify(value)
-  return typeof raw === 'string' ? raw : String(value)
-}
-
-function truncateLongString(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value
-  const suffix = '...(truncated)'
-  const sliceLength = Math.max(0, maxLength - suffix.length)
-  return value.slice(0, sliceLength) + suffix
-}
-
-function createSeparatorLine(columns: number): string {
-  const width = Math.max(0, columns)
-  return '─'.repeat(width)
-}
-
-function truncateText(value: string, maxLength: number): string {
-  if (maxLength <= 0) return ''
-  if (value.length <= maxLength) return value
-  return value.slice(0, Math.max(0, maxLength - 1)) + '…'
-}
-
-function buildCommandLineFromInput(opts: {
-  input: string
-  focusedTaskId: string | null
-  tasks: Array<{ taskId: string; title: string; status: string }>
-}): string {
-  const trimmed = opts.input.trim()
-  if (!trimmed) return ''
-  if (trimmed.startsWith('/')) return trimmed
-
-  if (!opts.focusedTaskId) {
-    return `/new ${trimmed}`
-  }
-
-  const focusedTask = opts.tasks.find((task) => task.taskId === opts.focusedTaskId)
-  const focusedTaskStatus = focusedTask?.status
-
-  if (focusedTaskStatus === 'awaiting_user') {
-    return `/continue ${trimmed}`
-  }
-
-  return `/continue ${trimmed}`
 }
