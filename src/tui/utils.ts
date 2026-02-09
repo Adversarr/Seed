@@ -216,6 +216,14 @@ export const toolFormatters: Record<string, (output: any) => string | null> = {
     if (output && typeof output.path === 'string' && typeof output.count === 'number') {
       return `List ${output.path} (${output.count} entries)`
     }
+    if (output && typeof output.content === 'string' && typeof output.count === 'number') {
+      const match = output.content.match(/Directory listing for ([^:\n]+):/)
+      const inferredPath = match ? match[1] : undefined
+      if (inferredPath) {
+        return `List ${inferredPath} (${output.count} entries)`
+      }
+      return `List ${output.count} entries`
+    }
     // Handle array output
     if (Array.isArray(output)) {
       return `List ${output.length} entries`
@@ -258,7 +266,12 @@ export const toolFormatters: Record<string, (output: any) => string | null> = {
     return null
   },
   editFile: (output: any) => {
-    if (typeof output === 'string') return output // Usually "Applied replacement to..."
+    if (typeof output === 'string') return output
+    if (output && output.success && typeof output.path === 'string') {
+      const action = output.action === 'created' ? 'Created' : 'Edited'
+      const strategy = output.strategy ? ` (${output.strategy})` : ''
+      return `${action} ${output.path}${strategy}`
+    }
     return null
   }
 }
@@ -272,6 +285,82 @@ export function formatToolOutput(toolName: string, output: any): string {
   return formatToolPayload(output, 200)
 }
 
+export const toolInputFormatters: Record<string, (input: any) => string | null> = {
+  readFile: (input: any) => {
+    if (input && typeof input.path === 'string') {
+      let suffix = ''
+      if (typeof input.offset === 'number' && typeof input.limit === 'number') {
+        suffix = ` (lines ${input.offset + 1}-${input.offset + input.limit})`
+      }
+      return `Read ${input.path}${suffix}`
+    }
+    return null
+  },
+  editFile: (input: any) => {
+    if (input && typeof input.path === 'string') {
+      const isCreate = input.oldString === ''
+      if (isCreate) return `Create ${input.path}`
+      const suffix = input.regex ? ' (regex)' : ''
+      return `Edit ${input.path}${suffix}`
+    }
+    return null
+  },
+  listFiles: (input: any) => {
+    if (input && typeof input.path === 'string') {
+      const ignore = Array.isArray(input.ignore) && input.ignore.length > 0
+        ? ` (ignoring: ${input.ignore.join(', ')})`
+        : ''
+      return `List ${input.path}${ignore}`
+    }
+    return null
+  },
+  runCommand: (input: any) => {
+    if (input && typeof input.command === 'string') {
+      const suffix = input.isBackground ? ' (background)' : ''
+      return `Run "${input.command}"${suffix}`
+    }
+    return null
+  },
+  globTool: (input: any) => {
+    if (input && typeof input.pattern === 'string') {
+      const ignore = Array.isArray(input.ignore) && input.ignore.length > 0
+        ? ` (ignoring: ${input.ignore.join(', ')})`
+        : ''
+      return `Glob "${input.pattern}"${ignore}`
+    }
+    return null
+  },
+  grepTool: (input: any) => {
+    if (input && typeof input.pattern === 'string') {
+      const path = input.path ? ` in ${input.path}` : ''
+      const include = input.include ? ` (include: ${input.include})` : ''
+      return `Grep "${input.pattern}"${path}${include}`
+    }
+    return null
+  }
+}
+
+export function formatToolInput(toolName: string, input: any): string {
+  // 1. Check specific formatters
+  const formatter = toolInputFormatters[toolName]
+  if (formatter) {
+    const formatted = formatter(input)
+    if (formatted) return formatted
+  }
+
+  // 2. Check subtask special case
+  if (toolName.startsWith('create_subtask_')) {
+    const agentId = toolName.replace('create_subtask_', '')
+    if (input && typeof input.title === 'string') {
+      const priority = input.priority ? ` (priority: ${input.priority})` : ''
+      return `Subtask (${agentId}): ${input.title}${priority}`
+    }
+  }
+
+  // 3. Fallback
+  return formatToolPayload(input, 200)
+}
+
 export function formatAuditEntry(entry: StoredAuditEntry): {
   line: string
   color?: string
@@ -279,7 +368,7 @@ export function formatAuditEntry(entry: StoredAuditEntry): {
   bold?: boolean
 } {
   if (entry.type === 'ToolCallRequested') {
-    const input = formatToolPayload(entry.payload.input, 200)
+    const input = formatToolInput(entry.payload.toolName, entry.payload.input)
     return {
       line: ` → ${entry.payload.toolName} ${input}`,
       color: 'blue',

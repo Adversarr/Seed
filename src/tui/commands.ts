@@ -1,7 +1,7 @@
 import { readFile, access } from 'node:fs/promises'
 import type { LLMMessage } from '../domain/ports/llmClient.js'
 import type { App } from '../app/createApp.js'
-import { formatToolOutput } from './utils.js'
+import { formatToolOutput, formatToolInput } from './utils.js'
 
 export type ReplayEntry = {
   variant: 'plain' | 'markdown'
@@ -275,7 +275,7 @@ async function resolveTargetTaskId(explicitTaskId: string | undefined, ctx: Comm
   return sorted[0]?.taskId ?? null
 }
 
-function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
+export function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
   const entries: ReplayEntry[] = []
 
   if (message.role === 'system') {
@@ -318,11 +318,11 @@ function buildReplayEntries(message: LLMMessage): ReplayEntry[] {
     }
     if (message.toolCalls) {
       for (const toolCall of message.toolCalls) {
-        const args = JSON.stringify(toolCall.arguments)
+        const args = formatToolInput(toolCall.toolName, toolCall.arguments)
         entries.push({
           variant: 'plain',
-          content: `${toolCall.toolName} ${args}`,
-          prefix: ' → ',
+          content: `→ ${toolCall.toolName} ${args}`,
+          prefix: ' ',
           color: 'gray',
           dim: true
         })

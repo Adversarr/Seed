@@ -1,0 +1,134 @@
+import { describe, it, expect } from 'vitest'
+import { toolFormatters, formatToolPayload, formatToolOutput, formatToolInput } from '../src/tui/utils.js'
+
+describe('toolFormatters.listFiles', () => {
+  it('formats path + count when provided', () => {
+    const output = { path: 'paper', count: 2 }
+    const formatted = toolFormatters.listFiles(output)
+    expect(formatted).toBe('List paper (2 entries)')
+  })
+
+  it('infers path from content string', () => {
+    const output = {
+      content: 'Directory listing for paper:\n[DIR] sections - 2026-02-05\nmain.tex (1.2KB) - 2026-02-09',
+      count: 2,
+      ignored: 0
+    }
+    const formatted = toolFormatters.listFiles(output)
+    expect(formatted).toBe('List paper (2 entries)')
+  })
+
+  it('falls back to count when path cannot be inferred', () => {
+    const output = { content: 'hello', count: 3 }
+    const formatted = toolFormatters.listFiles(output)
+    expect(formatted).toBe('List 3 entries')
+  })
+})
+
+describe('formatToolPayload', () => {
+  it('pretty prints small objects', () => {
+    const value = { a: 1, b: 2 }
+    const formatted = formatToolPayload(value, 200)
+    expect(formatted).toContain('"a": 1')
+    expect(formatted).toContain('"b": 2')
+  })
+
+  it('truncates long strings', () => {
+    const long = 'x'.repeat(500)
+    const formatted = formatToolPayload(long, 50)
+    expect(formatted.endsWith('...(truncated)')).toBe(true)
+    expect(formatted.length).toBeLessThanOrEqual(50)
+  })
+  it('formats editFile output', () => {
+    // Legacy string output
+    expect(toolFormatters.editFile('Applied replacement to file.ts')).toBe('Applied replacement to file.ts')
+    
+    // Object output - edited
+    expect(toolFormatters.editFile({
+      success: true,
+      path: 'src/main.ts',
+      action: 'edited',
+      strategy: 'regex'
+    })).toBe('Edited src/main.ts (regex)')
+
+    // Object output - created
+    expect(toolFormatters.editFile({
+      success: true,
+      path: 'src/new.ts',
+      action: 'created'
+    })).toBe('Created src/new.ts')
+  })
+})
+
+describe('formatToolOutput', () => {
+  it('uses custom formatter when available', () => {
+    const formatted = formatToolOutput('listFiles', { path: 'docs', count: 1 })
+    expect(formatted).toBe('List docs (1 entries)')
+  })
+
+  it('falls back to payload formatting', () => {
+    const obj = { hello: 'world' }
+    const formatted = formatToolOutput('unknownTool', obj)
+    expect(formatted).toContain('"hello": "world"')
+  })
+})
+
+describe('formatToolInput', () => {
+  it('formats readFile input', () => {
+    expect(formatToolInput('readFile', { path: 'src/index.ts' }))
+      .toBe('Read src/index.ts')
+    expect(formatToolInput('readFile', { path: 'src/index.ts', offset: 10, limit: 20 }))
+      .toBe('Read src/index.ts (lines 11-30)')
+  })
+
+  it('formats editFile input', () => {
+    expect(formatToolInput('editFile', { path: 'src/index.ts', oldString: '', newString: 'content' }))
+      .toBe('Create src/index.ts')
+    expect(formatToolInput('editFile', { path: 'src/index.ts', oldString: 'old', newString: 'new' }))
+      .toBe('Edit src/index.ts')
+    expect(formatToolInput('editFile', { path: 'src/index.ts', oldString: 'old', newString: 'new', regex: true }))
+      .toBe('Edit src/index.ts (regex)')
+  })
+
+  it('formats listFiles input', () => {
+    expect(formatToolInput('listFiles', { path: '.' }))
+      .toBe('List .')
+    expect(formatToolInput('listFiles', { path: 'src', ignore: ['node_modules'] }))
+      .toBe('List src (ignoring: node_modules)')
+  })
+
+  it('formats runCommand input', () => {
+    expect(formatToolInput('runCommand', { command: 'npm test' }))
+      .toBe('Run "npm test"')
+    expect(formatToolInput('runCommand', { command: 'npm test', isBackground: true }))
+      .toBe('Run "npm test" (background)')
+  })
+
+  it('formats globTool input', () => {
+    expect(formatToolInput('globTool', { pattern: '**/*.ts' }))
+      .toBe('Glob "**/*.ts"')
+    expect(formatToolInput('globTool', { pattern: '**/*.ts', ignore: ['tests'] }))
+      .toBe('Glob "**/*.ts" (ignoring: tests)')
+  })
+
+  it('formats grepTool input', () => {
+    expect(formatToolInput('grepTool', { pattern: 'TODO' }))
+      .toBe('Grep "TODO"')
+    expect(formatToolInput('grepTool', { pattern: 'TODO', path: 'src' }))
+      .toBe('Grep "TODO" in src')
+    expect(formatToolInput('grepTool', { pattern: 'TODO', include: '*.ts' }))
+      .toBe('Grep "TODO" (include: *.ts)')
+  })
+
+  it('formats create_subtask_* input', () => {
+    expect(formatToolInput('create_subtask_coder', { title: 'Implement feature' }))
+      .toBe('Subtask (coder): Implement feature')
+    expect(formatToolInput('create_subtask_reviewer', { title: 'Review code', priority: 'high' }))
+      .toBe('Subtask (reviewer): Review code (priority: high)')
+  })
+
+  it('fallbacks to default formatting for unknown tools', () => {
+    expect(formatToolInput('unknownTool', { some: 'arg' }))
+      .toBe('{\n  "some": "arg"\n}')
+  })
+})

@@ -56,12 +56,8 @@ export function MainTui(props: Props) {
     options: { prefix?: string; color?: string; dim?: boolean; bold?: boolean } = {}
   ): void => {
     setCompletedEntries((previousEntries) => {
-      const lines = content.split('\n').map((line, index) => {
-        if (index === 0 && options.prefix) {
-          return `${options.prefix}${line}`
-        }
-        return line
-      })
+      const prefix = options.prefix ?? ''
+      const lines = content.split('\n').map((line) => `${prefix}${line}`)
       const nextEntry: PlainStaticEntry = {
         id: `${Date.now()}-${logSequence.current++}`,
         variant: 'plain',
@@ -71,7 +67,6 @@ export function MainTui(props: Props) {
         bold: options.bold
       }
       const nextEntries = [...previousEntries, nextEntry]
-      // Cap at 2000 entries to prevent memory bloat in very long sessions
       return nextEntries.slice(-2000)
     })
   }
