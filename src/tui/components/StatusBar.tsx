@@ -7,15 +7,18 @@ type Props = {
   focusedTask: TaskView | undefined
   columns: number
   breadcrumb?: string[]
+  activeAgentId?: string
+  activeProfile?: string
 }
 
-export function StatusBar({ focusedTask, columns, breadcrumb }: Props) {
+export function StatusBar({ focusedTask, columns, breadcrumb, activeAgentId, activeProfile }: Props) {
   const separatorLine = createSeparatorLine(columns)
   const taskTitle = focusedTask ? focusedTask.title : '(no task focused)'
   const taskStatus = focusedTask ? focusedTask.status : ''
   const statusIcon = getStatusIcon(taskStatus)
   const statusLabel = focusedTask ? getStatusLabel(taskStatus) : ''
-  const agentLabel = focusedTask ? focusedTask.agentId.replace(/^agent_/, '') : ''
+  const agentLabel = activeAgentId ? activeAgentId.replace(/^agent_/, '') : ''
+  const profileLabel = activeProfile ?? ''
   const breadcrumbText = breadcrumb && breadcrumb.length > 1
     ? truncateText(breadcrumb.slice(0, -1).join(' › '), Math.max(10, columns - 40))
     : ''
@@ -35,12 +38,18 @@ export function StatusBar({ focusedTask, columns, breadcrumb }: Props) {
               <Text dimColor> │ </Text>
             </>
           ) : null}
+          {profileLabel ? (
+            <>
+              <Text color="yellow">{profileLabel}</Text>
+              <Text dimColor> │ </Text>
+            </>
+          ) : null}
           {breadcrumbText ? (
             <>
               <Text dimColor>{breadcrumbText} › </Text>
             </>
           ) : null}
-          <Text bold>{truncateText(taskTitle, Math.max(10, columns - 50))}</Text>
+          <Text bold>{truncateText(taskTitle, Math.max(10, columns - 60))}</Text>
           <Text> {statusIcon} </Text>
           <Text color="yellow">{statusLabel}</Text>
         </Box>

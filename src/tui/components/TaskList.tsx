@@ -25,6 +25,17 @@ function depthColor(depth: number): string {
   return DEPTH_COLORS[depth % DEPTH_COLORS.length]
 }
 
+/** Agent-specific badge colors */
+const AGENT_COLORS: Record<string, string> = {
+  default: 'cyan',
+  search: 'yellow',
+  minimal: 'green',
+}
+function agentColor(agentId: string): string {
+  const short = agentId.replace(/^agent_/, '')
+  return AGENT_COLORS[short] ?? depthColor(0)
+}
+
 export function TaskList({
   tasks,
   focusedTaskId,
@@ -63,9 +74,10 @@ export function TaskList({
 
         {/* Task rows */}
         <Box flexDirection="column" marginTop={1}>
-          {visibleTasks.map((task) => {
+          {visibleTasks.map((task, visibleIndex) => {
+            const globalIndex = visibleIndex  // visibleTasks starts at index 0
             const isFocused = task.taskId === focusedTaskId
-            const isSelected = tasks.indexOf(task) === selectedTaskIndex
+            const isSelected = globalIndex === selectedTaskIndex
             const treePrefix = getTreePrefix(task, tasks, task.depth)
             const agentTag = `[${task.agentId.replace(/^agent_/, '')}]`
             const statusIcon = getStatusIcon(task.status)
@@ -92,7 +104,7 @@ export function TaskList({
                   {isSelected ? '▸ ' : '  '}
                   {treePrefix}
                 </Text>
-                <Text color={depthColor(task.depth)} dimColor={isDim}>
+                <Text color={agentColor(task.agentId)} dimColor={isDim}>
                   {agentTag}
                 </Text>
                 <Text color={titleColor} bold={isBold} dimColor={isDim}>

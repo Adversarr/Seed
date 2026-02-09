@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import type { Agent, AgentContext, AgentOutput } from '../src/agents/agent.js'
 import type { TaskView } from '../src/application/taskService.js'
+import type { ToolGroup } from '../src/domain/ports/tool.js'
+import type { LLMProfile } from '../src/domain/ports/llmClient.js'
 import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
 import { JsonlAuditLog } from '../src/infra/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../src/infra/jsonlConversationStore.js'
@@ -19,6 +21,8 @@ class ImmediateDoneAgent implements Agent {
   readonly id: string
   readonly displayName = 'Immediate Done Agent'
   readonly description = 'Test agent that completes immediately.'
+  readonly toolGroups: readonly ToolGroup[] = []
+  readonly defaultProfile: LLMProfile = 'fast'
 
   constructor(id: string) {
     this.id = id
@@ -33,6 +37,8 @@ class SingleToolCallAgent implements Agent {
   readonly id: string
   readonly displayName = 'Single ToolCall Agent'
   readonly description = 'Test agent that yields a single tool call.'
+  readonly toolGroups: readonly ToolGroup[] = ['search']
+  readonly defaultProfile: LLMProfile = 'fast'
 
   constructor(id: string) {
     this.id = id
@@ -174,6 +180,7 @@ describe('AgentRuntime - context recovery', () => {
       name: 'safeEcho',
       description: 'echo',
       parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] },
+      group: 'search',
       riskLevel: 'safe',
       execute: async (args) => ({
         toolCallId: 'ignored_by_executor',

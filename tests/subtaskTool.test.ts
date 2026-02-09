@@ -245,6 +245,8 @@ describe('createSubtaskTool', () => {
     id: 'agent_completer',
     displayName: 'Completer',
     description: 'Test agent that completes and returns a summary.',
+    toolGroups: [],
+    defaultProfile: 'fast',
     async *run(task, _context) {
       yield { kind: 'done', summary: `Completed subtask: ${task.title}` } as AgentOutput
     }
@@ -255,6 +257,8 @@ describe('createSubtaskTool', () => {
     id: 'agent_failer',
     displayName: 'Failer',
     description: 'Test agent that fails intentionally.',
+    toolGroups: [],
+    defaultProfile: 'fast',
     async *run(_task, _context) {
       yield { kind: 'failed', reason: 'Intentional failure' } as AgentOutput
     }
@@ -451,6 +455,8 @@ describe('createSubtaskTool', () => {
       id: 'agent_slow',
       displayName: 'Slow',
       description: 'Test agent that blocks indefinitely.',
+      toolGroups: [],
+      defaultProfile: 'fast',
       async *run() {
         // Yield nothing and never complete — simulate a long-running task
         await new Promise(() => {})
@@ -518,6 +524,8 @@ describe('createSubtaskTool', () => {
       id: 'agent_blocker',
       displayName: 'Blocker',
       description: 'Test agent that never completes.',
+      toolGroups: [],
+      defaultProfile: 'fast',
       async *run() {
         await new Promise(() => {}) // never resolves
       }

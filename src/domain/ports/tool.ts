@@ -53,10 +53,13 @@ export type ToolDefinition = {
 }
 
 // ============================================================================
-// Tool Risk Level
+// Tool Risk Level & Group
 // ============================================================================
 
 export type ToolRiskLevel = 'safe' | 'risky'
+
+/** Logical grouping for controlling per-agent tool access. */
+export type ToolGroup = 'search' | 'edit' | 'exec' | 'subtask'
 
 // ============================================================================
 // Tool Context (for execution)
@@ -102,6 +105,9 @@ export interface Tool {
 
   /** Risk level - 'risky' tools require UIP confirmation */
   readonly riskLevel: ToolRiskLevel
+
+  /** Logical group for per-agent tool access control */
+  readonly group: ToolGroup
 
   /**
    * Optional pre-execution check to verify if the tool *can* be executed successfully.
@@ -151,9 +157,22 @@ export interface ToolRegistry {
   list(): Tool[]
 
   /**
+   * List tools whose group is in the provided set.
+   */
+  listByGroups(groups: readonly ToolGroup[]): Tool[]
+
+  /**
    * Get tool definitions in OpenAI format for LLM calls.
    */
   toOpenAIFormat(): Array<{
+    type: 'function'
+    function: ToolDefinition
+  }>
+
+  /**
+   * Get filtered tool definitions in OpenAI format for specific groups.
+   */
+  toOpenAIFormatByGroups(groups: readonly ToolGroup[]): Array<{
     type: 'function'
     function: ToolDefinition
   }>

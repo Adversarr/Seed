@@ -1,6 +1,6 @@
 import type { Subscription } from '../domain/ports/subscribable.js'
 import type { EventStore } from '../domain/ports/eventStore.js'
-import type { LLMClient } from '../domain/ports/llmClient.js'
+import type { LLMClient, LLMProfile } from '../domain/ports/llmClient.js'
 import type { ToolRegistry } from '../domain/ports/tool.js'
 import type { DomainEvent, StoredEvent } from '../domain/events.js'
 import type { TaskService } from '../application/taskService.js'
@@ -56,6 +56,8 @@ export class RuntimeManager {
   #subscription: Subscription | null = null
   /** Tracked in-flight event handler promises (for waitForIdle) */
   readonly #pendingHandlers = new Set<Promise<void>>()
+  /** Per-task LLM profile overrides (set by TUI /model command) */
+  readonly #profileOverrides = new Map<string, LLMProfile>()
 
   constructor(opts: {
     store: EventStore
@@ -95,12 +97,36 @@ export class RuntimeManager {
     return this.#defaultAgentId
   }
 
+  set defaultAgentId(id: string) {
+    if (!this.#agents.has(id)) {
+      throw new Error(`Agent not registered: ${id}`)
+    }
+    this.#defaultAgentId = id
+  }
+
   get agents(): ReadonlyMap<string, Agent> {
     return this.#agents
   }
 
   get toolRegistry(): ToolRegistry {
     return this.#toolRegistry
+  }
+
+  // ======================== profile overrides ========================
+
+  /** Set an LLM profile override for a task (or globally with taskId='*'). */
+  setProfileOverride(taskId: string, profile: LLMProfile): void {
+    this.#profileOverrides.set(taskId, profile)
+  }
+
+  /** Get the effective profile override for a task (task-specific first, then global). */
+  getProfileOverride(taskId: string): LLMProfile | undefined {
+    return this.#profileOverrides.get(taskId) ?? this.#profileOverrides.get('*')
+  }
+
+  /** Clear a profile override. */
+  clearProfileOverride(taskId: string): void {
+    this.#profileOverrides.delete(taskId)
   }
 
   // ======================== lifecycle ========================
@@ -327,7 +353,10 @@ export class RuntimeManager {
 
   #getOrCreateRuntime(taskId: string, agentId: string): AgentRuntime {
     let rt = this.#runtimes.get(taskId)
-    if (rt) return rt
+    if (rt) {
+      rt.profileOverride = this.getProfileOverride(taskId)
+      return rt
+    }
 
     const agent = this.#agents.get(agentId)
     if (!agent) {
@@ -345,6 +374,7 @@ export class RuntimeManager {
       conversationManager: this.#conversationManager,
       outputHandler: this.#outputHandler
     })
+    rt.profileOverride = this.getProfileOverride(taskId)
 
     this.#runtimes.set(taskId, rt)
     return rt

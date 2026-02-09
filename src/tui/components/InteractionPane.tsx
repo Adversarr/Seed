@@ -17,6 +17,8 @@ type Props = {
   focusedTask: TaskView | undefined
   columns: number
   breadcrumb?: string[]
+  activeAgentId?: string
+  activeProfile?: string
 }
 
 export function InteractionPane({
@@ -29,7 +31,9 @@ export function InteractionPane({
   onInputSubmit,
   focusedTask,
   columns,
-  breadcrumb
+  breadcrumb,
+  activeAgentId,
+  activeProfile
 }: Props) {
   // Mode indicator: show what bare text input will do
   const modeHint = focusedTask
@@ -68,7 +72,7 @@ export function InteractionPane({
         )}
       </Box>
 
-      <StatusBar focusedTask={focusedTask} columns={columns} breadcrumb={breadcrumb} />
+      <StatusBar focusedTask={focusedTask} columns={columns} breadcrumb={breadcrumb} activeAgentId={activeAgentId} activeProfile={activeProfile} />
     </>
   )
 }

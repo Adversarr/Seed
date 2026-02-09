@@ -84,6 +84,8 @@ export function toToolCallRequests(toolCalls?: Array<{ toolCallId?: string; tool
 }
 
 export class OpenAILLMClient implements LLMClient {
+  readonly label = 'OpenAI'
+  readonly description: string
   readonly #apiKey: string
   readonly #openai: ReturnType<typeof createOpenAICompatible>
   readonly #modelByProfile: Record<LLMProfile, string>
@@ -111,6 +113,7 @@ export class OpenAILLMClient implements LLMClient {
     const envVerbose = process.env.COAUTHOR_LLM_VERBOSE
     const envVerboseEnabled = envVerbose === '1' || envVerbose === 'true'
     this.#verboseEnabled = opts.verbose ?? envVerboseEnabled
+    this.description = `fast=${opts.modelByProfile.fast}, writer=${opts.modelByProfile.writer}, reasoning=${opts.modelByProfile.reasoning}`
   }
 
   #logVerbose(message: string, data?: Record<string, unknown>): void {

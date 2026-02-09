@@ -1,11 +1,12 @@
 import type { EventStore } from '../domain/ports/eventStore.js'
-import type { LLMClient, LLMMessage } from '../domain/ports/llmClient.js'
+import type { LLMClient, LLMMessage, LLMProfile } from '../domain/ports/llmClient.js'
 import type { ToolRegistry, ToolCallRequest } from '../domain/ports/tool.js'
 import type { DomainEvent, UserInteractionRespondedPayload } from '../domain/events.js'
 import type { TaskService, TaskView } from '../application/taskService.js'
 import type { Agent, AgentContext } from './agent.js'
 import type { ConversationManager } from './conversationManager.js'
 import type { OutputHandler, OutputContext } from './outputHandler.js'
+import { FilteredToolRegistry } from '../infra/filteredToolRegistry.js'
 
 // ============================================================================
 // Agent Runtime — Task-Scoped Executor
@@ -60,6 +61,8 @@ export class AgentRuntime {
    * long-running tools (e.g. create_subtask) unblock promptly (RD-002).
    */
   #abortController: AbortController | null = null
+  /** Optional LLM profile override from RuntimeManager. */
+  #profileOverride: LLMProfile | undefined = undefined
 
   constructor(opts: {
     taskId: string
@@ -99,6 +102,11 @@ export class AgentRuntime {
 
   get hasPendingWork(): boolean {
     return this.#pendingInstructions.length > 0
+  }
+
+  /** Set the LLM profile override for subsequent agent loop runs. */
+  set profileOverride(profile: LLMProfile | undefined) {
+    this.#profileOverride = profile
   }
 
   // ======================== imperative control (called by RuntimeManager) ========================
@@ -346,12 +354,18 @@ export class AgentRuntime {
       await this.#outputHandler.handleRejections(outputCtx, interactionToolCallId)
     }
 
+    // Build a per-agent filtered view of the tool registry
+    const agentTools: ToolRegistry = this.#agent.toolGroups.length > 0
+      ? new FilteredToolRegistry(this.#toolRegistry, this.#agent.toolGroups)
+      : { register() { throw new Error('read-only') }, get: () => undefined, list: () => [], listByGroups: () => [], toOpenAIFormat: () => [], toOpenAIFormatByGroups: () => [] }
+
     const context: AgentContext = {
       llm: this.#llm,
-      tools: this.#toolRegistry,
+      tools: agentTools,
       baseDir: this.#baseDir,
       conversationHistory,
       pendingInteractionResponse: pendingResponse,
+      profileOverride: this.#profileOverride,
       persistMessage
     }
 

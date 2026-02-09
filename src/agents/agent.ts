@@ -1,7 +1,7 @@
 import type { UserInteractionRespondedPayload } from '../domain/events.js'
 import type { TaskView } from '../application/taskService.js'
-import type { LLMClient, LLMMessage } from '../domain/ports/llmClient.js'
-import type { ToolRegistry, ToolCallRequest } from '../domain/ports/tool.js'
+import type { LLMClient, LLMMessage, LLMProfile } from '../domain/ports/llmClient.js'
+import type { ToolRegistry, ToolCallRequest, ToolGroup } from '../domain/ports/tool.js'
 import type { InteractionRequest } from '../application/interactionService.js'
 
 // ============================================================================
@@ -63,7 +63,7 @@ export type AgentContext = {
   /** LLM client for generating responses */
   readonly llm: LLMClient
   
-  /** Tool registry for accessing available tools */
+  /** Tool registry for accessing available tools (pre-filtered per agent) */
   readonly tools: ToolRegistry
   
   /** Base directory of the workspace */
@@ -78,6 +78,9 @@ export type AgentContext = {
   
   /** Response to a pending interaction (if resuming from a generic UIP) */
   readonly pendingInteractionResponse?: UserInteractionRespondedPayload
+
+  /** Override the agent's default LLM profile for this execution. */
+  readonly profileOverride?: LLMProfile
 
   /**
    * Persist a message to conversation history.
@@ -110,6 +113,12 @@ export interface Agent {
 
   /** Human-readable description of agent capabilities */
   readonly description: string
+
+  /** Tool groups this agent can access. Empty = no tools. */
+  readonly toolGroups: readonly ToolGroup[]
+
+  /** Default LLM profile this agent uses */
+  readonly defaultProfile: LLMProfile
 
   /**
    * Execute the task workflow.

@@ -58,6 +58,7 @@ async function makeInfra(dir: string) {
     name: 'noop',
     description: 'No-op',
     parameters: { type: 'object', properties: {} },
+    group: 'search',
     riskLevel: 'safe',
     execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'ok' })
   })
@@ -99,6 +100,9 @@ describe('Per-task serialization (CC-001)', () => {
     const slowAgent: Agent = {
       id: 'agent_slow',
       displayName: 'Slow Agent',
+      description: 'Test slow agent',
+      toolGroups: [],
+      defaultProfile: 'fast',
       async *run(_task: TaskView, _ctx: AgentContext): AsyncGenerator<AgentOutput> {
         executionOrder.push('start-1')
         await firstBlocks
@@ -112,6 +116,9 @@ describe('Per-task serialization (CC-001)', () => {
     const trackingAgent: Agent = {
       id: 'agent_track',
       displayName: 'Tracker',
+      description: 'Test tracking agent',
+      toolGroups: [],
+      defaultProfile: 'fast',
       async *run(_task: TaskView, _ctx: AgentContext): AsyncGenerator<AgentOutput> {
         callCount++
         if (callCount === 1) {
@@ -176,6 +183,9 @@ describe('Per-task serialization (CC-001)', () => {
     const slowAgent: Agent = {
       id: 'agent_parallel',
       displayName: 'Parallel Agent',
+      description: 'Test parallel agent',
+      toolGroups: [],
+      defaultProfile: 'fast',
       async *run(task: TaskView, _ctx: AgentContext): AsyncGenerator<AgentOutput> {
         parallelTimestamps.push({ taskId: task.taskId, time: Date.now() - startTime })
         await new Promise(r => setTimeout(r, 50))
@@ -228,6 +238,9 @@ describe('Single-flight execution guard (CC-008)', () => {
     const guardedAgent: Agent = {
       id: 'agent_guarded',
       displayName: 'Guarded',
+      description: 'Test guarded agent',
+      toolGroups: [],
+      defaultProfile: 'fast',
       async *run(_task: TaskView, _ctx: AgentContext): AsyncGenerator<AgentOutput> {
         concurrentCalls++
         maxConcurrent = Math.max(maxConcurrent, concurrentCalls)

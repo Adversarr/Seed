@@ -47,6 +47,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       name: 'safe-tool',
       description: 'safe',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'safe',
       canExecute: vi.fn().mockRejectedValue(new Error('Pre-check failed')),
       execute: vi.fn()
@@ -71,6 +72,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       name: 'risky-tool',
       description: 'risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       canExecute: vi.fn().mockRejectedValue(new Error('Pre-check failed')),
       execute: vi.fn()
@@ -93,6 +95,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       name: 'risky-tool',
       description: 'risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       canExecute: vi.fn().mockResolvedValue(undefined),
       execute: vi.fn()
@@ -115,6 +118,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       name: 'safe-tool',
       description: 'safe',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'safe',
       canExecute: vi.fn().mockResolvedValue(undefined),
       execute: vi.fn()
@@ -152,6 +156,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       name: 'risky-tool',
       description: 'risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       execute: vi.fn()
     }

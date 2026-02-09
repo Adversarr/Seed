@@ -41,6 +41,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       name: 'never_called',
       description: 'Should not execute',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     }
@@ -74,6 +75,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       name: 'safe_tool',
       description: 'Runs fine',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     }
@@ -105,6 +107,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       name: 'basic_tool',
       description: 'Basic',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     }
@@ -133,6 +136,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       name: 'audited_tool',
       description: 'Audited',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     })

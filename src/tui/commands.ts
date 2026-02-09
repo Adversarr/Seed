@@ -1,5 +1,5 @@
 import { readFile, access } from 'node:fs/promises'
-import type { LLMMessage } from '../domain/ports/llmClient.js'
+import type { LLMMessage, LLMProfile } from '../domain/ports/llmClient.js'
 import type { App } from '../app/createApp.js'
 import { formatToolOutput, formatToolInput } from './utils.js'
 
@@ -214,12 +214,90 @@ export async function handleCommand(line: string, ctx: CommandContext) {
         return
       }
 
+      case 'agent':
+      case 'a': {
+        const rm = ctx.app.runtimeManager
+        const target = args[0]?.trim()
+        if (!target) {
+          // List available agents with active indicator
+          const lines = [...rm.agents.values()].map((agent) => {
+            const marker = agent.id === rm.defaultAgentId ? '●' : '○'
+            return `${marker} ${agent.id}  ${agent.displayName} – ${agent.description}`
+          })
+          ctx.setReplayOutput(lines.map((l) => ({
+            variant: 'plain' as const,
+            content: l,
+            color: 'cyan'
+          })))
+          ctx.setStatus(`Active agent: ${rm.defaultAgentId}`)
+          return
+        }
+        // Match by id or prefix
+        const match = [...rm.agents.values()].find(
+          (a) => a.id === target || a.id.startsWith(target) || a.displayName.toLowerCase().includes(target.toLowerCase())
+        )
+        if (!match) {
+          ctx.setStatus(`Unknown agent: ${target}. Use /agent to list available agents.`)
+          return
+        }
+        rm.defaultAgentId = match.id
+        ctx.setStatus(`Active agent set to: ${match.displayName} (${match.id})`)
+        return
+      }
+
+      case 'model':
+      case 'm': {
+        const VALID_PROFILES: readonly LLMProfile[] = ['fast', 'writer', 'reasoning']
+        const target = args[0]?.trim()
+        if (!target) {
+          const current = ctx.app.runtimeManager.getProfileOverride('*')
+          const currentLabel = current ?? 'default (per-agent)'
+          const llm = ctx.app.llm
+          ctx.setStatus(`LLM: ${llm.label} – ${llm.description} │ Profile: ${currentLabel}`)
+          return
+        }
+        if (target === 'reset' || target === 'clear') {
+          ctx.app.runtimeManager.clearProfileOverride('*')
+          ctx.setStatus('Profile override cleared. Agents will use their own defaults.')
+          return
+        }
+        if (!VALID_PROFILES.includes(target as LLMProfile)) {
+          ctx.setStatus(`Invalid profile: ${target}. Choose: ${VALID_PROFILES.join(', ')}`)
+          return
+        }
+        ctx.app.runtimeManager.setProfileOverride('*', target as LLMProfile)
+        ctx.setStatus(`Global LLM profile set to: ${target}`)
+        return
+      }
+
       case 'help':
       case 'h':
       case '?': {
-        ctx.setStatus(
-          'Commands: /new <title>, /tasks, /focus [taskId], /next, /prev, /cancel, /pause, /resume, /continue <msg>, /replay [taskId], /replay-raw [taskId], /verbose, /exit'
-        )
+        const helpEntries: ReplayEntry[] = [
+          { variant: 'plain', content: '── Tasks ──', color: 'cyan', bold: true },
+          { variant: 'plain', content: '  /new <title>         Create a new task', dim: true },
+          { variant: 'plain', content: '  /tasks               List all tasks (Tab toggles)', dim: true },
+          { variant: 'plain', content: '  /focus [taskId]      Focus a task', dim: true },
+          { variant: 'plain', content: '  /next, /prev         Cycle through tasks', dim: true },
+          { variant: 'plain', content: '  /cancel [taskId]     Cancel a task', dim: true },
+          { variant: 'plain', content: '  /pause, /resume      Pause/resume focused task', dim: true },
+          { variant: 'plain', content: '  /continue <msg>      Add instruction to focused task', dim: true },
+          { variant: 'plain', content: '', dim: true },
+          { variant: 'plain', content: '── Agent & LLM ──', color: 'cyan', bold: true },
+          { variant: 'plain', content: '  /agent [name]        List agents or switch default', dim: true },
+          { variant: 'plain', content: '  /model [profile]     Show/set LLM profile (fast|writer|reasoning|reset)', dim: true },
+          { variant: 'plain', content: '', dim: true },
+          { variant: 'plain', content: '── Debug ──', color: 'cyan', bold: true },
+          { variant: 'plain', content: '  /replay [taskId]     Replay conversation history', dim: true },
+          { variant: 'plain', content: '  /replay-raw [taskId] Show raw conversation logs', dim: true },
+          { variant: 'plain', content: '  /verbose [on|off]    Toggle verbose output', dim: true },
+          { variant: 'plain', content: '', dim: true },
+          { variant: 'plain', content: '── General ──', color: 'cyan', bold: true },
+          { variant: 'plain', content: '  /exit                Quit (or Ctrl+D)', dim: true },
+          { variant: 'plain', content: '  Type text without /  → sends as instruction to focused task', dim: true },
+        ]
+        ctx.setReplayOutput(helpEntries)
+        ctx.setStatus('Help displayed')
         return
       }
 

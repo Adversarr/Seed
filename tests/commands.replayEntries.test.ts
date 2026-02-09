@@ -14,7 +14,7 @@ describe('buildReplayEntries', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].variant).toBe('plain')
     expect(entries[0].content).toContain('listFiles')
-    expect(entries[0].content).toContain('"path": "."')
+    expect(entries[0].content).toContain('List .')
   })
 
   it('includes reasoning and content when present', () => {

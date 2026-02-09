@@ -4,7 +4,7 @@
  * Manages available tools for Agents.
  */
 
-import type { Tool, ToolRegistry, ToolDefinition } from '../domain/ports/tool.js'
+import type { Tool, ToolRegistry, ToolDefinition, ToolGroup } from '../domain/ports/tool.js'
 
 // ============================================================================
 // Default Tool Registry Implementation
@@ -28,8 +28,21 @@ export class DefaultToolRegistry implements ToolRegistry {
     return Array.from(this.#tools.values())
   }
 
+  listByGroups(groups: readonly ToolGroup[]): Tool[] {
+    const groupSet = new Set(groups)
+    return this.list().filter((tool) => groupSet.has(tool.group))
+  }
+
   toOpenAIFormat(): Array<{ type: 'function'; function: ToolDefinition }> {
-    return this.list().map((tool) => ({
+    return this.#toFormat(this.list())
+  }
+
+  toOpenAIFormatByGroups(groups: readonly ToolGroup[]): Array<{ type: 'function'; function: ToolDefinition }> {
+    return this.#toFormat(this.listByGroups(groups))
+  }
+
+  #toFormat(tools: Tool[]): Array<{ type: 'function'; function: ToolDefinition }> {
+    return tools.map((tool) => ({
       type: 'function' as const,
       function: {
         name: tool.name,

@@ -49,6 +49,7 @@ async function makeInfra(dir: string) {
     name: 'dummy_tool',
     description: 'A dummy tool',
     parameters: { type: 'object', properties: {} },
+    group: 'search',
     riskLevel: 'safe',
     execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'dummy' })
   })
@@ -81,6 +82,9 @@ function stubAgent(id: string): Agent {
   return {
     id,
     displayName: id,
+    description: `Stub agent ${id}`,
+    toolGroups: [],
+    defaultProfile: 'fast',
     async *run(_task: TaskView, _ctx: AgentContext): AsyncGenerator<AgentOutput> {
       yield { kind: 'done' }
     }

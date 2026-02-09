@@ -26,6 +26,8 @@ function toFlatText(messages: LLMMessage[]): string {
 }
 
 export class FakeLLMClient implements LLMClient {
+  readonly label = 'Fake'
+  readonly description = 'Rule-based mock LLM for testing'
   readonly #rules: FakeLLMRule[]
   readonly #defaultByProfile: Record<LLMProfile, LLMResponse>
 

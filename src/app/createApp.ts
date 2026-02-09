@@ -22,6 +22,8 @@ import { ContextBuilder } from '../application/contextBuilder.js'
 import { ConversationManager } from '../agents/conversationManager.js'
 import { OutputHandler } from '../agents/outputHandler.js'
 import { DefaultCoAuthorAgent } from '../agents/defaultAgent.js'
+import { SearchAgent } from '../agents/searchAgent.js'
+import { MinimalAgent } from '../agents/minimalAgent.js'
 import { FakeLLMClient } from '../infra/fakeLLMClient.js'
 import { OpenAILLMClient } from '../infra/openaiLLMClient.js'
 import { DEFAULT_USER_ACTOR_ID } from '../domain/actor.js'
@@ -90,6 +92,7 @@ export type CreateAppOptions = {
   conversationsPath?: string
   projectionsPath?: string
   currentActorId?: string
+  /** Override the default agent (first registered). Other built-in agents still register. */
   agent?: Agent
   llm?: LLMClient
   toolRegistry?: ToolRegistry
@@ -168,7 +171,9 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
 
   // === Agent Layer ===
   
-  const agent = opts.agent ?? new DefaultCoAuthorAgent({ contextBuilder })
+  const defaultAgent = opts.agent ?? new DefaultCoAuthorAgent({ contextBuilder })
+  const searchAgent = new SearchAgent({ contextBuilder })
+  const minimalAgent = new MinimalAgent({ contextBuilder })
 
   const conversationManager = new ConversationManager({
     conversationStore,
@@ -197,7 +202,9 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     conversationManager,
     outputHandler
   })
-  runtimeManager.registerAgent(agent)
+  runtimeManager.registerAgent(defaultAgent)
+  runtimeManager.registerAgent(searchAgent)
+  runtimeManager.registerAgent(minimalAgent)
 
   // Register subtask tools (one per agent) — must happen AFTER agent registration
   registerSubtaskTools(toolRegistry, {

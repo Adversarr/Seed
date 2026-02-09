@@ -5,7 +5,10 @@
  */
 
 export * from './agent.js'
+export * from './baseAgent.js'
 export * from './defaultAgent.js'
+export * from './searchAgent.js'
+export * from './minimalAgent.js'
 export * from './runtime.js'
 export * from './runtimeManager.js'
 export * from './displayBuilder.js'

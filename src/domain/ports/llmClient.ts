@@ -56,6 +56,12 @@ export type LLMStreamChunk =
 // ============================================================================
 
 export interface LLMClient {
+  /** Human-readable label, e.g. 'OpenAI' */
+  readonly label: string
+
+  /** Short description of the client configuration */
+  readonly description: string
+
   /**
    * Complete a conversation (non-streaming).
    * Returns structured response with content and/or tool calls.

@@ -35,6 +35,7 @@ export const editFileTool: Tool = {
     required: ['path', 'oldString', 'newString']
   },
   riskLevel: 'risky',
+  group: 'edit',
 
   async canExecute(args: Record<string, unknown>, ctx: ToolContext): Promise<void> {
     await validateRequest(args, ctx)

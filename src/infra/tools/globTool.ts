@@ -28,6 +28,7 @@ export const globTool: Tool = {
     required: ['pattern']
   },
   riskLevel: 'safe',
+  group: 'search',
 
   async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     const toolCallId = `tool_${nanoid(12)}`

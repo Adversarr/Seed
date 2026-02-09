@@ -148,6 +148,7 @@ export function createSubtaskTool(
       required: ['title']
     },
     riskLevel: 'safe',
+    group: 'subtask',
 
     async execute(
       args: Record<string, unknown>,

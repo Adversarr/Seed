@@ -37,6 +37,7 @@ export const runCommandTool: Tool = {
     required: ['command']
   },
   riskLevel: 'risky',
+  group: 'exec',
 
   async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     const toolCallId = `tool_${nanoid(12)}`

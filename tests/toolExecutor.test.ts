@@ -8,6 +8,7 @@ describe('DefaultToolExecutor', () => {
     name: 'safeTool',
     description: 'Safe tool',
     parameters: { type: 'object', properties: {} },
+    group: 'search',
     riskLevel: 'safe',
     execute: async () => ({ toolCallId: '1', output: { ok: true }, isError: false })
   }
@@ -16,6 +17,7 @@ describe('DefaultToolExecutor', () => {
     name: 'riskyTool',
     description: 'Risky tool',
     parameters: { type: 'object', properties: {} },
+    group: 'search',
     riskLevel: 'risky',
     execute: async () => ({ toolCallId: '2', output: { ok: true }, isError: false })
   }

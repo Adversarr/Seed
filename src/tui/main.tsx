@@ -220,7 +220,7 @@ export function MainTui(props: Props) {
   useEffect(() => {
     app.runtimeManager.start()
     refresh().catch((e) => setStatus(e instanceof Error ? e.message : String(e)))
-    addPlainLog('Welcome to CoAuthor. Type /help for commands.', { color: 'cyan', dim: true })
+    addPlainLog('Welcome to CoAuthor — multi-agent coding assistant. Type /help for commands, /agent to list agents.', { color: 'cyan', dim: true })
 
     const storeSub = app.store.events$.subscribe(() => {
       refresh().catch(console.error)
@@ -338,6 +338,8 @@ export function MainTui(props: Props) {
   const rows = stdout?.rows ?? 24
   const statusLine = truncateText(status || '', columns - 2)
   const separatorLine = createSeparatorLine(columns)
+  const activeAgentId = app.runtimeManager.defaultAgentId
+  const activeProfile = app.runtimeManager.getProfileOverride('*') ?? undefined
 
   return (
     <Box flexDirection="column">
@@ -366,6 +368,8 @@ export function MainTui(props: Props) {
           focusedTask={focusedTask}
           columns={columns}
           breadcrumb={breadcrumb}
+          activeAgentId={activeAgentId}
+          activeProfile={activeProfile}
         />
       )}
     </Box>

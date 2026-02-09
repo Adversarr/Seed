@@ -37,6 +37,7 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
     name: 'editFile',
     description: 'Edit file',
     parameters: { type: 'object', properties: {} },
+    group: 'edit',
     riskLevel: 'risky',
     execute: async () => ({ toolCallId: '1', output: {}, isError: false })
   }

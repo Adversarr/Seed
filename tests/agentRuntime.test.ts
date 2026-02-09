@@ -75,6 +75,7 @@ async function createTestInfra(dir: string, opts?: { llm?: LLMClient, toolExecut
     name: 'dummy_tool',
     description: 'A dummy tool',
     parameters: { type: 'object', properties: {} },
+    group: 'search',
     riskLevel: 'safe',
     execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'dummy' })
   })
@@ -555,6 +556,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       name: 'risky_tool',
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
@@ -611,6 +613,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       name: 'risky_tool_approve',
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
@@ -662,6 +665,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       name: 'risky_tool_reject',
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
@@ -729,6 +733,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       name: 'risky_tool_flow',
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
@@ -807,6 +812,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       name: 'risky_tool_stress',
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
+      group: 'search',
       riskLevel: 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
