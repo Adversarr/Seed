@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toolFormatters, formatToolPayload, formatToolOutput, formatToolInput } from '../src/tui/utils.js'
+import { toolFormatters, formatToolPayload, formatToolOutput, formatToolInput } from '../src/utils/toolFormatters.js'
 
 describe('toolFormatters.listFiles', () => {
   it('formats path + count when provided', () => {
@@ -70,6 +70,84 @@ describe('formatToolOutput', () => {
     const obj = { hello: 'world' }
     const formatted = formatToolOutput('unknownTool', obj)
     expect(formatted).toContain('"hello": "world"')
+  })
+})
+
+describe('toolFormatters.grepTool', () => {
+  it('formats grepTool output with actual tool format', () => {
+    const output = {
+      content: 'file.ts:1:foo\nfile.ts:2:bar',
+      count: 2,
+      strategy: 'git grep'
+    }
+    expect(toolFormatters.grepTool(output)).toBe('Found 2 matches')
+  })
+})
+
+describe('toolFormatters.globTool', () => {
+  it('formats globTool output with actual tool format', () => {
+    const output = {
+      matches: ['a.ts', 'b.ts'],
+      count: 2,
+      content: 'Found 2 files...'
+    }
+    expect(toolFormatters.globTool(output)).toBe('Found 2 matching files')
+  })
+})
+
+describe('toolFormatters.search', () => {
+  it('formats search output with new format (same as grepTool)', () => {
+    const output = {
+      content: 'file.ts:1:foo',
+      count: 1,
+      strategy: 'git grep'
+    }
+    expect(toolFormatters.search(output)).toBe('Found 1 matches')
+  })
+})
+
+describe('toolFormatters.readFile', () => {
+  it('formats readFile output with actual tool format', () => {
+    const output = { path: 'src/index.ts', lineCount: 42 }
+    expect(toolFormatters.readFile(output)).toBe('Read src/index.ts (42 lines)')
+  })
+
+  it('returns null for invalid output', () => {
+    expect(toolFormatters.readFile({})).toBeNull()
+    expect(toolFormatters.readFile(null)).toBeNull()
+  })
+})
+
+describe('toolFormatters.ls', () => {
+  it('formats ls output (alias for listFiles)', () => {
+    // ls is an alias that expects array output
+    expect(toolFormatters.ls(['file1.ts', 'file2.ts'])).toBe('List 2 entries')
+  })
+})
+
+describe('toolFormatters.runCommand', () => {
+  it('formats successful runCommand output', () => {
+    const output = {
+      stdout: 'test output',
+      stderr: '',
+      exitCode: 0,
+      command: 'npm test'
+    }
+    expect(toolFormatters.runCommand(output)).toBe('Success | test output...')
+  })
+
+  it('formats failed runCommand output', () => {
+    const output = {
+      stdout: '',
+      stderr: 'error message',
+      exitCode: 1,
+      command: 'npm test'
+    }
+    expect(toolFormatters.runCommand(output)).toBe('Exit 1 | error message...')
+  })
+
+  it('returns null for invalid output', () => {
+    expect(toolFormatters.runCommand({})).toBeNull()
   })
 })
 

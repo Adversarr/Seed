@@ -9,7 +9,7 @@ describe('tui/utils', () => {
         type: 'ToolCallCompleted',
         payload: {
           toolName: 'grepTool',
-          output: 'match1\nmatch2\nmatch3',
+          output: { content: 'match1\nmatch2\nmatch3', count: 3, strategy: 'git grep' },
           durationMs: 100
         }
       }
@@ -22,7 +22,7 @@ describe('tui/utils', () => {
         type: 'ToolCallCompleted',
         payload: {
           toolName: 'globTool',
-          output: ['file1', 'file2'],
+          output: { matches: ['file1', 'file2'], count: 2, content: 'Found 2 files...' },
           durationMs: 100
         }
       }

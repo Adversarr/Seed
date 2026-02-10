@@ -30,7 +30,7 @@ describe('tui/commands', () => {
         {
           role: 'tool',
           toolName: 'grepTool',
-          content: 'match1\nmatch2',
+          content: JSON.stringify({ content: 'match1\nmatch2', count: 2, strategy: 'git grep' }),
           toolCallId: 'call-1'
         }
       ])

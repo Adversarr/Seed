@@ -1,7 +1,7 @@
 import { readFile, access } from 'node:fs/promises'
 import type { LLMMessage, LLMProfile } from '../domain/ports/llmClient.js'
 import type { App } from '../app/createApp.js'
-import { formatToolOutput, formatToolInput } from './utils.js'
+import { formatToolOutput, formatToolInput } from '../utils/toolFormatters.js'
 
 export type ReplayEntry = {
   variant: 'plain' | 'markdown'
