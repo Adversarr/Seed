@@ -21,14 +21,14 @@ export function renderMarkdownToTerminalText(markdown: string, width: number): s
 
 export function getStatusIcon(status: string): string {
   switch (status) {
-    case 'open': return '⚪'
-    case 'in_progress': return '🔵'
-    case 'awaiting_user': return '🟡'
-    case 'paused': return '⏸️'
-    case 'done': return '🟢'
-    case 'failed': return '🔴'
-    case 'canceled': return '⚪'
-    default: return ' '
+    case 'open': return ' '
+    case 'in_progress': return ' '
+    case 'awaiting_user': return ' '
+    case 'paused': return ' '
+    case 'done': return ' '
+    case 'failed': return ' '
+    case 'canceled': return '󰜺 '
+    default: return '  '
   }
 }
 
