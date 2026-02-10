@@ -8,11 +8,22 @@ import { useConnectionStore } from '@/stores'
 export function SettingsPage() {
   const { status, connect, disconnect } = useConnectionStore()
   const [token, setToken] = useState(sessionStorage.getItem('coauthor-token') ?? '')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
 
   const saveToken = () => {
-    sessionStorage.setItem('coauthor-token', token)
+    try {
+      sessionStorage.setItem('coauthor-token', token)
+    } catch {
+      setSaveStatus('error')
+      return
+    }
     disconnect()
-    setTimeout(connect, 100)
+    // Wait for disconnect to settle before reconnecting
+    setTimeout(() => {
+      connect()
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    }, 200)
   }
 
   return (
@@ -40,6 +51,13 @@ export function SettingsPage() {
         >
           Save & Reconnect
         </button>
+
+        {saveStatus === 'saved' && (
+          <p className="text-xs text-emerald-400">Token saved. Reconnecting…</p>
+        )}
+        {saveStatus === 'error' && (
+          <p className="text-xs text-red-400">Failed to save token (storage may be restricted).</p>
+        )}
 
         <div className="pt-4 border-t border-zinc-800">
           <p className="text-sm text-zinc-500">

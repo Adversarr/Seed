@@ -10,7 +10,11 @@ export class SubjectUiBus implements UiBus {
   }
 
   emit(event: UiEvent): void {
-    this.#subject.next(event)
+    try {
+      this.#subject.next(event)
+    } catch (err) {
+      console.error('[UiBus] subscriber error during emit:', err)
+    }
   }
 }
 

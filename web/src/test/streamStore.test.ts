@@ -52,11 +52,12 @@ describe('streamStore', () => {
     expect(useStreamStore.getState().streams['task-1']).toBeUndefined()
   })
 
-  it('handles stream_end gracefully', () => {
+  it('handles stream_end by clearing stream data (NEW-F4)', () => {
     const store = useStreamStore.getState()
     store.handleUiEvent({ type: 'stream_delta', payload: { taskId: 'task-1', agentId: 'a', kind: 'text', content: 'done' } })
+    expect(useStreamStore.getState().streams['task-1']).toBeDefined()
     store.handleUiEvent({ type: 'stream_end', payload: { taskId: 'task-1', agentId: 'a' } })
-    // Stream data should still be there
-    expect(useStreamStore.getState().streams['task-1']).toHaveLength(1)
+    // Stream data should be cleared to prevent memory leaks
+    expect(useStreamStore.getState().streams['task-1']).toBeUndefined()
   })
 })

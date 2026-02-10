@@ -16,6 +16,7 @@
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { createHttpApp, type HttpAppDeps } from './http/httpServer.js'
 import { CoAuthorWsServer, type WsServerDeps } from './ws/wsServer.js'
@@ -73,16 +74,18 @@ export class CoAuthorServer {
     if (staticRoot) {
       honoApp.use('/*', serveStatic({ root: staticRoot }))
       // SPA fallback: serve index.html for any non-API, non-static route
+      // Cache index.html content after first read
+      let cachedIndexHtml: string | undefined
       honoApp.get('*', async (c) => {
-        if (c.req.path.startsWith('/api') || c.req.path === '/ws') {
+        if (c.req.path.startsWith('/api/') || c.req.path === '/api' || c.req.path === '/ws') {
           return c.notFound()
         }
         const indexPath = join(staticRoot, 'index.html')
-        if (existsSync(indexPath)) {
-          const html = await import('node:fs/promises').then((fs) => fs.readFile(indexPath, 'utf-8'))
-          return c.html(html)
+        if (!cachedIndexHtml) {
+          if (!existsSync(indexPath)) return c.notFound()
+          cachedIndexHtml = await readFile(indexPath, 'utf-8')
         }
-        return c.notFound()
+        return c.html(cachedIndexHtml)
       })
     }
 

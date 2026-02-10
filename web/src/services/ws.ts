@@ -98,6 +98,8 @@ export class WsService {
 
   #scheduleReconnect(): void {
     if (this.#disposed) return
+    // Clear any existing timer to prevent overlapping reconnections (F4)
+    if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer)
     this.#reconnectTimer = setTimeout(() => {
       this.#reconnectDelay = Math.min(this.#reconnectDelay * 2, 30_000)
       this.connect()

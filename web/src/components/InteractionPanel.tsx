@@ -74,11 +74,11 @@ export function InteractionPanel({ interaction }: { interaction: PendingInteract
             onChange={e => setInputValue(e.target.value)}
             placeholder="Type your response…"
             className="flex-1 rounded-md bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-            onKeyDown={e => e.key === 'Enter' && respond()}
+            onKeyDown={e => e.key === 'Enter' && !submitting && inputValue.trim() && respond()}
           />
           <button
             onClick={() => respond()}
-            disabled={submitting}
+            disabled={submitting || !inputValue.trim()}
             className="px-4 py-1.5 rounded-md bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium disabled:opacity-50"
           >
             Send

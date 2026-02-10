@@ -38,7 +38,9 @@ export interface WsServerDeps {
 interface ClientState {
   channels: Set<Channel>
   /** If set, only events for this streamId are forwarded on the 'events' channel. */
-  streamId: string | undefined
+  streamId: string | null
+  /** Whether the client has responded to the last ping. */
+  isAlive: boolean
 }
 
 // ============================================================================
@@ -83,9 +85,16 @@ export class CoAuthorWsServer {
       this.#deps.uiEvents$.subscribe((event) => this.#broadcast('ui', event)),
     )
 
-    // Server-side heartbeat: detect dead connections every 30s
+    // Server-side heartbeat: detect dead connections every 30s (B30)
     this.#heartbeatTimer = setInterval(() => {
-      for (const [ws] of this.#clients) {
+      for (const [ws, state] of this.#clients) {
+        if (!state.isAlive) {
+          // No pong since last ping — terminate dead connection
+          ws.terminate()
+          this.#clients.delete(ws)
+          continue
+        }
+        state.isAlive = false
         if (ws.readyState === WebSocket.OPEN) {
           ws.ping()
         }
@@ -116,7 +125,13 @@ export class CoAuthorWsServer {
   // ── Connection Handling ──────────────────────────────────────────────
 
   #onConnection(ws: WebSocket): void {
-    this.#clients.set(ws, { channels: new Set(), streamId: undefined })
+    this.#clients.set(ws, { channels: new Set(), streamId: null, isAlive: true })
+
+    // Track pong responses for liveness detection (B30)
+    ws.on('pong', () => {
+      const state = this.#clients.get(ws)
+      if (state) state.isAlive = true
+    })
 
     ws.on('message', (raw) => {
       try {
@@ -143,19 +158,24 @@ export class CoAuthorWsServer {
       this.#clients.delete(ws)
     })
 
-    ws.on('error', () => {
+    ws.on('error', (err) => {
+      console.error('[WsServer] client error:', err.message)
       this.#clients.delete(ws)
     })
   }
 
   async #handleSubscribe(
     ws: WebSocket,
-    msg: { channels: Channel[]; streamId?: string; lastEventId?: number },
+    msg: { channels: Channel[]; streamId?: string | null; lastEventId?: number },
   ): Promise<void> {
     const state = this.#clients.get(ws)
     if (!state) return
     for (const ch of msg.channels) state.channels.add(ch)
-    if (msg.streamId !== undefined) state.streamId = msg.streamId
+    // Allow setting or clearing stream filter (B35)
+    // Explicit null clears the filter; undefined (missing field) leaves it unchanged
+    if ('streamId' in msg) {
+      state.streamId = msg.streamId ?? null
+    }
 
     this.#send(ws, { type: 'subscribed', channels: [...state.channels] })
 

@@ -20,10 +20,27 @@ export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
   const navigate = useNavigate()
   const task = useTaskStore(s => s.tasks.find(t => t.taskId === taskId))
+  const fetchTask = useTaskStore(s => s.fetchTask)
   const [instruction, setInstruction] = useState('')
   const [sending, setSending] = useState(false)
   const [interaction, setInteraction] = useState<PendingInteraction | null>(null)
   const [tab, setTab] = useState<'output' | 'events'>('output')
+  const [taskLoading, setTaskLoading] = useState(false)
+  const [taskNotFound, setTaskNotFound] = useState(false)
+
+  // Fetch task from API if not in store (supports direct navigation / page refresh)
+  useEffect(() => {
+    if (!taskId) return
+    if (task) {
+      setTaskNotFound(false)
+      return
+    }
+    setTaskLoading(true)
+    fetchTask(taskId).then(t => {
+      setTaskLoading(false)
+      if (!t) setTaskNotFound(true)
+    })
+  }, [taskId, task, fetchTask])
 
   useEffect(() => {
     if (taskId && task?.pendingInteractionId) {
@@ -33,7 +50,15 @@ export function TaskDetailPage() {
     }
   }, [taskId, task?.pendingInteractionId])
 
-  if (!task) {
+  if (taskLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
+        <p className="text-sm">Loading task…</p>
+      </div>
+    )
+  }
+
+  if (!task || taskNotFound) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
         <p className="text-lg">Task not found</p>

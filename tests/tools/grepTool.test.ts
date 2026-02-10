@@ -3,10 +3,10 @@ import { vol } from 'memfs'
 import { grepTool } from '../../src/infra/tools/grepTool.js'
 import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
 
-// Mock exec
-const mockExec = vi.fn()
+// Mock execFile (B2: switched from exec to execFile for safety)
+const mockExecFile = vi.fn()
 vi.mock('node:child_process', () => ({
-  exec: (...args: any[]) => mockExec(...args)
+  execFile: (...args: any[]) => mockExecFile(...args)
 }))
 
 describe('grepTool', () => {
@@ -25,10 +25,10 @@ describe('grepTool', () => {
   })
 
   it('should use git grep if available', async () => {
-    mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
-      if (cmd.includes('rev-parse')) {
+    mockExecFile.mockImplementation((file: string, args: string[], options: any, cb: any) => {
+      if (args.includes('rev-parse')) {
         cb(null, 'true', '') // inside git repo
-      } else if (cmd.startsWith('git grep')) {
+      } else if (file === 'git' && args[0] === 'grep') {
         cb(null, 'file1.ts:1:match found', '')
       } else {
         cb(new Error('unknown command'), '', '')
@@ -45,10 +45,10 @@ describe('grepTool', () => {
   })
 
   it('should fallback to system grep if git grep fails', async () => {
-    mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
-      if (cmd.includes('rev-parse')) {
+    mockExecFile.mockImplementation((file: string, args: string[], options: any, cb: any) => {
+      if (file === 'git') {
         cb(new Error('not a git repo'), '', '')
-      } else if (cmd.startsWith('grep')) {
+      } else if (file === 'grep') {
         cb(null, 'file1.ts:1:match found', '')
       } else {
         cb(new Error('unknown command'), '', '')
@@ -64,8 +64,8 @@ describe('grepTool', () => {
     expect((result.output as any).content).toContain('file1.ts:1:match found')
   })
 
-  it('should fallback to JS implementation if grep fails', async () => {
-    mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
+  it('should fallback to JS implementation if both grep strategies fail', async () => {
+    mockExecFile.mockImplementation((_file: string, _args: string[], _options: any, cb: any) => {
       cb(new Error('command failed'), '', '')
     })
 
@@ -80,5 +80,40 @@ describe('grepTool', () => {
     expect(result.isError).toBe(false)
     expect((result.output as any).strategy).toBe('js fallback')
     expect((result.output as any).content).toContain('file1.ts:2:match found')
+  })
+
+  it('should pass pattern as argument array element, not shell string (B2)', async () => {
+    mockExecFile.mockImplementation((file: string, args: string[], options: any, cb: any) => {
+      if (args.includes('rev-parse')) {
+        cb(null, 'true', '')
+      } else if (file === 'git' && args[0] === 'grep') {
+        // Verify the pattern is passed as a distinct argument, not interpolated
+        expect(args).toContain('match')
+        expect(args.indexOf('match')).toBeGreaterThan(0)
+        cb(null, 'file1.ts:1:match found', '')
+      } else {
+        cb(new Error('unknown command'), '', '')
+      }
+    })
+
+    await grepTool.execute({
+      pattern: 'match'
+    }, { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store })
+
+    // Verify execFile was called (not exec with a shell string)
+    expect(mockExecFile).toHaveBeenCalled()
+    // First call: git rev-parse
+    const firstCall = mockExecFile.mock.calls[0]!
+    expect(firstCall[0]).toBe('git')
+    expect(firstCall[1]).toContain('rev-parse')
+  })
+
+  it('should reject patterns containing null bytes (B2)', async () => {
+    const result = await grepTool.execute({
+      pattern: 'foo\0bar'
+    }, { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store })
+
+    expect(result.isError).toBe(true)
+    expect((result.output as any).error).toContain('null bytes')
   })
 })

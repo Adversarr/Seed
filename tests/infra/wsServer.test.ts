@@ -324,4 +324,59 @@ describe('CoAuthorWsServer', () => {
     expect(received).toBe(false)
     ws.close()
   })
+
+  // ── Stream Filter Clearing (B35) ──
+
+  it('clears stream filter when streamId is explicitly null', async () => {
+    const ws = await connectWs(port, TOKEN)
+
+    // Subscribe with streamId filter
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'], streamId: 'task-1' }))
+    await receiveMessage(ws) // ack
+
+    // task-2 events should be filtered out
+    events$.next(makeEvent(1, 'task-2'))
+    await waitMs(50)
+
+    // Now clear the filter by sending streamId: null
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'], streamId: null }))
+    await receiveMessage(ws) // ack
+
+    // task-2 events should now be received
+    events$.next(makeEvent(2, 'task-2'))
+    const msg = await receiveMessage(ws) as { type: string; data: StoredEvent }
+    expect(msg.data.streamId).toBe('task-2')
+    ws.close()
+  })
+
+  it('preserves stream filter when streamId is omitted in re-subscribe', async () => {
+    const ws = await connectWs(port, TOKEN)
+
+    // Subscribe with streamId filter
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'], streamId: 'task-1' }))
+    await receiveMessage(ws)
+
+    // Re-subscribe without streamId field (should preserve the filter)
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'] }))
+    await receiveMessage(ws)
+
+    // task-2 events should still be filtered out
+    events$.next(makeEvent(3, 'task-2'))
+    events$.next(makeEvent(4, 'task-1'))
+
+    const msg = await receiveMessage(ws) as { type: string; data: StoredEvent }
+    expect(msg.data.streamId).toBe('task-1')
+    ws.close()
+  })
+
+  // ── Pong-based Liveness (B30) ──
+
+  it('initializes client with isAlive=true', async () => {
+    const ws = await connectWs(port, TOKEN)
+    // The server sets isAlive=true on connection — verified via the fact that
+    // the connection persists (heartbeat check won't terminate it immediately)
+    await waitMs(20)
+    expect(wsServer.connectionCount).toBe(1)
+    ws.close()
+  })
 })

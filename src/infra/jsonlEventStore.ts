@@ -200,14 +200,18 @@ export class JsonlEventStore implements EventStore {
         stateJson: JSON.stringify(state),
         updatedAt: new Date().toISOString()
       }
-      this.#projectionsCache.set(name, row)
 
+      // Prepare content with updated cache (temporarily)
+      const tempCache = new Map(this.#projectionsCache)
+      tempCache.set(name, row)
       const content =
-        [...this.#projectionsCache.values()].map((r) => JSON.stringify(r)).join('\n') + '\n'
+        [...tempCache.values()].map((r) => JSON.stringify(r)).join('\n') + '\n'
       const tmpPath = `${this.#projectionsPath}.${process.pid}.${Date.now()}.tmp`
       try {
         await writeFile(tmpPath, content)
         await rename(tmpPath, this.#projectionsPath)
+        // Only update cache AFTER successful write (B10)
+        this.#projectionsCache.set(name, row)
       } catch (err: unknown) {
         // ENOENT can happen if the directory was removed (e.g. test teardown)
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
@@ -252,7 +256,8 @@ export class JsonlEventStore implements EventStore {
       if (!trimmed) continue
       try {
         rows.push(JSON.parse(trimmed) as JsonlEventRow)
-      } catch {
+      } catch (err) {
+        console.error(`[JsonlEventStore] Corrupted event line in ${this.#eventsPath}: ${trimmed.slice(0, 120)}`, err)
         continue
       }
     }
@@ -270,7 +275,8 @@ export class JsonlEventStore implements EventStore {
       try {
         const row = JSON.parse(trimmed) as JsonlProjectionRow
         result.set(row.name, row)
-      } catch {
+      } catch (err) {
+        console.error(`[JsonlEventStore] Corrupted projection line in ${this.#projectionsPath}: ${trimmed.slice(0, 120)}`, err)
         continue
       }
     }

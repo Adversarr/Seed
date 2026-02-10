@@ -11,6 +11,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { z } from 'zod'
+import { resolve, sep } from 'node:path'
 import type { TaskService } from '../../application/taskService.js'
 import type { InteractionService } from '../../application/interactionService.js'
 import type { EventService } from '../../application/eventService.js'
@@ -178,7 +179,11 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
   // ── Events ──
   app.get('/api/events', async (c) => {
     const after = Number(c.req.query('after') ?? 0)
-    const events = await deps.eventService.getEventsAfter(after)
+    const streamId = c.req.query('streamId')
+    let events = await deps.eventService.getEventsAfter(after)
+    if (streamId) {
+      events = events.filter(e => e.streamId === streamId)
+    }
     return c.json({ events })
   })
 
@@ -242,14 +247,14 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
   // ── Files ──
   app.get('/api/files', async (c) => {
     const { path: filePath } = FileReadQuerySchema.parse({ path: c.req.query('path') })
-    validatePath(filePath)
+    validatePath(filePath, deps.baseDir)
     const content = await deps.artifactStore.readFile(filePath)
     return c.json({ path: filePath, content })
   })
 
   app.post('/api/files', async (c) => {
     const body = FileWriteBodySchema.parse(await c.req.json())
-    validatePath(body.path)
+    validatePath(body.path, deps.baseDir)
     await deps.artifactStore.writeFile(body.path, body.content)
     return c.json({ ok: true })
   })
@@ -261,10 +266,32 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
 // Security Helpers
 // ============================================================================
 
-/** Prevent directory traversal — path must be relative and not escape baseDir. */
-function validatePath(filePath: string): void {
-  if (filePath.startsWith('/') || filePath.startsWith('\\') || filePath.includes('..')) {
-    const err = new Error('Invalid path: must be relative and not contain ".."') as Error & { status: number }
+/**
+ * Prevent directory traversal — resolved path must stay within baseDir.
+ *
+ * Uses allowlist approach: resolves the path, then verifies it starts with baseDir.
+ * This guards against URL-encoded paths, symlinks, and other bypass vectors.
+ */
+function validatePath(filePath: string, baseDir: string): void {
+  // Reject obviously invalid paths early
+  if (!filePath || filePath.includes('\0')) {
+    const err = new Error('Invalid path: must be non-empty and not contain null bytes') as Error & { status: number }
+    err.status = 400
+    throw err
+  }
+
+  // Reject absolute paths
+  if (filePath.startsWith('/') || filePath.startsWith('\\')) {
+    const err = new Error('Invalid path: must be relative') as Error & { status: number }
+    err.status = 400
+    throw err
+  }
+
+  // Resolve and verify the path stays within baseDir
+  const resolved = resolve(baseDir, filePath)
+  const normalizedBase = resolve(baseDir)
+  if (!resolved.startsWith(normalizedBase + sep) && resolved !== normalizedBase) {
+    const err = new Error('Invalid path: must not escape workspace directory') as Error & { status: number }
     err.status = 400
     throw err
   }

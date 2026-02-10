@@ -48,25 +48,29 @@ export const api = {
   getEvents: (after = 0, streamId?: string) => {
     const params = new URLSearchParams({ after: String(after) })
     if (streamId) params.set('streamId', streamId)
-    return get<StoredEvent[]>(`/api/events?${params}`)
+    return get<{ events: StoredEvent[] }>(`/api/events?${params}`).then(r => r.events)
   },
 
   // Interactions
   getPendingInteraction: (taskId: string) =>
-    get<PendingInteraction | null>(`/api/tasks/${taskId}/interaction/pending`),
+    get<{ pending: PendingInteraction | null }>(`/api/tasks/${taskId}/interaction/pending`).then(r => r.pending),
   respondToInteraction: (taskId: string, interactionId: string, body: { selectedOptionId?: string; inputValue?: string }) =>
     post<void>(`/api/tasks/${taskId}/interaction/${interactionId}/respond`, body),
 
   // Runtime
-  getRuntime: () => get<{ agents: Array<{ id: string; name: string }>; defaultAgentId: string }>('/api/runtime'),
+  getRuntime: () => get<{
+    agents: Array<{ id: string; displayName: string; description: string }>
+    defaultAgentId: string
+    streamingEnabled: boolean
+  }>('/api/runtime'),
 
   // Audit
   getAudit: (after = 0, taskId?: string) => {
     const params = new URLSearchParams({ after: String(after) })
     if (taskId) params.set('taskId', taskId)
-    return get<unknown[]>(`/api/audit?${params}`)
+    return get<{ entries: unknown[] }>(`/api/audit?${params}`).then(r => r.entries)
   },
 
   // Files
-  readFile: (path: string) => get<{ content: string; lines: number }>(`/api/files?path=${encodeURIComponent(path)}`),
+  readFile: (path: string) => get<{ path: string; content: string }>(`/api/files?path=${encodeURIComponent(path)}`),
 }

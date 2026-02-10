@@ -16,6 +16,66 @@ import { nanoid } from 'nanoid'
 const DEFAULT_MAX_OUTPUT_LENGTH = 10000
 const DEFAULT_TIMEOUT = 30000
 
+// ============================================================================
+// Background Process Tracker
+// ============================================================================
+
+/**
+ * Tracks background processes spawned by runCommand.
+ * Allows termination on task cancel or server shutdown.
+ */
+export class ProcessTracker {
+  readonly #processes = new Map<number, { child: ChildProcess; taskId: string; command: string }>()
+
+  /** Track a spawned background process. */
+  track(pid: number, child: ChildProcess, taskId: string, command: string): void {
+    this.#processes.set(pid, { child, taskId, command })
+    child.on('exit', () => { this.#processes.delete(pid) })
+  }
+
+  /** Kill all tracked processes for a given task. */
+  killByTask(taskId: string): void {
+    for (const [pid, info] of this.#processes) {
+      if (info.taskId === taskId) {
+        try { info.child.kill('SIGTERM') } catch { /* already dead */ }
+        this.#processes.delete(pid)
+      }
+    }
+  }
+
+  /** Kill a specific process by PID. */
+  kill(pid: number): boolean {
+    const info = this.#processes.get(pid)
+    if (!info) return false
+    try { info.child.kill('SIGTERM') } catch { /* already dead */ }
+    this.#processes.delete(pid)
+    return true
+  }
+
+  /** Kill all tracked processes (e.g. on server shutdown). */
+  killAll(): void {
+    for (const [pid, info] of this.#processes) {
+      try { info.child.kill('SIGTERM') } catch { /* already dead */ }
+      this.#processes.delete(pid)
+    }
+  }
+
+  /** Number of currently tracked processes. */
+  get size(): number { return this.#processes.size }
+
+  /** List all tracked process PIDs with their task IDs. */
+  list(): Array<{ pid: number; taskId: string; command: string }> {
+    return [...this.#processes.entries()].map(([pid, info]) => ({
+      pid,
+      taskId: info.taskId,
+      command: info.command,
+    }))
+  }
+}
+
+/** Global process tracker instance. */
+export const processTracker = new ProcessTracker()
+
 export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultTimeout?: number }): Tool {
   const maxOutputLength = opts?.maxOutputLength ?? DEFAULT_MAX_OUTPUT_LENGTH
   const defaultTimeout = opts?.defaultTimeout ?? DEFAULT_TIMEOUT
@@ -61,17 +121,28 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
 
       try {
         if (isBackground) {
-          // Run in background using spawn
-          // We use 'sh -c' (or cmd on win) to execute string command
+          // Run in background using spawn — tracked for cleanup
           const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
           const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command]
           
           const child = spawn(shell, shellArgs, {
             cwd: ctx.baseDir,
             detached: true,
-            stdio: 'ignore' // Ignore output for background tasks? Or redirect? Reference gemini-cli says "Output hidden"
+            stdio: 'ignore',
           })
-          
+
+          if (child.pid != null) {
+            processTracker.track(child.pid, child, ctx.taskId, command)
+          }
+
+          // Listen for abort to kill background process
+          if (ctx.signal && child.pid != null) {
+            const pid = child.pid
+            const onAbort = () => { processTracker.kill(pid) }
+            ctx.signal.addEventListener('abort', onAbort, { once: true })
+            child.on('exit', () => { ctx.signal?.removeEventListener('abort', onAbort) })
+          }
+
           child.unref()
 
           return {

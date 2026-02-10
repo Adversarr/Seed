@@ -14,6 +14,9 @@ interface TaskState {
   /** Initial fetch from HTTP */
   fetchTasks: () => Promise<void>
 
+  /** Fetch a single task from HTTP and add to store */
+  fetchTask: (taskId: string) => Promise<TaskView | null>
+
   /** Apply a real-time StoredEvent to update local state */
   applyEvent: (event: StoredEvent) => void
 }
@@ -33,18 +36,37 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 
+  fetchTask: async (taskId: string) => {
+    try {
+      const task = await api.getTask(taskId)
+      if (task) {
+        const { tasks } = get()
+        const idx = tasks.findIndex(t => t.taskId === taskId)
+        if (idx >= 0) {
+          set({ tasks: tasks.map((t, i) => i === idx ? task : t) })
+        } else {
+          set({ tasks: [...tasks, task] })
+        }
+        return task
+      }
+      return null
+    } catch {
+      return null
+    }
+  },
+
   applyEvent: (event) => {
     const { tasks } = get()
     const p = event.payload as Record<string, unknown>
 
     switch (event.type) {
       case 'TaskCreated': {
-        // Avoid duplicates
-        if (tasks.some(t => t.taskId === p.taskId)) return
+        // Upsert: update if exists, add if new
+        const idx = tasks.findIndex(t => t.taskId === p.taskId)
         const newTask: TaskView = {
           taskId: p.taskId as string,
           title: p.title as string,
-          intent: (p.intent as string) ?? '',
+          intent: (p.intent as string | undefined) ?? '',
           createdBy: p.authorActorId as string,
           agentId: p.agentId as string,
           priority: (p.priority as TaskView['priority']) ?? 'foreground',
@@ -53,7 +75,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           createdAt: event.createdAt,
           updatedAt: event.createdAt,
         }
-        set({ tasks: [...tasks, newTask] })
+        if (idx >= 0) {
+          set({ tasks: tasks.map((t, i) => i === idx ? { ...t, ...newTask } : t) })
+        } else {
+          set({ tasks: [...tasks, newTask] })
+        }
         break
       }
       case 'TaskStarted':

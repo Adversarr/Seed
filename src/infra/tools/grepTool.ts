@@ -7,11 +7,15 @@
 
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../domain/ports/tool.js'
-import { exec } from 'node:child_process'
+import { execFile, type ExecFileException } from 'node:child_process'
 
-function execPromise(command: string, options: { cwd: string; encoding: 'utf8' }): Promise<{ stdout: string; stderr: string }> {
+function execFilePromise(
+  file: string,
+  args: string[],
+  options: { cwd: string; encoding: 'utf8' }
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    exec(command, options, (error, stdout, stderr) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
       if (error) {
         reject(error)
       } else {
@@ -19,6 +23,13 @@ function execPromise(command: string, options: { cwd: string; encoding: 'utf8' }
       }
     })
   })
+}
+
+/** Validate a search pattern does not contain null bytes. */
+function validatePattern(pattern: string): void {
+  if (pattern.includes('\0')) {
+    throw new Error('Pattern must not contain null bytes')
+  }
 }
 
 export const grepTool: Tool = {
@@ -52,27 +63,30 @@ export const grepTool: Tool = {
     const include = args.include as string | undefined
 
     try {
-      // Strategy 1: git grep
+      validatePattern(pattern)
+
+      // Strategy 1: git grep (using execFile with argument arrays — no shell injection)
       try {
         // Check if git repo
-        await execPromise('git rev-parse --is-inside-work-tree', { cwd: ctx.baseDir, encoding: 'utf8' })
+        await execFilePromise('git', ['rev-parse', '--is-inside-work-tree'], { cwd: ctx.baseDir, encoding: 'utf8' })
         
-        // Build git grep command
-        const includeArgs = include ? ['--', include] : []
-        const cmd = `git grep -I -n -E "${pattern.replace(/"/g, '\\"')}" ${dirPath} ${includeArgs.join(' ')}`
+        // Build git grep command with safe argument array
+        const gitArgs = ['grep', '-I', '-n', '-E', pattern, dirPath]
+        if (include) gitArgs.push('--', include)
         
-        const { stdout } = await execPromise(cmd, { cwd: ctx.baseDir, encoding: 'utf8' })
+        const { stdout } = await execFilePromise('git', gitArgs, { cwd: ctx.baseDir, encoding: 'utf8' })
         return successResult(toolCallId, stdout, 'git grep')
       } catch (e) {
         // git grep failed or not a repo, fall through
       }
 
-      // Strategy 2: system grep
+      // Strategy 2: system grep (using execFile with argument arrays — no shell injection)
       try {
-        const includeArgs = include ? [`--include="${include}"`] : []
-        const cmd = `grep -r -I -n -E "${pattern.replace(/"/g, '\\"')}" ${includeArgs.join(' ')} ${dirPath}`
+        const grepArgs = ['-r', '-I', '-n', '-E', pattern]
+        if (include) grepArgs.push(`--include=${include}`)
+        grepArgs.push(dirPath)
         
-        const { stdout } = await execPromise(cmd, { cwd: ctx.baseDir, encoding: 'utf8' })
+        const { stdout } = await execFilePromise('grep', grepArgs, { cwd: ctx.baseDir, encoding: 'utf8' })
         return successResult(toolCallId, stdout, 'system grep')
       } catch (e) {
         // grep failed, fall through

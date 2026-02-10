@@ -21,8 +21,8 @@ export type Channel = z.infer<typeof ChannelSchema>
 export const SubscribeMessageSchema = z.object({
   type: z.literal('subscribe'),
   channels: z.array(ChannelSchema).min(1),
-  /** Optional: filter events channel to a single stream (taskId). */
-  streamId: z.string().optional(),
+  /** Optional: filter events channel to a single stream (taskId). Null clears filter. */
+  streamId: z.string().nullable().optional(),
   /** Optional: replay events after this ID for gap-filling on reconnect. */
   lastEventId: z.number().int().nonnegative().optional(),
 })

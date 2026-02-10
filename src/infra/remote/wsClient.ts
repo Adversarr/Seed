@@ -43,6 +43,7 @@ export class CoAuthorWsClient {
   #lastEventId = 0
   #reconnectAttempt = 0
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  #heartbeatTimer: ReturnType<typeof setInterval> | undefined
   #stopped = false
 
   constructor(opts: WsClientOptions) {
@@ -71,6 +72,7 @@ export class CoAuthorWsClient {
 
   disconnect(): void {
     this.#stopped = true
+    this.#stopHeartbeat()
     if (this.#reconnectTimer) {
       clearTimeout(this.#reconnectTimer)
       this.#reconnectTimer = undefined
@@ -100,6 +102,8 @@ export class CoAuthorWsClient {
         channels: this.#opts.channels,
         lastEventId: this.#lastEventId > 0 ? this.#lastEventId : undefined,
       }))
+      // Start client-side heartbeat (B7)
+      this.#startHeartbeat()
     })
 
     ws.on('message', (raw) => {
@@ -140,9 +144,27 @@ export class CoAuthorWsClient {
   #scheduleReconnect(): void {
     const delay = Math.min(1000 * 2 ** this.#reconnectAttempt, 30_000)
     this.#reconnectAttempt++
+    this.#stopHeartbeat()
     this.#status$.next('disconnected')
     this.#reconnectTimer = setTimeout(() => {
       if (!this.#stopped) this.#doConnect()
     }, delay)
+  }
+
+  /** Send periodic pings to detect dead connections (B7). */
+  #startHeartbeat(): void {
+    this.#stopHeartbeat()
+    this.#heartbeatTimer = setInterval(() => {
+      if (this.#ws?.readyState === WebSocket.OPEN) {
+        this.#ws.ping()
+      }
+    }, 25_000)
+  }
+
+  #stopHeartbeat(): void {
+    if (this.#heartbeatTimer) {
+      clearInterval(this.#heartbeatTimer)
+      this.#heartbeatTimer = undefined
+    }
   }
 }

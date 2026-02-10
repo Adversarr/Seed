@@ -73,28 +73,35 @@ export class JsonlAuditLog implements AuditLog {
   // ======================== Append ========================
 
   async append(entry: AuditLogEntry): Promise<StoredAuditEntry> {
+    // Validate entry structure before persisting (NEW-B4)
+    const parsed = AuditLogEntrySchema.parse(entry)
+
     await this.#ensureCacheLoaded()
 
     const stored = await this.#mutex.runExclusive(async () => {
       const now = new Date().toISOString()
       this.#maxId += 1
+      const newId = this.#maxId
 
       const row: JsonlAuditRow = {
-        id: this.#maxId,
-        type: entry.type,
-        payload: entry.payload,
+        id: newId,
+        type: parsed.type,
+        payload: parsed.payload,
         createdAt: now
       }
 
+      // Write to disk FIRST — only cache on success (B11)
       try {
         await appendFile(this.#auditPath, `${JSON.stringify(row)}\n`)
       } catch (err: unknown) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+        // Roll back the ID increment on failure
+        this.#maxId = newId - 1
+        throw err
       }
       this.#entriesCache.push(row)
 
       const storedEntry: StoredAuditEntry = {
-        ...entry,
+        ...parsed,
         id: row.id,
         createdAt: row.createdAt
       }
@@ -142,7 +149,8 @@ export class JsonlAuditLog implements AuditLog {
       if (!trimmed) continue
       try {
         rows.push(JSON.parse(trimmed) as JsonlAuditRow)
-      } catch {
+      } catch (err) {
+        console.error(`[JsonlAuditLog] Corrupted audit line in ${this.#auditPath}: ${trimmed.slice(0, 120)}`, err)
         continue
       }
     }

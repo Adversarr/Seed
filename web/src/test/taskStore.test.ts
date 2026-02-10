@@ -43,15 +43,23 @@ describe('taskStore', () => {
     expect(tasks[0]!.status).toBe('open')
   })
 
-  it('avoids duplicate TaskCreated', () => {
+  it('avoids duplicate TaskCreated — upserts existing task (F11)', () => {
     const event = makeStoredEvent({
       type: 'TaskCreated',
       streamId: 'task-1',
       payload: { taskId: 'task-1', title: 'Test', intent: '', agentId: 'default', authorActorId: 'user-1' },
     })
     useTaskStore.getState().applyEvent(event)
-    useTaskStore.getState().applyEvent(event)
+
+    // Second event updates in place (upsert), no duplicate
+    const event2 = makeStoredEvent({
+      type: 'TaskCreated',
+      streamId: 'task-1',
+      payload: { taskId: 'task-1', title: 'Updated Title', intent: 'new intent', agentId: 'default', authorActorId: 'user-1' },
+    })
+    useTaskStore.getState().applyEvent(event2)
     expect(useTaskStore.getState().tasks).toHaveLength(1)
+    expect(useTaskStore.getState().tasks[0]!.title).toBe('Updated Title')
   })
 
   it('transitions TaskStarted → in_progress', () => {

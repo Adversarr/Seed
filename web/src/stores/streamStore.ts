@@ -49,7 +49,11 @@ export const useStreamStore = create<StreamState>((set, get) => ({
     }
 
     if (event.type === 'stream_end') {
-      // Mark end — no action needed, the UI can check task status
+      // Clear stream data to prevent unbounded memory growth (NEW-F4)
+      const { taskId } = event.payload
+      const streams = { ...get().streams }
+      delete streams[taskId]
+      set({ streams })
     }
   },
 

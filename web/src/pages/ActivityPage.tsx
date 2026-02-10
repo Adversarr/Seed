@@ -1,11 +1,12 @@
 /**
- * Activity page — global event log.
+ * Activity page — global event log with auto-refresh support.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatTime } from '@/lib/utils'
 import { api } from '@/services/api'
+import { useConnectionStore } from '@/stores'
 import type { StoredEvent } from '@/types'
 import { Link } from 'react-router-dom'
 
@@ -20,10 +21,21 @@ export function ActivityPage() {
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchEvents = useCallback(() => {
     setLoading(true)
     api.getEvents(0).then(e => { setEvents(e); setLoading(false) }).catch(() => setLoading(false))
   }, [])
+
+  // Initial fetch
+  useEffect(() => { fetchEvents() }, [fetchEvents])
+
+  // Auto-refresh every 10 seconds when connected (F9)
+  const status = useConnectionStore(s => s.status)
+  useEffect(() => {
+    if (status !== 'connected') return
+    const interval = setInterval(fetchEvents, 10_000)
+    return () => clearInterval(interval)
+  }, [status, fetchEvents])
 
   return (
     <div className="space-y-6">
