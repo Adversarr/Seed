@@ -1,0 +1,167 @@
+/**
+ * CoAuthor Server — combines HTTP (Hono) + WebSocket on a single port.
+ *
+ * Usage:
+ *   const server = new CoAuthorServer(app, { authToken })
+ *   await server.start()        // binds to localhost:PORT
+ *   console.log(server.address) // { host, port }
+ *   await server.stop()         // graceful shutdown
+ *
+ * Design:
+ * - Single process (required for JsonlEventStore AsyncMutex).
+ * - localhost-only by default (security: no external network access).
+ * - Static file serving for the Web UI SPA (web/dist/).
+ */
+
+import { createServer, type Server } from 'node:http'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { serveStatic } from '@hono/node-server/serve-static'
+import { createHttpApp, type HttpAppDeps } from './http/httpServer.js'
+import { CoAuthorWsServer, type WsServerDeps } from './ws/wsServer.js'
+import type { App } from '../app/createApp.js'
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface ServerOptions {
+  port?: number
+  host?: string
+  authToken: string
+}
+
+// ============================================================================
+// Server
+// ============================================================================
+
+export class CoAuthorServer {
+  readonly #app: App
+  readonly #opts: Required<ServerOptions>
+  #httpServer: Server | undefined
+  #wsServer: CoAuthorWsServer | undefined
+  #actualPort: number | undefined
+
+  constructor(app: App, opts: ServerOptions) {
+    this.#app = app
+    this.#opts = {
+      port: opts.port ?? 0, // 0 = OS picks a free port
+      host: opts.host ?? '127.0.0.1',
+      authToken: opts.authToken,
+    }
+  }
+
+  async start(): Promise<void> {
+    // Build Hono app
+    const httpDeps: HttpAppDeps = {
+      taskService: this.#app.taskService,
+      interactionService: this.#app.interactionService,
+      eventService: this.#app.eventService,
+      auditService: this.#app.auditService,
+      runtimeManager: this.#app.runtimeManager,
+      artifactStore: this.#app.artifactStore,
+      authToken: this.#opts.authToken,
+      baseDir: this.#app.baseDir,
+    }
+    const honoApp = createHttpApp(httpDeps)
+
+    // Serve static Web UI if built
+    const webDistDir = join(this.#app.baseDir, 'node_modules', '.coauthor-web')
+    const localWebDist = join(process.cwd(), 'web', 'dist')
+    const staticRoot = existsSync(localWebDist) ? localWebDist : existsSync(webDistDir) ? webDistDir : undefined
+
+    if (staticRoot) {
+      honoApp.use('/*', serveStatic({ root: staticRoot }))
+      // SPA fallback: serve index.html for any non-API, non-static route
+      honoApp.get('*', async (c) => {
+        if (c.req.path.startsWith('/api') || c.req.path === '/ws') {
+          return c.notFound()
+        }
+        const indexPath = join(staticRoot, 'index.html')
+        if (existsSync(indexPath)) {
+          const html = await import('node:fs/promises').then((fs) => fs.readFile(indexPath, 'utf-8'))
+          return c.html(html)
+        }
+        return c.notFound()
+      })
+    }
+
+    // Manual http.Server + Hono fetch (needed for WS upgrade support)
+    this.#httpServer = createServer(async (req, res) => {
+      const url = `http://${req.headers.host ?? 'localhost'}${req.url ?? '/'}`
+      const headers = new Headers()
+      for (const [key, val] of Object.entries(req.headers)) {
+        if (val) headers.set(key, Array.isArray(val) ? val.join(', ') : val)
+      }
+
+      let body: BodyInit | undefined
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(chunk as Buffer)
+        body = Buffer.concat(chunks)
+      }
+
+      const request = new Request(url, { method: req.method, headers, body })
+      const response = await honoApp.fetch(request)
+
+      res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
+      if (response.body) {
+        const reader = response.body.getReader()
+        const pump = async (): Promise<void> => {
+          const { done, value } = await reader.read()
+          if (done) { res.end(); return }
+          res.write(value)
+          return pump()
+        }
+        await pump()
+      } else {
+        const text = await response.text()
+        res.end(text)
+      }
+    })
+
+    // Attach WebSocket server
+    const wsDeps: WsServerDeps = {
+      events$: this.#app.store.events$,
+      uiEvents$: this.#app.uiBus.events$,
+      getEventsAfter: (id) => this.#app.eventService.getEventsAfter(id),
+      authToken: this.#opts.authToken,
+    }
+    this.#wsServer = new CoAuthorWsServer(wsDeps)
+    this.#wsServer.attach(this.#httpServer)
+
+    // Listen
+    await new Promise<void>((resolve) => {
+      this.#httpServer!.listen(this.#opts.port, this.#opts.host, () => {
+        const addr = this.#httpServer!.address()
+        if (addr && typeof addr === 'object') {
+          this.#actualPort = addr.port
+        }
+        resolve()
+      })
+    })
+  }
+
+  async stop(): Promise<void> {
+    this.#wsServer?.close()
+    await new Promise<void>((resolve, reject) => {
+      if (this.#httpServer) {
+        this.#httpServer.close((err) => (err ? reject(err) : resolve()))
+      } else {
+        resolve()
+      }
+    })
+    this.#httpServer = undefined
+    this.#wsServer = undefined
+    this.#actualPort = undefined
+  }
+
+  get address(): { host: string; port: number } | undefined {
+    if (!this.#actualPort) return undefined
+    return { host: this.#opts.host, port: this.#actualPort }
+  }
+
+  get isRunning(): boolean {
+    return this.#httpServer?.listening ?? false
+  }
+}

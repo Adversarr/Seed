@@ -1,0 +1,96 @@
+/**
+ * Shared types mirroring the backend domain.
+ * These are plain TS types — no Zod dependency on the frontend.
+ */
+
+// ── Task ───────────────────────────────────────────────────────────────
+
+export type TaskStatus = 'open' | 'in_progress' | 'awaiting_user' | 'paused' | 'done' | 'failed' | 'canceled'
+export type TaskPriority = 'foreground' | 'normal' | 'background'
+
+export interface TaskView {
+  taskId: string
+  title: string
+  intent: string
+  createdBy: string
+  agentId: string
+  priority: TaskPriority
+  status: TaskStatus
+  pendingInteractionId?: string
+  lastInteractionId?: string
+  parentTaskId?: string
+  childTaskIds?: string[]
+  summary?: string
+  failureReason?: string
+  createdAt: string
+  updatedAt: string
+}
+
+// ── Events ─────────────────────────────────────────────────────────────
+
+export type EventType =
+  | 'TaskCreated' | 'TaskStarted' | 'TaskCompleted' | 'TaskFailed'
+  | 'TaskCanceled' | 'TaskPaused' | 'TaskResumed' | 'TaskInstructionAdded'
+  | 'UserInteractionRequested' | 'UserInteractionResponded'
+
+export interface StoredEvent {
+  id: number
+  streamId: string
+  seq: number
+  type: EventType
+  payload: Record<string, unknown>
+  createdAt: string
+}
+
+// ── UiEvent (streaming) ────────────────────────────────────────────────
+
+export type UiEvent =
+  | { type: 'agent_output'; payload: { taskId: string; agentId: string; kind: 'text' | 'reasoning' | 'verbose' | 'error'; content: string } }
+  | { type: 'stream_delta'; payload: { taskId: string; agentId: string; kind: 'text' | 'reasoning'; content: string } }
+  | { type: 'stream_end'; payload: { taskId: string; agentId: string } }
+  | { type: 'audit_entry'; payload: Record<string, unknown> }
+
+// ── Interaction ────────────────────────────────────────────────────────
+
+export interface InteractionOption {
+  id: string
+  label: string
+  style?: 'primary' | 'danger' | 'default'
+  isDefault?: boolean
+}
+
+export interface InteractionDisplay {
+  title: string
+  description?: string
+  content?: unknown
+  contentKind?: 'PlainText' | 'Json' | 'Diff' | 'Table'
+  metadata?: Record<string, string>
+}
+
+export interface PendingInteraction {
+  interactionId: string
+  taskId: string
+  kind: 'Select' | 'Confirm' | 'Input' | 'Composite'
+  purpose: string
+  display: InteractionDisplay
+  options?: InteractionOption[]
+}
+
+// ── WebSocket Protocol ─────────────────────────────────────────────────
+
+export type WsClientMessage =
+  | { type: 'subscribe'; channels: ('events' | 'ui')[]; streamId?: string; lastEventId?: number }
+  | { type: 'unsubscribe'; channels: ('events' | 'ui')[] }
+  | { type: 'ping' }
+
+export type WsServerMessage =
+  | { type: 'event'; data: StoredEvent }
+  | { type: 'ui_event'; data: UiEvent }
+  | { type: 'subscribed'; channels: string[] }
+  | { type: 'error'; code: string; message: string }
+  | { type: 'pong' }
+
+// ── API Responses ──────────────────────────────────────────────────────
+
+export interface CreateTaskResponse { taskId: string }
+export interface HealthResponse { status: string; uptime: number }
