@@ -97,7 +97,7 @@ export class CoAuthorServer {
         if (val) headers.set(key, Array.isArray(val) ? val.join(', ') : val)
       }
 
-      let body: BodyInit | undefined
+      let body: Buffer | undefined
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         const chunks: Buffer[] = []
         for await (const chunk of req) chunks.push(chunk as Buffer)
