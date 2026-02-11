@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, mkdir, access, stat } from 'node:fs/promises'
+import { readFile, writeFile, readdir, mkdir, access, stat, realpath } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import { glob } from 'glob'
@@ -6,25 +6,47 @@ import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 
 export class FsArtifactStore implements ArtifactStore {
   readonly #baseDir: string
+  #realBaseDir: string | undefined
 
   constructor(baseDir: string) {
     this.#baseDir = resolve(baseDir)
   }
 
+  /** Resolve real base dir lazily (B29). */
+  async #getRealBaseDir(): Promise<string> {
+    if (!this.#realBaseDir) {
+      this.#realBaseDir = await realpath(this.#baseDir)
+    }
+    return this.#realBaseDir
+  }
+
   private _resolve(path: string): string {
     const resolved = resolve(this.#baseDir, path)
-    // Ensure resolved path is within baseDir
-    // We check if it starts with baseDir + sep to avoid partial matches (e.g. /tmp/foo vs /tmp/foobar)
-    // We also allow exact match (resolved === baseDir)
     if (resolved !== this.#baseDir && !resolved.startsWith(this.#baseDir + sep)) {
-      throw new Error(`Access denied: Path '${path}' resolves to '${resolved}' which is outside base directory '${this.#baseDir}'`)
+      throw new Error(`Access denied: Path '${path}' resolves outside base directory`)
+    }
+    return resolved
+  }
+
+  /** Additional symlink-aware check after resolving real path (B29). */
+  private async _resolveAndVerify(path: string): Promise<string> {
+    const resolved = this._resolve(path)
+    try {
+      const realBase = await this.#getRealBaseDir()
+      const realResolved = await realpath(resolved)
+      if (realResolved !== realBase && !realResolved.startsWith(realBase + sep)) {
+        throw new Error(`Access denied: Path '${path}' follows symlink outside base directory`)
+      }
+    } catch (e) {
+      // Re-throw access denied
+      if (e instanceof Error && e.message.startsWith('Access denied')) throw e
+      // ENOENT is expected for new files; the string check above is sufficient
     }
     return resolved
   }
 
   async readFile(path: string): Promise<string> {
-    // _resolve throws if access denied, propagating out
-    return readFile(this._resolve(path), 'utf8')
+    return readFile(await this._resolveAndVerify(path), 'utf8')
   }
 
   async readFileRange(path: string, lineStart: number, lineEnd: number): Promise<string> {

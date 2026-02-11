@@ -6,7 +6,7 @@
  * parity with the TUI's InteractionPane.
  */
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { timeAgo } from '@/lib/utils'
 import { useConversationStore, type ConversationMessage } from '@/stores/conversationStore'
@@ -182,14 +182,23 @@ export function ConversationView({ taskId, className }: ConversationViewProps) {
   const loading = useConversationStore(s => s.loadingTasks.has(taskId))
   const fetchConversation = useConversationStore(s => s.fetchConversation)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
 
   useEffect(() => {
     fetchConversation(taskId)
   }, [taskId, fetchConversation])
 
-  // Auto-scroll to bottom when new messages arrive
+  // Track if user is near bottom to decide whether to auto-scroll (B5)
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const threshold = 80 // px from bottom
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+  }, [])
+
+  // Auto-scroll only when near bottom
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && isNearBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages.length])
@@ -206,6 +215,7 @@ export function ConversationView({ taskId, className }: ConversationViewProps) {
     <div className={cn('flex flex-col', className)}>
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="flex-1 space-y-4 overflow-y-auto px-1 py-4 min-h-0"
       >
         {messages.length === 0 && !loading && (

@@ -26,7 +26,9 @@ export function EventTimeline({ taskId }: { taskId: string }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
 
   useEffect(() => {
-    api.getEvents(0, taskId).then(setEvents).catch(() => {})
+    api.getEvents(0, taskId).then(setEvents).catch(err => {
+      console.error('[EventTimeline] Failed to load events:', err)
+    })
   }, [taskId])
 
   const toggle = (id: number) => {

@@ -33,6 +33,7 @@ export function CreateTaskDialog({ open, onClose, onCreated }: Props) {
     if (open) {
       setTitle('')
       setIntent('')
+      setAgentId(undefined) // Reset agent selection on re-open
       setError(null)
     }
   }, [open])

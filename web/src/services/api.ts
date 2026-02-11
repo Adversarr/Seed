@@ -12,20 +12,29 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
-  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
-  return res.json() as Promise<T>
+/** Parse JSON or return undefined for empty/no-content responses (B21). */
+async function parseJsonOrVoid<T>(res: Response): Promise<T> {
+  if (res.status === 204 || res.status === 205) return undefined as T
+  const text = await res.text()
+  if (!text) return undefined as T
+  return JSON.parse(text) as T
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+async function get<T>(path: string, opts?: { signal?: AbortSignal }): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders(), signal: opts?.signal })
+  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
+  return parseJsonOrVoid<T>(res)
+}
+
+async function post<T>(path: string, body?: unknown, opts?: { signal?: AbortSignal }): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
+    signal: opts?.signal,
   })
   if (!res.ok) throw new Error(`POST ${path}: ${res.status}`)
-  return res.json() as Promise<T>
+  return parseJsonOrVoid<T>(res)
 }
 
 // ── Public API ─────────────────────────────────────────────────────────

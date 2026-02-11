@@ -39,22 +39,31 @@ export function ActivityPage() {
 
   const fetchEvents = useCallback(() => {
     setLoading(true)
-    api.getEvents(0).then(e => { setEvents(e); setLoading(false) }).catch(() => setLoading(false))
+    api.getEvents(0).then(e => { setEvents(e); setLoading(false) }).catch(err => {
+      console.error('[ActivityPage] Failed to fetch events:', err)
+      setLoading(false)
+    })
   }, [])
 
   const fetchAudit = useCallback(() => {
     api.getAudit(100).then(entries => {
       setAuditEntries(entries as Record<string, unknown>[])
-    }).catch(() => {})
+    }).catch(err => {
+      console.error('[ActivityPage] Failed to fetch audit entries:', err)
+    })
   }, [])
 
   // Initial fetch
   useEffect(() => { fetchEvents(); fetchAudit() }, [fetchEvents, fetchAudit])
 
-  // Subscribe to real-time events for live updates
+  // Subscribe to real-time events for live updates (capped to prevent memory leak)
   useEffect(() => {
+    const MAX_ACTIVITY_EVENTS = 2000
     const unsub = eventBus.on('domain-event', (event) => {
-      setEvents(prev => [...prev, event])
+      setEvents(prev => {
+        const next = [...prev, event]
+        return next.length > MAX_ACTIVITY_EVENTS ? next.slice(-MAX_ACTIVITY_EVENTS) : next
+      })
     })
     return unsub
   }, [])

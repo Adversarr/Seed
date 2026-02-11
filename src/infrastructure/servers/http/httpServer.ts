@@ -12,6 +12,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { z } from 'zod'
 import { resolve, sep } from 'node:path'
+import { realpath, lstat } from 'node:fs/promises'
 import type { TaskService } from '../../../application/services/taskService.js'
 import type { InteractionService } from '../../../application/services/interactionService.js'
 import type { EventService } from '../../../application/services/eventService.js'
@@ -98,8 +99,14 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
 
   // ── Error handling ──
   app.onError((err, c) => {
-    const message = err instanceof Error ? err.message : 'Internal server error'
     const status = (err as { status?: number }).status ?? 500
+    // Only expose error messages for client errors; generic message for server errors (B28)
+    const message = status < 500 && err instanceof Error
+      ? err.message
+      : 'Internal server error'
+    if (status >= 500) {
+      console.error('[httpServer] Internal error:', err instanceof Error ? err.stack ?? err.message : err)
+    }
     return c.json({ error: message }, status as 400)
   })
 
@@ -185,11 +192,24 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
 
   // ── Events ──
   app.get('/api/events', async (c) => {
-    const after = Number(c.req.query('after') ?? 0)
+    const rawAfter = c.req.query('after') ?? '0'
+    const rawLimit = c.req.query('limit')
+    const after = parseInt(rawAfter, 10)
+    if (isNaN(after) || after < 0) {
+      return c.json({ error: 'Invalid \'after\' parameter: must be a non-negative integer' }, 400)
+    }
     const streamId = c.req.query('streamId')
     let events = await deps.eventService.getEventsAfter(after)
     if (streamId) {
       events = events.filter(e => e.streamId === streamId)
+    }
+    // Apply limit (B25)
+    if (rawLimit !== undefined) {
+      const limit = parseInt(rawLimit, 10)
+      if (isNaN(limit) || limit < 1) {
+        return c.json({ error: 'Invalid \'limit\' parameter: must be a positive integer' }, 400)
+      }
+      events = events.slice(0, Math.min(limit, 500))
     }
     return c.json({ events })
   })
@@ -220,8 +240,12 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
   // ── Audit ──
   app.get('/api/audit', async (c) => {
     const taskId = c.req.query('taskId')
-    const limit = Number(c.req.query('limit') ?? 50)
-    const entries = await deps.auditService.getRecentEntries(taskId || undefined, limit)
+    const rawLimit = c.req.query('limit') ?? '50'
+    const limit = parseInt(rawLimit, 10)
+    if (isNaN(limit) || limit < 1) {
+      return c.json({ error: 'Invalid \'limit\' parameter: must be a positive integer' }, 400)
+    }
+    const entries = await deps.auditService.getRecentEntries(taskId || undefined, Math.min(limit, 500))
     return c.json({ entries })
   })
 
@@ -254,14 +278,14 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
   // ── Files ──
   app.get('/api/files', async (c) => {
     const { path: filePath } = FileReadQuerySchema.parse({ path: c.req.query('path') })
-    validatePath(filePath, deps.baseDir)
+    await validatePath(filePath, deps.baseDir)
     const content = await deps.artifactStore.readFile(filePath)
     return c.json({ path: filePath, content })
   })
 
   app.post('/api/files', async (c) => {
     const body = FileWriteBodySchema.parse(await c.req.json())
-    validatePath(body.path, deps.baseDir)
+    await validatePath(body.path, deps.baseDir)
     await deps.artifactStore.writeFile(body.path, body.content)
     return c.json({ ok: true })
   })
@@ -277,9 +301,9 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
  * Prevent directory traversal — resolved path must stay within baseDir.
  *
  * Uses allowlist approach: resolves the path, then verifies it starts with baseDir.
- * This guards against URL-encoded paths, symlinks, and other bypass vectors.
+ * Also resolves symlinks via realpath to prevent symlink traversal (B29).
  */
-function validatePath(filePath: string, baseDir: string): void {
+async function validatePath(filePath: string, baseDir: string): Promise<void> {
   // Reject obviously invalid paths early
   if (!filePath || filePath.includes('\0')) {
     const err = new Error('Invalid path: must be non-empty and not contain null bytes') as Error & { status: number }
@@ -294,12 +318,39 @@ function validatePath(filePath: string, baseDir: string): void {
     throw err
   }
 
-  // Resolve and verify the path stays within baseDir
+  // String-based check first (fast path)
   const resolved = resolve(baseDir, filePath)
   const normalizedBase = resolve(baseDir)
   if (!resolved.startsWith(normalizedBase + sep) && resolved !== normalizedBase) {
     const err = new Error('Invalid path: must not escape workspace directory') as Error & { status: number }
     err.status = 400
     throw err
+  }
+
+  // Symlink check: resolve real path and verify it's still within baseDir (B29)
+  try {
+    const realBase = await realpath(normalizedBase)
+    // Walk up from the resolved path to find the deepest existing ancestor
+    let checkPath = resolved
+    let realCheck: string | undefined
+    while (checkPath !== normalizedBase) {
+      try {
+        realCheck = await realpath(checkPath)
+        break
+      } catch {
+        // Path doesn't exist yet (e.g. new file for write) — check parent
+        checkPath = resolve(checkPath, '..')
+      }
+    }
+    if (!realCheck) realCheck = realBase // Fallback to base if nothing exists
+
+    if (!realCheck.startsWith(realBase + sep) && realCheck !== realBase) {
+      const err = new Error('Invalid path: symlink escapes workspace directory') as Error & { status: number }
+      err.status = 400
+      throw err
+    }
+  } catch (e) {
+    if ((e as { status?: number }).status === 400) throw e
+    // If realpath itself fails (e.g. baseDir gone), fall through to string check above
   }
 }

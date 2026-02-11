@@ -107,8 +107,18 @@ export class CoAuthorServer {
 
       let body: Buffer | undefined
       if (req.method !== 'GET' && req.method !== 'HEAD') {
+        const MAX_BODY_SIZE = 10 * 1024 * 1024 // 10 MB (B15)
         const chunks: Buffer[] = []
-        for await (const chunk of req) chunks.push(chunk as Buffer)
+        let totalBytes = 0
+        for await (const chunk of req) {
+          totalBytes += (chunk as Buffer).length
+          if (totalBytes > MAX_BODY_SIZE) {
+            res.writeHead(413, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Request body too large' }))
+            return
+          }
+          chunks.push(chunk as Buffer)
+        }
         body = Buffer.concat(chunks)
       }
 
@@ -118,13 +128,19 @@ export class CoAuthorServer {
       res.writeHead(response.status, Object.fromEntries(response.headers.entries()))
       if (response.body) {
         const reader = response.body.getReader()
-        const pump = async (): Promise<void> => {
-          const { done, value } = await reader.read()
-          if (done) { res.end(); return }
-          res.write(value)
-          return pump()
+        try {
+          const pump = async (): Promise<void> => {
+            const { done, value } = await reader.read()
+            if (done) { res.end(); return }
+            res.write(value)
+            return pump()
+          }
+          await pump()
+        } catch (err) {
+          console.error('[server] Response stream pump error:', err)
+          reader.cancel().catch(() => {})
+          if (!res.writableEnded) res.end()
         }
-        await pump()
       } else {
         const text = await response.text()
         res.end(text)

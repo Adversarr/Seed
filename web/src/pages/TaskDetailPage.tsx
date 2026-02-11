@@ -29,6 +29,7 @@ export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
   const navigate = useNavigate()
   const task = useTaskStore(s => s.tasks.find(t => t.taskId === taskId))
+  const allTasks = useTaskStore(s => s.tasks) // Must be above early returns (Rules of Hooks)
   const fetchTask = useTaskStore(s => s.fetchTask)
   const [interaction, setInteraction] = useState<PendingInteraction | null>(null)
   const [tab, setTab] = useState<'conversation' | 'output' | 'events'>('conversation')
@@ -59,13 +60,15 @@ export function TaskDetailPage() {
       })
   }, [taskId, task, fetchTask])
 
-  // Fetch pending interaction
+  // Fetch pending interaction (B4: cancel on unmount)
   useEffect(() => {
     let cancelled = false
     if (taskId && task?.pendingInteractionId) {
       api.getPendingInteraction(taskId).then(p => {
         if (!cancelled) setInteraction(p)
-      }).catch(() => {})
+      }).catch(err => {
+        if (!cancelled) console.error('[TaskDetailPage] Failed to fetch interaction:', err)
+      })
     } else {
       if (interaction) setInteraction(null)
     }
@@ -92,7 +95,6 @@ export function TaskDetailPage() {
     )
   }
 
-  const allTasks = useTaskStore(s => s.tasks)
   const isActive = ['open', 'in_progress', 'awaiting_user'].includes(task.status)
   const canPause = task.status === 'in_progress'
   const canResume = task.status === 'paused'

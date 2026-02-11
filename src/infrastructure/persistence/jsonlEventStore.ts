@@ -136,24 +136,28 @@ export class JsonlEventStore implements EventStore {
         result.push(toStoredEvent({ id: row.id, streamId, seq: row.seq, createdAt: now }, evt))
       }
 
-      // Disk write (ENOENT tolerated — dir may be gone in test teardown)
+      // Disk write — only update cache after confirmed write (B13)
       const lines = newRows.map((r) => JSON.stringify(r)).join('\n') + '\n'
       try {
         await appendFile(this.#eventsPath, lines)
       } catch (err: unknown) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+        // ENOENT: directory removed (e.g. test teardown) — skip cache update + emit
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+        throw err
       }
 
-      // Cache update
+      // Cache update only after successful disk write (B13)
       this.#eventsCache.push(...newRows)
       this.#maxId = currentMaxId
       this.#streamSeqs.set(streamId, currentSeq)
 
+      // Emit inside mutex so subscribers see consistent cache state (B13)
+      for (const e of result) this.#eventSubject.next(e)
+
       return result
     })
 
-    // Emit outside the mutex so subscribers don't block writes
-    for (const e of stored) this.#eventSubject.next(e)
+    // Events already emitted inside mutex — return directly (B13)
     return stored
   }
 

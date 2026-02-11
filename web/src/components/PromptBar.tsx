@@ -37,8 +37,8 @@ export function PromptBar({ taskId, disabled = false, className }: PromptBarProp
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto'
       }
-    } catch {
-      // Error is visible in conversation as a system event
+    } catch (err) {
+      console.error('[PromptBar] Failed to send instruction:', err)
     } finally {
       setSending(false)
     }

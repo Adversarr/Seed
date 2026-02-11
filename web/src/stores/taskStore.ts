@@ -8,6 +8,12 @@ import { create } from 'zustand'
 import type { TaskView, StoredEvent } from '@/types'
 import { api } from '@/services/api'
 import { eventBus } from './eventBus'
+import {
+  TaskCreatedPayload, TaskIdPayload, TaskCompletedPayload,
+  TaskFailedPayload, TaskCanceledPayload,
+  InteractionRequestedPayload, InteractionRespondedPayload,
+  safeParse,
+} from '@/schemas/eventPayloads'
 
 interface TaskState {
   tasks: TaskView[]
@@ -59,56 +65,77 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 
   applyEvent: (event) => {
-    const { tasks } = get()
-    const p = event.payload as Record<string, unknown>
+    // Helper: update a single task field-set by taskId (functional set to avoid race conditions — B11)
+    const updateTask = (taskId: string, patch: Partial<TaskView>) =>
+      set(state => ({
+        tasks: state.tasks.map(t => t.taskId === taskId ? { ...t, ...patch, updatedAt: event.createdAt } : t),
+      }))
 
     switch (event.type) {
       case 'TaskCreated': {
-        // Upsert: update if exists, add if new
-        const idx = tasks.findIndex(t => t.taskId === p.taskId)
+        const p = safeParse(TaskCreatedPayload, event.payload, event.type)
+        if (!p) return
         const newTask: TaskView = {
-          taskId: p.taskId as string,
-          title: p.title as string,
-          intent: (p.intent as string | undefined) ?? '',
-          createdBy: p.authorActorId as string,
-          agentId: p.agentId as string,
-          priority: (p.priority as TaskView['priority']) ?? 'foreground',
+          taskId: p.taskId,
+          title: p.title,
+          intent: p.intent ?? '',
+          createdBy: p.authorActorId,
+          agentId: p.agentId,
+          priority: p.priority ?? 'foreground',
           status: 'open',
-          parentTaskId: p.parentTaskId as string | undefined,
+          parentTaskId: p.parentTaskId,
           createdAt: event.createdAt,
           updatedAt: event.createdAt,
         }
-        if (idx >= 0) {
-          set({ tasks: tasks.map((t, i) => i === idx ? { ...t, ...newTask } : t) })
-        } else {
-          set({ tasks: [...tasks, newTask] })
-        }
+        // Upsert: update if exists, add if new (functional set — B11)
+        set(state => {
+          const idx = state.tasks.findIndex(t => t.taskId === newTask.taskId)
+          if (idx >= 0) {
+            return { tasks: state.tasks.map((t, i) => i === idx ? { ...t, ...newTask } : t) }
+          }
+          return { tasks: [...state.tasks, newTask] }
+        })
         break
       }
       case 'TaskStarted':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'in_progress' as const, updatedAt: event.createdAt } : t) })
-        break
-      case 'TaskCompleted':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'done' as const, summary: p.summary as string | undefined, updatedAt: event.createdAt } : t) })
-        break
-      case 'TaskFailed':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'failed' as const, failureReason: p.reason as string, updatedAt: event.createdAt } : t) })
-        break
-      case 'TaskCanceled':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'canceled' as const, updatedAt: event.createdAt } : t) })
-        break
       case 'TaskPaused':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'paused' as const, updatedAt: event.createdAt } : t) })
+      case 'TaskResumed': {
+        const p = safeParse(TaskIdPayload, event.payload, event.type)
+        if (!p) return
+        const statusMap = { TaskStarted: 'in_progress', TaskPaused: 'paused', TaskResumed: 'in_progress' } as const
+        updateTask(p.taskId, { status: statusMap[event.type] })
         break
-      case 'TaskResumed':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'in_progress' as const, updatedAt: event.createdAt } : t) })
+      }
+      case 'TaskCompleted': {
+        const p = safeParse(TaskCompletedPayload, event.payload, event.type)
+        if (!p) return
+        updateTask(p.taskId, { status: 'done', summary: p.summary })
         break
-      case 'UserInteractionRequested':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'awaiting_user' as const, pendingInteractionId: p.interactionId as string, updatedAt: event.createdAt } : t) })
+      }
+      case 'TaskFailed': {
+        const p = safeParse(TaskFailedPayload, event.payload, event.type)
+        if (!p) return
+        updateTask(p.taskId, { status: 'failed', failureReason: p.reason })
         break
-      case 'UserInteractionResponded':
-        set({ tasks: tasks.map(t => t.taskId === p.taskId ? { ...t, status: 'in_progress' as const, pendingInteractionId: undefined, updatedAt: event.createdAt } : t) })
+      }
+      case 'TaskCanceled': {
+        const p = safeParse(TaskCanceledPayload, event.payload, event.type)
+        if (!p) return
+        updateTask(p.taskId, { status: 'canceled' })
         break
+      }
+      case 'UserInteractionRequested': {
+        const p = safeParse(InteractionRequestedPayload, event.payload, event.type)
+        if (!p) return
+        updateTask(p.taskId, { status: 'awaiting_user', pendingInteractionId: p.interactionId })
+        break
+      }
+      case 'UserInteractionResponded': {
+        const p = safeParse(InteractionRespondedPayload, event.payload, event.type)
+        if (!p) return
+        updateTask(p.taskId, { status: 'in_progress', pendingInteractionId: undefined })
+        break
+      }
     }
   },
 }))

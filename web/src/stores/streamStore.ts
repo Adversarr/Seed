@@ -9,6 +9,7 @@
 import { create } from 'zustand'
 import type { UiEvent } from '@/types'
 import { eventBus } from './eventBus'
+import { StreamPayload, StreamEndPayload, safeParse } from '@/schemas/eventPayloads'
 
 interface StreamChunk {
   kind: 'text' | 'reasoning' | 'verbose' | 'error'
@@ -33,12 +34,17 @@ interface StreamState {
   clearStream: (taskId: string) => void
 }
 
+/** Max chunks per task stream to prevent unbounded memory growth. */
+const MAX_STREAM_CHUNKS = 5000
+
 export const useStreamStore = create<StreamState>((set, get) => ({
   streams: {},
 
   handleUiEvent: (event) => {
     if (event.type === 'agent_output' || event.type === 'stream_delta') {
-      const { taskId, kind, content } = event.payload
+      const p = safeParse(StreamPayload, event.payload, event.type)
+      if (!p) return
+      const { taskId, kind, content } = p
       const streams = { ...get().streams }
       const existing = streams[taskId] ?? { chunks: [], completed: false }
       const chunks = [...existing.chunks]
@@ -55,13 +61,18 @@ export const useStreamStore = create<StreamState>((set, get) => ({
         chunks.push({ kind, content, timestamp: Date.now() })
       }
 
-      streams[taskId] = { chunks, completed: false }
+      streams[taskId] = {
+        chunks: chunks.length > MAX_STREAM_CHUNKS ? chunks.slice(-MAX_STREAM_CHUNKS) : chunks,
+        completed: false,
+      }
       set({ streams })
     }
 
     if (event.type === 'stream_end') {
       // Mark as completed rather than deleting — preserves output for review
-      const { taskId } = event.payload
+      const p = safeParse(StreamEndPayload, event.payload, event.type)
+      if (!p) return
+      const { taskId } = p
       const streams = { ...get().streams }
       const existing = streams[taskId]
       if (existing) {

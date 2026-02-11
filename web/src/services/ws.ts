@@ -34,7 +34,7 @@ export class WsService {
     if (this.#disposed) return
     const token = sessionStorage.getItem('coauthor-token') ?? ''
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${location.host}/ws?token=${token}`
+    const url = `${protocol}//${location.host}/ws?token=${encodeURIComponent(token)}`
 
     this.#callbacks.onStatusChange?.('connecting')
 
@@ -77,11 +77,13 @@ export class WsService {
     }
 
     ws.onclose = () => {
+      this.#ws = null // Clean up reference (B2/E)
       this.#callbacks.onStatusChange?.('disconnected')
       this.#scheduleReconnect()
     }
 
     ws.onerror = () => {
+      this.#ws = null // Clean up reference (B2)
       ws.close()
     }
   }
@@ -101,6 +103,8 @@ export class WsService {
     // Clear any existing timer to prevent overlapping reconnections (F4)
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer)
     this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = null
+      if (this.#disposed) return // Re-check after timeout (B3)
       this.#reconnectDelay = Math.min(this.#reconnectDelay * 2, 30_000)
       this.connect()
     }, this.#reconnectDelay)

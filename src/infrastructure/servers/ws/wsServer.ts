@@ -23,6 +23,17 @@ import {
 } from './protocol.js'
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/** Max events to replay during gap-fill (B23). */
+const MAX_GAP_FILL_EVENTS = 1000
+/** Max WebSocket payload size in bytes (B-NEW-C). */
+const MAX_WS_PAYLOAD = 64 * 1024 // 64 KB
+/** Max send buffer before closing slow client (B23). */
+const MAX_BUFFERED_AMOUNT = 1024 * 1024 // 1 MB
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -41,6 +52,8 @@ interface ClientState {
   streamId: string | null
   /** Whether the client has responded to the last ping. */
   isAlive: boolean
+  /** Last event ID successfully delivered to this client (B1). */
+  lastDeliveredEventId: number
 }
 
 // ============================================================================
@@ -56,7 +69,7 @@ export class CoAuthorWsServer {
 
   constructor(deps: WsServerDeps) {
     this.#deps = deps
-    this.#wss = new WSServer({ noServer: true })
+    this.#wss = new WSServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD })
     this.#wss.on('connection', (ws) => this.#onConnection(ws))
   }
 
@@ -125,7 +138,7 @@ export class CoAuthorWsServer {
   // ── Connection Handling ──────────────────────────────────────────────
 
   #onConnection(ws: WebSocket): void {
-    this.#clients.set(ws, { channels: new Set(), streamId: null, isAlive: true })
+    this.#clients.set(ws, { channels: new Set(), streamId: null, isAlive: true, lastDeliveredEventId: 0 })
 
     // Track pong responses for liveness detection (B30)
     ws.on('pong', () => {
@@ -179,13 +192,34 @@ export class CoAuthorWsServer {
 
     this.#send(ws, { type: 'subscribed', channels: [...state.channels] })
 
-    // Gap-fill: send missed events
+    // Gap-fill: send missed events with cap and dedup (B1, B23)
     if (msg.lastEventId !== undefined && state.channels.has('events')) {
       try {
-        const missed = await this.#deps.getEventsAfter(msg.lastEventId)
+        // Start from the higher of client-reported ID vs tracked ID to avoid dupes (B1)
+        const startFrom = Math.max(msg.lastEventId, state.lastDeliveredEventId)
+        const missed = await this.#deps.getEventsAfter(startFrom)
+        let sent = 0
+        const truncated = missed.length > MAX_GAP_FILL_EVENTS
+
         for (const event of missed) {
+          if (sent >= MAX_GAP_FILL_EVENTS) break
           if (state.streamId && event.streamId !== state.streamId) continue
+          // Backpressure: abort if client is slow (B23)
+          if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+            ws.close(4008, 'Client too slow — gap-fill aborted')
+            return
+          }
           this.#send(ws, { type: 'event', data: event })
+          state.lastDeliveredEventId = Math.max(state.lastDeliveredEventId, event.id)
+          sent++
+        }
+
+        if (truncated) {
+          this.#send(ws, {
+            type: 'error',
+            code: 'GAP_FILL_TRUNCATED',
+            message: `Gap-fill limited to ${MAX_GAP_FILL_EVENTS} events. Full refresh recommended.`,
+          })
         }
       } catch {
         this.#send(ws, { type: 'error', code: 'GAP_FILL_FAILED', message: 'Failed to replay events' })
@@ -211,6 +245,10 @@ export class CoAuthorWsServer {
         if (event.streamId !== state.streamId) continue
       }
       this.#send(ws, { type: msgType, data } as ServerMessage)
+      // Track delivered event ID (B1)
+      if (channel === 'events') {
+        state.lastDeliveredEventId = Math.max(state.lastDeliveredEventId, (data as StoredEvent).id)
+      }
     }
   }
 
