@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { runCli } from '../src/cli/run.js'
 import type { IO } from '../src/cli/io.js'
+import { createApp } from '../src/app/createApp.js'
+import { CoAuthorServer } from '../src/infra/server.js'
+import { lockFilePath, writeLockFile, removeLockFile } from '../src/infra/master/lockFile.js'
 
 function createTestIO(opts: { stdinText?: string }) {
   const out: string[] = []
@@ -17,70 +20,75 @@ function createTestIO(opts: { stdinText?: string }) {
 }
 
 describe('CLI smoke', () => {
-  test('create task -> list tasks -> replay log', async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
-    await writeFile(join(baseDir, 'doc.tex'), 'hello\nworld\n', 'utf8')
+  test('status reports not running for new workspace', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))
+    await writeFile(join(workspace, 'doc.tex'), 'hello\nworld\n', 'utf8')
 
-    // Create a task
     const io1 = createTestIO({})
-    await runCli({ argv: ['task', 'create', 'Hello'], baseDir, io: io1.io })
-    const taskId = io1.out.join('').trim()
-    expect(taskId.length).toBeGreaterThan(5)
-
-    // List tasks
-    const io2 = createTestIO({})
-    await runCli({ argv: ['task', 'list'], baseDir, io: io2.io })
-    expect(io2.out.join('')).toContain(taskId)
-    expect(io2.out.join('')).toContain('Hello')
-
-    // Replay log
-    const io3 = createTestIO({})
-    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io3.io })
-    const replay = io3.out.join('')
-    expect(replay).toMatch(/TaskCreated/)
+    const code = await runCli({ argv: ['status'], defaultWorkspace: workspace, io: io1.io })
+    expect(code).toBe(0)
+    const out = io1.out.join('')
+    expect(out).toContain(`Workspace: ${workspace}`)
+    expect(out).toContain('Server: not running')
   })
 
-  test('task create --file/--lines works correctly', async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
-    await writeFile(join(baseDir, 'doc.tex'), 'hello\nworld\n', 'utf8')
+  test('stop is idempotent when no lock exists', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))
 
     const io1 = createTestIO({})
-    await runCli({
-      argv: ['task', 'create', 'Improve', '--file', 'doc.tex', '--lines', '1-2'],
-      baseDir,
-      io: io1.io
-    })
-    const taskId = io1.out.join('').trim()
-    expect(taskId.length).toBeGreaterThan(5)
-
-    // Verify the task was created with artifact refs
-    const io2 = createTestIO({})
-    await runCli({ argv: ['log', 'replay', taskId], baseDir, io: io2.io })
-    const replay = io2.out.join('')
-    expect(replay).toMatch(/TaskCreated/)
-    expect(replay).toContain('file_range')
-    expect(replay).toContain('doc.tex')
+    const code = await runCli({ argv: ['stop'], defaultWorkspace: workspace, io: io1.io })
+    expect(code).toBe(0)
+    expect(io1.out.join('')).toContain('No server lock found.')
   })
 
-  test('interact pending shows no interactions for new task', async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
+  test('--workspace overrides defaultWorkspace', async () => {
+    const workspace1 = await mkdtemp(join(tmpdir(), 'coauthor-'))
+    const workspace2 = await mkdtemp(join(tmpdir(), 'coauthor-'))
 
-    // Create a task
     const io1 = createTestIO({})
-    await runCli({ argv: ['task', 'create', 'Test task'], baseDir, io: io1.io })
-
-    // Check pending interactions (should be none for new task)
-    const io2 = createTestIO({})
-    await runCli({ argv: ['interact', 'pending'], baseDir, io: io2.io })
-    expect(io2.out.join('')).toContain('No pending interactions')
+    const code = await runCli({ argv: ['status', '--workspace', workspace2], defaultWorkspace: workspace1, io: io1.io })
+    expect(code).toBe(0)
+    expect(io1.out.join('')).toContain(`Workspace: ${workspace2}`)
   })
 
-  test('audit list command works', async () => {
-    const baseDir = await mkdtemp(join(tmpdir(), 'coauthor-'))
+  test('status detects running server via lock + health', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))
 
-    // Run audit list (should be empty initially)
+    const app = await createApp({ baseDir: workspace })
+    const server = new CoAuthorServer(app, { authToken: 'test-token' })
+    await server.start()
+    const addr = server.address
+    if (!addr) throw new Error('Server did not start')
+
+    const lockPath = lockFilePath(workspace)
+    writeLockFile(lockPath, { pid: process.pid, port: addr.port, token: 'test-token', startedAt: new Date().toISOString() })
+
+    try {
+      const io1 = createTestIO({})
+      const code = await runCli({ argv: ['status'], defaultWorkspace: workspace, io: io1.io })
+      expect(code).toBe(0)
+      const out = io1.out.join('')
+      expect(out).toContain('Server: running')
+      expect(out).toContain(`http://127.0.0.1:${addr.port}`)
+    } finally {
+      removeLockFile(lockPath)
+      await server.stop()
+    }
+  })
+
+  test('removed commands show a clear message', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))
     const io1 = createTestIO({})
-    await runCli({ argv: ['audit', 'list'], baseDir, io: io1.io })
-    expect(io1.out.join('')).toContain('No audit entries found')
+    const code = await runCli({ argv: ['task', 'list'], defaultWorkspace: workspace, io: io1.io })
+    expect(code).toBe(1)
+    expect(io1.err.join('')).toContain('removed')
+  })
+
+  test('unknown commands return exit code 1', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))
+    const io1 = createTestIO({})
+    const code = await runCli({ argv: ['does-not-exist'], defaultWorkspace: workspace, io: io1.io })
+    expect(code).toBe(1)
+    expect(io1.err.join('').trim().length).toBeGreaterThan(0)
   })
 })

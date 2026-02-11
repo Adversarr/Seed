@@ -19,21 +19,11 @@ npm run dev
 ### Create and Run Your First Task
 
 ```bash
-# 1. Create a task (outputs a task ID)
-npm run dev -- task create "Improve introduction" \
-  --file paper/sections/introduction.tex --lines 1-200
+# Start the interactive TUI for the current directory workspace
+npm run dev
 
-# 2. Run the agent on the task
-npm run dev -- agent run <taskId>
-
-# 3. Check for pending user interactions
-npm run dev -- interact pending <taskId>
-
-# 4. Respond to interactions
-npm run dev -- interact respond <taskId> <optionId> --text "Your input"
-
-# 5. Replay what happened
-npm run dev -- log replay <taskId>
+# Or: start the Web UI server only (headless)
+npm run dev -- serve
 ```
 
 ---
@@ -60,34 +50,26 @@ Agents use tools to interact with your workspace:
 
 ## CLI Reference
 
-### Task Commands
 ```bash
-coauthor task create "Title" --file <path> --lines <n-m>   # Create a task
-coauthor task list                                         # List all tasks
-coauthor task cancel <taskId>                              # Cancel a task
-coauthor task pause <taskId>                               # Pause a task
-coauthor task resume <taskId>                              # Resume a task
-coauthor task continue <taskId> "instruction"              # Add instruction
-coauthor task refine <taskId> "instruction"                # Add refinement
+# Workspace selection (where .coauthor/ lives). Defaults to current directory.
+coauthor --workspace <path> status
+coauthor -w <path> status
+
+# Start UI (TUI) for the selected workspace (default command)
+coauthor --workspace <path>
+coauthor --workspace <path> ui
+
+# Start Web UI server (headless, no TUI)
+coauthor --workspace <path> serve [--host 127.0.0.1] [--port 3000]
+
+# Show server status
+coauthor --workspace <path> status
+
+# Stop the server for the workspace (best-effort)
+coauthor --workspace <path> stop
 ```
 
-### Agent Commands
-```bash
-coauthor agent run <taskId>           # Execute a task once
-coauthor agent test "message"         # Create and run a test task
-```
-
-### Interaction Commands
-```bash
-coauthor interact pending [taskId]                    # Show pending UIP(s)
-coauthor interact respond <taskId> <optionId>       # Respond to UIP
-```
-
-### Audit & Log Commands
-```bash
-coauthor audit list [taskId] --limit 20    # Show audit log
-coauthor log replay [streamId]             # Replay events
-```
+Task management and agent execution are intentionally not exposed via CLI; use the TUI or Web UI for explicit and controllable workflows.
 
 ---
 
