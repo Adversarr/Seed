@@ -6,6 +6,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Sparkles, LayoutDashboard, Settings, Activity } from 'lucide-react'
 import { ConnectionIndicator } from '@/components/ConnectionIndicator'
 import { useTaskStore } from '@/stores'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +28,9 @@ export function RootLayout() {
   const isTasksActive = location.pathname === '/' || location.pathname.startsWith('/tasks')
   const isActivityActive = location.pathname.startsWith('/activity')
   const isSettingsActive = location.pathname.startsWith('/settings')
+
+  // Global keyboard shortcuts (Ctrl+N, Escape, g-h / g-a / g-s)
+  useKeyboardShortcuts()
 
   return (
     <SidebarProvider defaultOpen>

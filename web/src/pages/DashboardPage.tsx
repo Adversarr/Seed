@@ -1,5 +1,7 @@
 /**
  * Dashboard page — task list overview with real-time updates.
+ *
+ * Enhanced with streaming status indicators and subtask badges.
  */
 
 import { useEffect, useState } from 'react'
@@ -7,12 +9,14 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, ListTodo, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { timeAgo, truncate } from '@/lib/utils'
-import { useTaskStore } from '@/stores'
+import { useTaskStore, useStreamStore, useRuntimeStore } from '@/stores'
 import { StatusBadge } from '@/components/StatusBadge'
 import { PriorityIcon } from '@/components/PriorityIcon'
 import { CreateTaskDialog } from '@/components/CreateTaskDialog'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Shimmer } from '@/components/ai-elements/shimmer'
+import { SHORTCUT_EVENTS } from '@/hooks/useKeyboardShortcuts'
 import type { TaskView, TaskStatus } from '@/types'
 
 const STATUS_ORDER: TaskStatus[] = ['in_progress', 'awaiting_user', 'open', 'paused', 'done', 'failed', 'canceled']
@@ -30,11 +34,23 @@ export function DashboardPage() {
   const tasks = useTaskStore(s => s.tasks)
   const loading = useTaskStore(s => s.loading)
   const fetchTasks = useTaskStore(s => s.fetchTasks)
+  const streams = useStreamStore(s => s.streams)
+  const fetchRuntime = useRuntimeStore(s => s.fetchRuntime)
   const [showCreate, setShowCreate] = useState(false)
   const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all')
   const navigate = useNavigate()
 
-  useEffect(() => { fetchTasks() }, [fetchTasks])
+  useEffect(() => {
+    fetchTasks()
+    fetchRuntime()
+  }, [fetchTasks, fetchRuntime])
+
+  // Listen for Ctrl+N shortcut
+  useEffect(() => {
+    const onNewTask = () => setShowCreate(true)
+    window.addEventListener(SHORTCUT_EVENTS.NEW_TASK, onNewTask)
+    return () => window.removeEventListener(SHORTCUT_EVENTS.NEW_TASK, onNewTask)
+  }, [])
 
   const filtered = sortTasks(
     filter === 'all' ? tasks
@@ -111,6 +127,10 @@ export function DashboardPage() {
                 )}
               </div>
               <StatusBadge status={task.status} />
+              {/* Show streaming indicator for tasks with active output */}
+              {streams[task.taskId] && !streams[task.taskId]!.completed && (
+                <Shimmer className="h-3">streaming</Shimmer>
+              )}
               <span className="text-xs text-zinc-600 w-16 text-right shrink-0">{timeAgo(task.updatedAt)}</span>
             </button>
           ))}

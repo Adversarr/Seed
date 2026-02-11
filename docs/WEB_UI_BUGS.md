@@ -492,3 +492,297 @@ Related Issues:
 
 *Report compiled from code review session - all bugs verified against codebase at commit 49ede2c*
 *Status verification completed: 2026-02-11*
+
+---
+
+# 🔍 Code Review Findings (2026-02-11)
+
+Additional findings from comprehensive code review of the `web/` directory focusing on:
+- Tailwind CSS v4 + shadcn/ui integration
+- React 19 best practices
+- Architecture and code quality
+- Performance and accessibility
+
+---
+
+## 🔴 Critical Issues (Must Fix)
+
+### CR-1. Tailwind CSS v4/v3 Hybrid Configuration ❌
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**Files:**
+- `web/src/index.css`
+- `web/tailwind.config.cjs`
+- `web/package.json`
+
+**Problem:**
+Project uses Tailwind v4 (4.1.11) but retains v3 configuration patterns:
+
+```css
+/* index.css - Using v3 @config directive in v4 */
+@config "../tailwind.config.cjs";
+@import "tailwindcss";
+```
+
+This creates a hybrid configuration that:
+1. Uses Tailwind v4's CSS-first config (`@import "tailwindcss"`)
+2. But pulls in v3's JS config via `@config`
+3. The `tailwind.config.cjs` uses v3 plugin API (`plugins: [require('tailwindcss-animate')]`)
+
+**Risk:**
+- Future Tailwind v4 updates may break this hybrid setup
+- Plugins may behave unpredictably between v3 and v4
+- Build performance may suffer from double-processing
+
+**Recommendation:**
+1. Migrate fully to Tailwind v4 CSS-first configuration
+2. Move theme customizations to `index.css` using `@theme` directive
+3. Remove `tailwind.config.cjs` entirely
+4. Update `postcss.config.js` if needed
+
+---
+
+### CR-2. Missing Error Boundary ❌
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**Files:**
+- `web/src/main.tsx`
+- `web/src/App.tsx`
+
+**Problem:**
+The application has no React Error Boundary. If any component crashes, the entire app shows a blank white screen ("white screen of death").
+
+**Current Code:**
+```tsx
+// main.tsx
+<StrictMode>
+  <App />
+</StrictMode>
+```
+
+**Impact:**
+- Users see blank screen on any JS error
+- No way to recover gracefully
+- Poor user experience
+- Harder to debug in production
+
+**Recommendation:**
+Add a comprehensive Error Boundary that catches errors and displays a user-friendly fallback UI with options to reload or retry.
+
+---
+
+## 🟡 Medium Priority Issues
+
+### MED-1. Zustand Store Coupling ⚠️
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**File:** `web/src/stores/connectionStore.ts:25-31`
+
+**Problem:**
+The connection store directly imports and calls methods from other stores:
+
+```typescript
+const ws = new WsService({
+  onEvent: (event) => {
+    useTaskStore.getState().applyEvent(event)
+  },
+  onUiEvent: (event) => {
+    useStreamStore.getState().handleUiEvent(event)
+  },
+})
+```
+
+This creates tight coupling between stores, making it hard to:
+- Test stores in isolation
+- Change one store without affecting others
+- Understand data flow
+
+**Recommendation:**
+Use an event-driven approach or move WebSocket event handling to component level.
+
+---
+
+### MED-2. Missing Code Splitting ⚠️
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**File:** `web/src/App.tsx`
+
+**Problem:**
+All page components are imported synchronously:
+
+```typescript
+import { DashboardPage } from '@/pages/DashboardPage'
+import { TaskDetailPage } from '@/pages/TaskDetailPage'
+import { ActivityPage } from '@/pages/ActivityPage'
+import { SettingsPage } from '@/pages/SettingsPage'
+```
+
+This means all page code is bundled together in a single JavaScript file, increasing initial load time.
+
+**Recommendation:**
+Use React.lazy for route-based code splitting with Suspense fallback.
+
+---
+
+### MED-3. WebSocket URL Construction Issue ⚠️
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**File:** `web/src/services/ws.ts:36-37`
+
+**Problem:**
+WebSocket URL is constructed using string interpolation:
+
+```typescript
+const url = `${protocol}//${location.host}/ws?token=${token}`
+```
+
+If `token` contains special characters (like `+`, `&`, `=` which can appear in JWT), the URL becomes malformed or the token is misinterpreted.
+
+**Recommendation:**
+Use `URLSearchParams` for proper encoding:
+
+```typescript
+const params = new URLSearchParams({ token })
+const url = `${protocol}//${location.host}/ws?${params.toString()}`
+```
+
+---
+
+### MED-4. Accessibility (a11y) Concerns ⚠️
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**Files:**
+- `web/src/pages/DashboardPage.tsx:94`
+- Various UI components
+
+**Problems:**
+
+1. **Button-within-button pattern in DashboardPage:**
+This creates a large clickable area with complex children, which can be confusing for screen readers.
+
+2. **Color contrast issues:** The dark theme uses many zinc shades (e.g., `text-zinc-500` on `bg-zinc-900`), which may not meet WCAG AA contrast requirements.
+
+3. **Missing ARIA labels on some interactive elements**
+
+**Recommendations:**
+- Use semantic HTML with proper ARIA labels
+- Add a11y testing tools like `axe-core`
+- Review color contrast with WebAIM Contrast Checker
+
+---
+
+### MED-5. React 19 forwardRef Antipattern ⚠️
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**Files:** All shadcn/ui components
+
+**Problem:**
+All shadcn/ui components use `React.forwardRef`:
+
+```typescript
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    // ...
+  }
+)
+```
+
+React 19 (which this project uses) introduces a new ref system where refs can be passed as regular props, eliminating the need for `forwardRef`.
+
+**Impact:**
+- Not a breaking issue - `forwardRef` still works in React 19
+- But it's now legacy code
+- Missing out on cleaner component definitions
+
+**Priority:** Low - This is tech debt, not a bug. Can be done incrementally.
+
+---
+
+## 🟢 Low Priority Issues
+
+### LOW-1. CSS Variable Duplication
+
+**Status:** ⚠️ **STILL PRESENT**
+
+**File:** `web/src/index.css`
+
+**Problem:**
+The CSS file defines two sets of variables that aren't connected:
+
+```css
+:root {
+  /* Custom color system */
+  --color-bg: #09090b;
+  --color-surface: #18181b;
+  --color-border: #3f3f46;
+  /* ... more custom colors */
+
+  /* shadcn/ui standard variables */
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --border: 240 5% 26%;
+  /* ... more shadcn variables */
+}
+```
+
+These two systems exist independently, leading to:
+1. Confusion about which to use
+2. Potential inconsistencies if colors drift apart
+3. Extra CSS bundle size
+
+**Recommendation:**
+Consolidate to one system. If staying with shadcn/ui (recommended), map custom colors to standard variables.
+
+---
+
+### LOW-2. Shiki Syntax Highlighter Caching
+
+**Status:** ✅ **GOOD IMPLEMENTATION**
+
+**File:** `web/src/components/ai-elements/code-block.tsx`
+
+**Observation:**
+The code already implements sophisticated caching for Shiki highlighters:
+
+```typescript
+// Highlighter cache (singleton per language)
+const highlighterCache = new Map<string, Promise<HighlighterGeneric<...>>>();
+
+// Token cache
+const tokensCache = new Map<string, TokenizedCode>();
+
+// Subscribers for async token updates
+const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
+```
+
+This is a well-designed caching layer that:
+1. Reuses highlighter instances per language
+2. Caches tokenized results
+3. Supports async subscription pattern for highlight results
+
+**No action needed** - this is good code.
+
+---
+
+## Summary
+
+| Category | Issue | Status | Priority |
+|----------|-------|--------|----------|
+| Configuration | CR-1: Tailwind v4/v3 hybrid | ⚠️ Present | 🔴 Critical |
+| Reliability | CR-2: Missing Error Boundary | ⚠️ Present | 🔴 Critical |
+| Architecture | MED-1: Zustand store coupling | ⚠️ Present | 🟡 Medium |
+| Performance | MED-2: Missing code splitting | ⚠️ Present | 🟡 Medium |
+| Security/Reliability | MED-3: WebSocket URL encoding | ⚠️ Present | 🟡 Medium |
+| Accessibility | MED-4: a11y concerns | ⚠️ Present | 🟡 Medium |
+| Code Quality | MED-5: React 19 forwardRef | ⚠️ Present | 🟡 Medium |
+| Code Quality | LOW-1: CSS variable duplication | ⚠️ Present | 🟢 Low |
+| Performance | LOW-2: Shiki caching | ✅ Good | 🟢 Low |
+
+**Total New Findings: 10** | **Critical: 2** | **Medium: 5** | **Low: 2** | **Good: 1**

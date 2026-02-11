@@ -222,6 +222,11 @@ export class CoAuthorWsServer {
   }
 
   #authenticate(req: IncomingMessage): boolean {
+    // Bypass auth for localhost connections (server only binds 127.0.0.1 by default)
+    const remoteAddr = req.socket?.remoteAddress
+    if (remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1') {
+      return true
+    }
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     return url.searchParams.get('token') === this.#deps.authToken
   }

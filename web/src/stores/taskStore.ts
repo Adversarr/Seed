@@ -1,10 +1,13 @@
 /**
  * Task store — client-side projection of tasks from events.
+ *
+ * Subscribes to eventBus for real-time updates (decoupled from connectionStore).
  */
 
 import { create } from 'zustand'
 import type { TaskView, StoredEvent } from '@/types'
 import { api } from '@/services/api'
+import { eventBus } from './eventBus'
 
 interface TaskState {
   tasks: TaskView[]
@@ -109,3 +112,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 }))
+
+// Subscribe to eventBus — decoupled from connectionStore
+eventBus.on('domain-event', (event) => {
+  useTaskStore.getState().applyEvent(event)
+})

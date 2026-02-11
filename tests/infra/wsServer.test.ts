@@ -99,22 +99,26 @@ describe('CoAuthorWsServer', () => {
 
   // ── Auth ──
 
-  it('rejects connection with invalid token', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=wrong`)
-    await new Promise<void>((resolve) => {
-      ws.on('error', () => resolve())
-      ws.on('close', () => resolve())
+  it('accepts localhost connection without token (auth bypass)', async () => {
+    // Server binds 127.0.0.1 — all test connections are from localhost,
+    // so the localhost auth bypass allows connections without any token.
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve())
+      ws.on('error', reject)
     })
-    expect(ws.readyState).not.toBe(WebSocket.OPEN)
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
   })
 
-  it('rejects connection without token', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
-    await new Promise<void>((resolve) => {
-      ws.on('error', () => resolve())
-      ws.on('close', () => resolve())
+  it('accepts localhost connection even with wrong token (auth bypass)', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=wrong`)
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve())
+      ws.on('error', reject)
     })
-    expect(ws.readyState).not.toBe(WebSocket.OPEN)
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
   })
 
   it('accepts connection with valid token', async () => {

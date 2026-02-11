@@ -26,6 +26,9 @@ import type { App } from '../../interfaces/app/createApp.js'
 // Types
 // ============================================================================
 
+/** Default port for the CoAuthor dev server. Matches Vite proxy in web/vite.config.ts. */
+export const DEFAULT_PORT = 3120
+
 export interface ServerOptions {
   port?: number
   host?: string
@@ -46,7 +49,7 @@ export class CoAuthorServer {
   constructor(app: App, opts: ServerOptions) {
     this.#app = app
     this.#opts = {
-      port: opts.port ?? 0, // 0 = OS picks a free port
+      port: opts.port ?? DEFAULT_PORT,
       host: opts.host ?? '127.0.0.1',
       authToken: opts.authToken,
     }
@@ -95,6 +98,11 @@ export class CoAuthorServer {
       const headers = new Headers()
       for (const [key, val] of Object.entries(req.headers)) {
         if (val) headers.set(key, Array.isArray(val) ? val.join(', ') : val)
+      }
+      // Forward the actual remote address so Hono middleware can check it
+      // (the Request object doesn't carry socket info).
+      if (req.socket.remoteAddress) {
+        headers.set('x-remote-address', req.socket.remoteAddress)
       }
 
       let body: Buffer | undefined

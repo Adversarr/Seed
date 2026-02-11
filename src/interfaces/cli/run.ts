@@ -58,7 +58,7 @@ export async function runCli(opts: {
     printToken?: boolean
   }): Promise<{ started: boolean; url: string; token: string }> => {
     const host = opts?.host ?? '127.0.0.1'
-    const port = opts?.port
+    const port = opts?.port  // undefined → CoAuthorServer defaults to DEFAULT_PORT (3120)
     const printToken = opts?.printToken ?? false
 
     const d = await getDiscovery()

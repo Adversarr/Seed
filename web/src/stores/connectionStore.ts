@@ -1,11 +1,13 @@
 /**
  * Connection store — tracks WebSocket connection status and manages lifecycle.
+ *
+ * Publishes events to the eventBus instead of calling stores directly.
+ * Individual stores subscribe to the bus independently.
  */
 
 import { create } from 'zustand'
 import { WsService, type ConnectionStatus } from '@/services/ws'
-import { useTaskStore } from './taskStore'
-import { useStreamStore } from './streamStore'
+import { eventBus } from './eventBus'
 
 interface ConnectionState {
   status: ConnectionStatus
@@ -23,12 +25,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     const ws = new WsService({
       onStatusChange: (status) => set({ status }),
-      onEvent: (event) => {
-        useTaskStore.getState().applyEvent(event)
-      },
-      onUiEvent: (event) => {
-        useStreamStore.getState().handleUiEvent(event)
-      },
+      onEvent: (event) => eventBus.emit('domain-event', event),
+      onUiEvent: (event) => eventBus.emit('ui-event', event),
     })
     set({ wsService: ws })
     ws.connect()

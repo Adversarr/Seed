@@ -1,13 +1,14 @@
 /**
- * Settings page — connection settings and configuration.
+ * Settings page — connection settings, keyboard shortcuts, and runtime info.
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useConnectionStore } from '@/stores'
+import { useConnectionStore, useRuntimeStore } from '@/stores'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Kbd } from '@/components/Kbd'
 
 export function SettingsPage() {
   const status = useConnectionStore(s => s.status)
@@ -83,6 +84,75 @@ export function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Keyboard Shortcuts */}
+      <Card className="max-w-md bg-zinc-950/40">
+        <CardHeader>
+          <CardTitle>Keyboard Shortcuts</CardTitle>
+          <CardDescription>Navigate quickly with vim-style shortcuts.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-2 text-sm">
+            <ShortcutRow keys={['⌘', 'N']} desc="New task" />
+            <ShortcutRow keys={['Esc']} desc="Go back" />
+            <ShortcutRow keys={['g', 'h']} desc="Go to dashboard" />
+            <ShortcutRow keys={['g', 'a']} desc="Go to activity" />
+            <ShortcutRow keys={['g', 's']} desc="Go to settings" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Runtime Info */}
+      <RuntimeInfoCard />
     </div>
+  )
+}
+
+function ShortcutRow({ keys, desc }: { keys: string[]; desc: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-zinc-400">{desc}</span>
+      <div className="flex items-center gap-1">
+        {keys.map((k, i) => (
+          <Kbd key={i}>{k}</Kbd>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RuntimeInfoCard() {
+  const agents = useRuntimeStore(s => s.agents)
+  const fetchRuntime = useRuntimeStore(s => s.fetchRuntime)
+  const defaultAgentId = useRuntimeStore(s => s.defaultAgentId)
+
+  useEffect(() => { fetchRuntime() }, [fetchRuntime])
+
+  return (
+    <Card className="max-w-md bg-zinc-950/40">
+      <CardHeader>
+        <CardTitle>Runtime</CardTitle>
+        <CardDescription>Connected agent information.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {agents.length === 0 ? (
+          <p className="text-xs text-zinc-500 italic">No agents registered.</p>
+        ) : (
+          <div className="space-y-2">
+            {agents.map(a => (
+              <div key={a.id} className="flex items-center gap-2 text-sm">
+                <span className="text-zinc-300">{a.displayName ?? a.id}</span>
+                {a.id === defaultAgentId && (
+                  <span className="text-[10px] text-violet-400 bg-violet-950/40 px-1.5 rounded">default</span>
+                )}
+                {a.description && (
+                  <span className="text-xs text-zinc-600 truncate">{a.description}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

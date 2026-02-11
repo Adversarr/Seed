@@ -119,6 +119,13 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
       await next()
       return
     }
+    // Bypass auth for localhost connections (server only binds 127.0.0.1 by default).
+    // The enclosing http.Server sets X-Remote-Address from req.socket.remoteAddress.
+    const remoteAddr = c.req.header('x-remote-address')
+    if (remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1') {
+      await next()
+      return
+    }
     const header = c.req.header('Authorization')
     if (header === `Bearer ${deps.authToken}`) {
       await next()

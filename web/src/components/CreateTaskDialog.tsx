@@ -1,5 +1,7 @@
 /**
  * CreateTaskDialog — modal form for creating a new task.
+ *
+ * Includes agent selection from runtime store.
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
@@ -9,6 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { AgentSelector } from '@/components/AgentSelector'
 
 interface Props {
   open: boolean
@@ -19,6 +22,7 @@ interface Props {
 export function CreateTaskDialog({ open, onClose, onCreated }: Props) {
   const [title, setTitle] = useState('')
   const [intent, setIntent] = useState('')
+  const [agentId, setAgentId] = useState<string | undefined>()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -39,7 +43,11 @@ export function CreateTaskDialog({ open, onClose, onCreated }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const { taskId } = await api.createTask({ title: title.trim(), intent: intent.trim() || undefined })
+      const { taskId } = await api.createTask({
+        title: title.trim(),
+        intent: intent.trim() || undefined,
+        agentId: agentId || undefined,
+      })
       onCreated?.(taskId)
       onClose()
     } catch (e) {
@@ -87,6 +95,11 @@ export function CreateTaskDialog({ open, onClose, onCreated }: Props) {
               placeholder="Additional context or instructions…"
               rows={3}
             />
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Agent</Label>
+            <AgentSelector value={agentId} onChange={setAgentId} />
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
