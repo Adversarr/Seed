@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
-import { runProjection } from '../src/application/projector.js'
-import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
-import type { StoredEvent } from '../src/domain/events.js'
+import { JsonlEventStore } from '../src/infrastructure/persistence/jsonlEventStore.js'
+import { runProjection } from '../src/application/projections/projector.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/core/entities/actor.js'
+import type { StoredEvent } from '../src/core/events/events.js'
 
 // Use TaskService's projection instead of the deprecated one
 type DeprecatedTasksProjectionState = {

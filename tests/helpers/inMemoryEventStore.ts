@@ -6,7 +6,7 @@
  */
 
 import { Subject } from 'rxjs'
-import type { EventStore, DomainEvent, StoredEvent } from '../../src/domain/index.js'
+import type { EventStore, DomainEvent, StoredEvent } from '../../src/core/index.js'
 
 export class InMemoryEventStore implements EventStore {
   private events: StoredEvent[] = []

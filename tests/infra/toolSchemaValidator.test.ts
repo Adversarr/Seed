@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { validateToolArgs } from '../../src/infra/toolSchemaValidator.js'
-import type { ToolParametersSchema } from '../../src/domain/ports/tool.js'
+import { validateToolArgs } from '../../src/infrastructure/tools/toolSchemaValidator.js'
+import type { ToolParametersSchema } from '../../src/core/ports/tool.js'
 
 describe('validateToolArgs (B5)', () => {
   const schema: ToolParametersSchema = {

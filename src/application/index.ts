@@ -1,12 +1,12 @@
 /**
  * Application Layer Index
  *
- * Re-exports all application services.
+ * Re-exports all application services and projections.
  */
 
-export * from './taskService.js'
-export * from './eventService.js'
-export * from './contextBuilder.js'
-export * from './interactionService.js'
-export * from './auditService.js'
-export * from './projector.js'
+export * from './services/taskService.js'
+export * from './services/eventService.js'
+export * from './services/interactionService.js'
+export * from './services/auditService.js'
+export * from './projections/projector.js'
+export * from './context/contextBuilder.js'

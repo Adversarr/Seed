@@ -7,8 +7,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer, type Server } from 'node:http'
-import { discoverMaster } from '../../src/infra/master/discovery.js'
-import { writeLockFile, lockFilePath } from '../../src/infra/master/lockFile.js'
+import { discoverMaster } from '../../src/infrastructure/master/discovery.js'
+import { writeLockFile, lockFilePath } from '../../src/infrastructure/master/lockFile.js'
 
 describe('Master Discovery', () => {
   let tmpDir: string

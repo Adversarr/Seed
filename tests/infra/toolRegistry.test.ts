@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { DefaultToolRegistry } from '../../src/infra/toolRegistry.js'
-import { FilteredToolRegistry, createFilteredRegistry } from '../../src/infra/filteredToolRegistry.js'
-import type { Tool, ToolGroup } from '../../src/domain/ports/tool.js'
+import { DefaultToolRegistry } from '../../src/infrastructure/tools/toolRegistry.js'
+import { FilteredToolRegistry, createFilteredRegistry } from '../../src/infrastructure/tools/filteredToolRegistry.js'
+import type { Tool, ToolGroup } from '../../src/core/ports/tool.js'
 
 function createTool(name: string, group: ToolGroup): Tool {
   return {

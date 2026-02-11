@@ -2,10 +2,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { ContextBuilder } from '../src/application/contextBuilder.js'
-import { FsArtifactStore } from '../src/infra/fsArtifactStore.js'
-import type { TaskView } from '../src/application/taskService.js'
-import { DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+import { ContextBuilder } from '../src/application/context/contextBuilder.js'
+import { FsArtifactStore } from '../src/infrastructure/filesystem/fsArtifactStore.js'
+import type { TaskView } from '../src/application/services/taskService.js'
+import { DEFAULT_USER_ACTOR_ID } from '../src/core/entities/actor.js'
 
 function createTestTask(overrides: Partial<TaskView> = {}): TaskView {
   return {

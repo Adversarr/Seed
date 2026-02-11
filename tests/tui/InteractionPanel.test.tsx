@@ -1,8 +1,8 @@
 import React from 'react'
 import { render } from 'ink-testing-library'
 import { describe, it, expect, vi } from 'vitest'
-import { InteractionPanel } from '../../src/tui/components/InteractionPanel.js'
-import type { UserInteractionRequestedPayload } from '../../src/domain/events.js'
+import { InteractionPanel } from '../../src/interfaces/tui/components/InteractionPanel.js'
+import type { UserInteractionRequestedPayload } from '../../src/core/events/events.js'
 
 describe('InteractionPanel', () => {
   it('renders Diff view correctly', () => {

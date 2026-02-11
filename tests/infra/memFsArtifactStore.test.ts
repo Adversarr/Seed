@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { vol } from 'memfs'
 import { join } from 'node:path'
-import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
+import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
 
 // Tell vitest to mock 'fs' with memfs if we were doing module mocking, 
 // but here we are using MemFsArtifactStore which directly imports from memfs.

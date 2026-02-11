@@ -3,12 +3,12 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createHttpApp, type HttpAppDeps } from '../../src/infra/http/httpServer.js'
+import { createHttpApp, type HttpAppDeps } from '../../src/infrastructure/servers/http/httpServer.js'
 import { InMemoryEventStore } from '../helpers/inMemoryEventStore.js'
-import { TaskService } from '../../src/application/taskService.js'
-import { EventService } from '../../src/application/eventService.js'
-import { InteractionService } from '../../src/application/interactionService.js'
-import { AuditService } from '../../src/application/auditService.js'
+import { TaskService } from '../../src/application/services/taskService.js'
+import { EventService } from '../../src/application/services/eventService.js'
+import { InteractionService } from '../../src/application/services/interactionService.js'
+import { AuditService } from '../../src/application/services/auditService.js'
 
 // ── Mock Factories ──
 

@@ -8,7 +8,7 @@ import {
   serializeServerMessage,
   ClientMessageSchema,
   type ServerMessage,
-} from '../../src/infra/ws/protocol.js'
+} from '../../src/infrastructure/servers/ws/protocol.js'
 
 describe('WS Protocol', () => {
   describe('parseClientMessage', () => {

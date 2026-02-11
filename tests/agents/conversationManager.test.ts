@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { ConversationManager } from '../../src/agents/conversationManager.js'
-import type { LLMMessage } from '../../src/domain/ports/llmClient.js'
-import type { ToolCallRequest } from '../../src/domain/ports/tool.js'
+import { ConversationManager } from '../../src/agents/orchestration/conversationManager.js'
+import type { LLMMessage } from '../../src/core/ports/llmClient.js'
+import type { ToolCallRequest } from '../../src/core/ports/tool.js'
 
 describe('ConversationManager', () => {
   // Minimal mock setup

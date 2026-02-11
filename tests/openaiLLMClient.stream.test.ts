@@ -24,7 +24,7 @@ async function* createStreamParts(parts: Array<Record<string, unknown>>): AsyncG
 
 describe('OpenAILLMClient.stream', () => {
   it('should call onChunk with reasoning and tool-call deltas, then return assembled LLMResponse', async () => {
-    const { OpenAILLMClient } = await import('../src/infra/openaiLLMClient.js')
+    const { OpenAILLMClient } = await import('../src/infrastructure/llm/openaiLLMClient.js')
 
     streamTextMock.mockResolvedValueOnce({
       fullStream: createStreamParts([
@@ -89,7 +89,7 @@ describe('OpenAILLMClient.stream', () => {
   })
 
   it('should delegate to complete() when no onChunk callback is provided', async () => {
-    const { OpenAILLMClient } = await import('../src/infra/openaiLLMClient.js')
+    const { OpenAILLMClient } = await import('../src/infrastructure/llm/openaiLLMClient.js')
 
     generateTextMock.mockResolvedValueOnce({
       text: 'answer',

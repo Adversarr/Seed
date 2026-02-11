@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { ToolDefinition } from '../src/domain/ports/tool.js'
+import type { ToolDefinition } from '../src/core/ports/tool.js'
 
 const jsonSchemaMock = vi.fn((schema: unknown) => ({ schema }))
 
@@ -9,7 +9,7 @@ vi.mock('ai', () => ({
 
 describe('toolSchemaAdapter', () => {
   it('auto strategy uses Zod for simple schema and jsonSchema for complex schema', async () => {
-    const { convertToolDefinitionsToAISDKTools } = await import('../src/infra/toolSchemaAdapter.js')
+    const { convertToolDefinitionsToAISDKTools } = await import('../src/infrastructure/tools/toolSchemaAdapter.js')
 
     jsonSchemaMock.mockClear()
 
@@ -48,7 +48,7 @@ describe('toolSchemaAdapter', () => {
   })
 
   it('zod strategy never calls jsonSchema', async () => {
-    const { convertToolDefinitionsToAISDKTools } = await import('../src/infra/toolSchemaAdapter.js')
+    const { convertToolDefinitionsToAISDKTools } = await import('../src/infrastructure/tools/toolSchemaAdapter.js')
 
     jsonSchemaMock.mockClear()
 
@@ -75,7 +75,7 @@ describe('toolSchemaAdapter', () => {
   })
 
   it('jsonschema strategy always calls jsonSchema', async () => {
-    const { convertToolDefinitionsToAISDKTools } = await import('../src/infra/toolSchemaAdapter.js')
+    const { convertToolDefinitionsToAISDKTools } = await import('../src/infrastructure/tools/toolSchemaAdapter.js')
 
     jsonSchemaMock.mockClear()
 
@@ -112,7 +112,7 @@ describe('toolSchemaAdapter', () => {
   })
 
   it('auto strategy falls back to Zod when jsonSchema throws', async () => {
-    const { convertToolDefinitionsToAISDKTools } = await import('../src/infra/toolSchemaAdapter.js')
+    const { convertToolDefinitionsToAISDKTools } = await import('../src/infrastructure/tools/toolSchemaAdapter.js')
 
     jsonSchemaMock.mockReset()
     jsonSchemaMock.mockImplementationOnce(() => {
@@ -143,7 +143,7 @@ describe('toolSchemaAdapter', () => {
   })
 
   it('isComplexToolParameters detects nested arrays', async () => {
-    const { isComplexToolParameters } = await import('../src/infra/toolSchemaAdapter.js')
+    const { isComplexToolParameters } = await import('../src/infrastructure/tools/toolSchemaAdapter.js')
 
     const schema: ToolDefinition['parameters'] = {
       type: 'object',

@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
-import { handleCommand } from '../../src/tui/commands.js'
-import type { CommandContext } from '../../src/tui/commands.js'
-import type { App } from '../../src/app/createApp.js'
-import type { LLMProfile } from '../../src/domain/ports/llmClient.js'
+import { handleCommand } from '../../src/interfaces/tui/commands.js'
+import type { CommandContext } from '../../src/interfaces/tui/commands.js'
+import type { App } from '../../src/interfaces/app/createApp.js'
+import type { LLMProfile } from '../../src/core/ports/llmClient.js'
 
 describe('tui/commands', () => {
   function createContext(partialApp: Partial<App>, overrides: Partial<CommandContext> = {}) {

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { vol } from 'memfs'
 import { join } from 'node:path'
-import { editFileTool } from '../../src/infra/tools/editFile.js'
-import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
+import { editFileTool } from '../../src/infrastructure/tools/editFile.js'
+import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
 
 describe('editFileTool', () => {
   const baseDir = '/test-workspace'

@@ -7,8 +7,8 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { vol } from 'memfs'
-import { grepTool } from '../../src/infra/tools/grepTool.js'
-import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
+import { grepTool } from '../../src/infrastructure/tools/grepTool.js'
+import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
 
 const mockExecFile = vi.fn()
 vi.mock('node:child_process', () => ({

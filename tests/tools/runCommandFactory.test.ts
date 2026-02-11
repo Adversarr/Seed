@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createRunCommandTool } from '../../src/infra/tools/runCommand.js'
+import { createRunCommandTool } from '../../src/infrastructure/tools/runCommand.js'
 import { EventEmitter } from 'node:events'
 
 function mockChildProcess() {

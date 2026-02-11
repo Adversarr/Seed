@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { runCommandTool } from '../../src/infra/tools/runCommand.js'
+import { runCommandTool } from '../../src/infrastructure/tools/runCommand.js'
 import { EventEmitter } from 'node:events'
 
 // Helper: create a minimal mock ChildProcess (EventEmitter with .kill())

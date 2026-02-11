@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toolFormatters, formatToolPayload, formatToolOutput, formatToolInput } from '../src/utils/toolFormatters.js'
+import { toolFormatters, formatToolPayload, formatToolOutput, formatToolInput } from '../src/shared/toolFormatters.js'
 
 describe('toolFormatters.listFiles', () => {
   it('formats path + count when provided', () => {

@@ -5,7 +5,7 @@ import {
   DEFAULT_USER_ACTOR_ID,
   DEFAULT_AGENT_ACTOR_ID,
   ActorSchema
-} from '../../src/domain/actor.js'
+} from '../../src/core/entities/actor.js'
 
 describe('Actor Domain', () => {
   describe('createUserActor', () => {

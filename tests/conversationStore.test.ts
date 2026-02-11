@@ -2,8 +2,8 @@ import { describe, expect, test, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { JsonlConversationStore } from '../src/infra/jsonlConversationStore.js'
-import type { LLMMessage } from '../src/domain/ports/llmClient.js'
+import { JsonlConversationStore } from '../src/infrastructure/persistence/jsonlConversationStore.js'
+import type { LLMMessage } from '../src/core/ports/llmClient.js'
 
 describe('ConversationStore', () => {
   let dir: string

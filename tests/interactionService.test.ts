@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { nanoid } from 'nanoid'
-import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
-import { InteractionService } from '../src/application/interactionService.js'
+import { JsonlEventStore } from '../src/infrastructure/persistence/jsonlEventStore.js'
+import { InteractionService } from '../src/application/services/interactionService.js'
 
 describe('InteractionService', () => {
   let baseDir: string

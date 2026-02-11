@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { vol } from 'memfs'
-import { listFilesTool } from '../../src/infra/tools/listFiles.js'
-import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
+import { listFilesTool } from '../../src/infrastructure/tools/listFiles.js'
+import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
 
 describe('listFilesTool', () => {
   const baseDir = '/test-workspace'

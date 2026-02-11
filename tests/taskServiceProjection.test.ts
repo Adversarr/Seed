@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
-import { TaskService } from '../src/application/taskService.js'
-import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
+import { JsonlEventStore } from '../src/infrastructure/persistence/jsonlEventStore.js'
+import { TaskService } from '../src/application/services/taskService.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/core/entities/actor.js'
 
 describe('TaskService projection checkpoint', () => {
   test('listTasks uses and advances projection cursor', async () => {

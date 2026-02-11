@@ -13,7 +13,7 @@ import {
   isProcessAlive,
   lockFilePath,
   type LockFileData,
-} from '../../src/infra/master/lockFile.js'
+} from '../../src/infrastructure/master/lockFile.js'
 
 describe('Lock File', () => {
   let tmpDir: string

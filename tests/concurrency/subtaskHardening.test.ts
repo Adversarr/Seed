@@ -7,8 +7,8 @@
 
 import { describe, expect, test, vi } from 'vitest'
 import { InMemoryEventStore } from '../helpers/inMemoryEventStore.js'
-import { TaskService } from '../../src/application/taskService.js'
-import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../../src/domain/actor.js'
+import { TaskService } from '../../src/application/services/taskService.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../../src/core/entities/actor.js'
 
 // ---------------------------------------------------------------------------
 // Shared helpers

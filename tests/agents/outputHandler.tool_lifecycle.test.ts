@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { OutputHandler } from '../../src/agents/outputHandler.js'
-import type { Tool, ToolContext } from '../../src/domain/ports/tool.js'
-import type { ToolRegistry } from '../../src/domain/ports/tool.js'
-import type { ToolExecutor } from '../../src/domain/ports/tool.js'
+import { OutputHandler } from '../../src/agents/orchestration/outputHandler.js'
+import type { Tool, ToolContext } from '../../src/core/ports/tool.js'
+import type { ToolRegistry } from '../../src/core/ports/tool.js'
+import type { ToolExecutor } from '../../src/core/ports/tool.js'
 
 describe('OutputHandler Tool Lifecycle', () => {
   let handler: OutputHandler

@@ -2,17 +2,17 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
-import { JsonlEventStore } from '../src/infra/jsonlEventStore.js'
-import { JsonlAuditLog } from '../src/infra/jsonlAuditLog.js'
-import { JsonlConversationStore } from '../src/infra/jsonlConversationStore.js'
-import { TaskService } from '../src/application/taskService.js'
-import { InteractionService } from '../src/application/interactionService.js'
-import { ContextBuilder } from '../src/application/contextBuilder.js'
-import { RuntimeManager } from '../src/agents/runtimeManager.js'
-import { ConversationManager } from '../src/agents/conversationManager.js'
-import { OutputHandler } from '../src/agents/outputHandler.js'
-import { DefaultCoAuthorAgent } from '../src/agents/defaultAgent.js'
-import { FakeLLMClient } from '../src/infra/fakeLLMClient.js'
+import { JsonlEventStore } from '../src/infrastructure/persistence/jsonlEventStore.js'
+import { JsonlAuditLog } from '../src/infrastructure/persistence/jsonlAuditLog.js'
+import { JsonlConversationStore } from '../src/infrastructure/persistence/jsonlConversationStore.js'
+import { TaskService } from '../src/application/services/taskService.js'
+import { InteractionService } from '../src/application/services/interactionService.js'
+import { ContextBuilder } from '../src/application/context/contextBuilder.js'
+import { RuntimeManager } from '../src/agents/orchestration/runtimeManager.js'
+import { ConversationManager } from '../src/agents/orchestration/conversationManager.js'
+import { OutputHandler } from '../src/agents/orchestration/outputHandler.js'
+import { DefaultCoAuthorAgent } from '../src/agents/implementations/defaultAgent.js'
+import { FakeLLMClient } from '../src/infrastructure/llm/fakeLLMClient.js'
 
 /**
  * Wait for a pending interaction to appear for a task.
@@ -31,13 +31,13 @@ async function waitForPendingInteraction(
   }
   throw new Error(`Timed out waiting for pending interaction on task ${taskId}`)
 }
-import { DefaultToolRegistry } from '../src/infra/toolRegistry.js'
-import { DefaultToolExecutor } from '../src/infra/toolExecutor.js'
-import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/domain/actor.js'
-import type { LLMClient, LLMResponse } from '../src/domain/ports/llmClient.js'
-import type { ToolCallRequest, ToolResult, ToolExecutor } from '../src/domain/ports/tool.js'
+import { DefaultToolRegistry } from '../src/infrastructure/tools/toolRegistry.js'
+import { DefaultToolExecutor } from '../src/infrastructure/tools/toolExecutor.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/core/entities/actor.js'
+import type { LLMClient, LLMResponse } from '../src/core/ports/llmClient.js'
+import type { ToolCallRequest, ToolResult, ToolExecutor } from '../src/core/ports/tool.js'
 
-import type { ArtifactStore } from '../src/domain/ports/artifactStore.js'
+import type { ArtifactStore } from '../src/core/ports/artifactStore.js'
 
 /**
  * Helper to create test infrastructure in a temp directory.

@@ -4,18 +4,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test, afterEach } from 'vitest'
 import { render } from 'ink-testing-library'
-import { FakeLLMClient } from '../src/infra/fakeLLMClient.js'
-import { createApp } from '../src/app/createApp.js'
-import { MainTui } from '../src/tui/main.js'
-import { DEFAULT_USER_ACTOR_ID, DEFAULT_AGENT_ACTOR_ID } from '../src/domain/actor.js'
-import type { App } from '../src/app/createApp.js'
-import type { DomainEvent } from '../src/domain/events.js'
+import { FakeLLMClient } from '../src/infrastructure/llm/fakeLLMClient.js'
+import { createApp } from '../src/interfaces/app/createApp.js'
+import { MainTui } from '../src/interfaces/tui/main.js'
+import { DEFAULT_USER_ACTOR_ID, DEFAULT_AGENT_ACTOR_ID } from '../src/core/entities/actor.js'
+import type { App } from '../src/interfaces/app/createApp.js'
+import type { DomainEvent } from '../src/core/events/events.js'
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-import type { TaskView } from '../src/tui/types.js'
+import type { TaskView } from '../src/interfaces/tui/types.js'
 
 // ============================================================================
 // Helpers
@@ -279,7 +279,7 @@ describe('TUI utils', () => {
   // (functions are tested directly)
   
   test('sortTasksAsTree groups children under parents', async () => {
-    const { sortTasksAsTree } = await import('../src/tui/utils.js')
+    const { sortTasksAsTree } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     const sorted = sortTasksAsTree(tasks)
     const ids = sorted.map(t => t.taskId)
@@ -288,7 +288,7 @@ describe('TUI utils', () => {
   })
 
   test('computeTaskDepths computes correct depths', async () => {
-    const { computeTaskDepths } = await import('../src/tui/utils.js')
+    const { computeTaskDepths } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     const depths = computeTaskDepths(tasks)
     expect(depths.get('r1')).toBe(0)
@@ -299,19 +299,19 @@ describe('TUI utils', () => {
   })
 
   test('buildBreadcrumb returns trail from root to focused', async () => {
-    const { buildBreadcrumb } = await import('../src/tui/utils.js')
+    const { buildBreadcrumb } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     const trail = buildBreadcrumb(tasks, 'gc1')
     expect(trail).toEqual(['Root 1', 'Child 1', 'Grandchild'])
   })
 
   test('buildBreadcrumb returns empty for null focus', async () => {
-    const { buildBreadcrumb } = await import('../src/tui/utils.js')
+    const { buildBreadcrumb } = await import('../src/interfaces/tui/utils.js')
     expect(buildBreadcrumb(makeTasks(), null)).toEqual([])
   })
 
   test('getChildStatusSummary summarizes child statuses', async () => {
-    const { getChildStatusSummary } = await import('../src/tui/utils.js')
+    const { getChildStatusSummary } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     tasks[0].childTaskIds = ['c1', 'c2']
     const summary = getChildStatusSummary(tasks[0], tasks)
@@ -320,19 +320,19 @@ describe('TUI utils', () => {
   })
 
   test('getChildStatusSummary returns empty for no children', async () => {
-    const { getChildStatusSummary } = await import('../src/tui/utils.js')
+    const { getChildStatusSummary } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     expect(getChildStatusSummary(tasks[1], tasks)).toBe('')
   })
 
   test('getTreePrefix returns empty for root tasks', async () => {
-    const { getTreePrefix } = await import('../src/tui/utils.js')
+    const { getTreePrefix } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     expect(getTreePrefix(tasks[0], tasks, 0)).toBe('')
   })
 
   test('getTreePrefix returns connector for subtasks', async () => {
-    const { getTreePrefix } = await import('../src/tui/utils.js')
+    const { getTreePrefix } = await import('../src/interfaces/tui/utils.js')
     const tasks = makeTasks()
     const prefix = getTreePrefix(tasks[2], tasks, 1)
     // Should contain either ├─ or └─
@@ -340,7 +340,7 @@ describe('TUI utils', () => {
   })
 
   test('getStatusLabel returns correct labels', async () => {
-    const { getStatusLabel } = await import('../src/tui/utils.js')
+    const { getStatusLabel } = await import('../src/interfaces/tui/utils.js')
     expect(getStatusLabel('in_progress')).toBe('RUNNING')
     expect(getStatusLabel('awaiting_user')).toBe('WAITING')
     expect(getStatusLabel('done')).toBe('DONE')

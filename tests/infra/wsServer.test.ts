@@ -6,9 +6,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { WebSocket } from 'ws'
 import { Subject } from 'rxjs'
-import { CoAuthorWsServer, type WsServerDeps } from '../../src/infra/ws/wsServer.js'
-import type { StoredEvent } from '../../src/domain/events.js'
-import type { UiEvent } from '../../src/domain/ports/uiBus.js'
+import { CoAuthorWsServer, type WsServerDeps } from '../../src/infrastructure/servers/ws/wsServer.js'
+import type { StoredEvent } from '../../src/core/events/events.js'
+import type { UiEvent } from '../../src/core/ports/uiBus.js'
 
 // ── Helpers ──
 

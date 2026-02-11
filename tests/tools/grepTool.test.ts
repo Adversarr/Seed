@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { vol } from 'memfs'
-import { grepTool } from '../../src/infra/tools/grepTool.js'
-import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
+import { grepTool } from '../../src/infrastructure/tools/grepTool.js'
+import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
 
 // Mock execFile (B2: switched from exec to execFile for safety)
 const mockExecFile = vi.fn()

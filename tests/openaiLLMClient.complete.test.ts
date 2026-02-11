@@ -18,7 +18,7 @@ vi.mock('ai', () => ({
 
 describe('OpenAILLMClient.complete', () => {
   it('should map reasoningText into LLMResponse.reasoning', async () => {
-    const { OpenAILLMClient } = await import('../src/infra/openaiLLMClient.js')
+    const { OpenAILLMClient } = await import('../src/infrastructure/llm/openaiLLMClient.js')
 
     generateTextMock.mockResolvedValueOnce({
       text: 'hello',
@@ -49,7 +49,7 @@ describe('OpenAILLMClient.complete', () => {
   })
 
   it('should include assistant reasoning and tool-call input when sending history to AI SDK', async () => {
-    const { OpenAILLMClient } = await import('../src/infra/openaiLLMClient.js')
+    const { OpenAILLMClient } = await import('../src/infrastructure/llm/openaiLLMClient.js')
 
     generateTextMock.mockResolvedValueOnce({
       text: 'ok',

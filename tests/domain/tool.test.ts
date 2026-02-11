@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ToolCallRequestSchema, ToolResultSchema } from '../../src/domain/ports/tool.js'
+import { ToolCallRequestSchema, ToolResultSchema } from '../../src/core/ports/tool.js'
 
 describe('Tool schemas', () => {
   test('ToolCallRequestSchema parses valid requests', () => {

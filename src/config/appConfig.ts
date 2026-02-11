@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { LLMProfile } from '../domain/ports/llmClient.js'
-import type { TaskPriority } from '../domain/task.js'
+import type { LLMProfile } from '../core/ports/llmClient.js'
+import type { TaskPriority } from '../core/entities/task.js'
 
 export type AppConfig = {
   telemetry: {

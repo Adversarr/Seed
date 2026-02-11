@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { DefaultCoAuthorAgent } from '../../src/agents/defaultAgent.js'
-import { ContextBuilder } from '../../src/application/contextBuilder.js'
-import type { AgentContext } from '../../src/agents/agent.js'
-import type { TaskView } from '../../src/application/taskService.js'
-import type { ToolRegistry, Tool } from '../../src/domain/ports/tool.js'
-import type { LLMClient, LLMMessage } from '../../src/domain/ports/llmClient.js'
+import { DefaultCoAuthorAgent } from '../../src/agents/implementations/defaultAgent.js'
+import { ContextBuilder } from '../../src/application/context/contextBuilder.js'
+import type { AgentContext } from '../../src/agents/core/agent.js'
+import type { TaskView } from '../../src/application/services/taskService.js'
+import type { ToolRegistry, Tool } from '../../src/core/ports/tool.js'
+import type { LLMClient, LLMMessage } from '../../src/core/ports/llmClient.js'
 
 describe('DefaultCoAuthorAgent - Risk-Unaware Behavior', () => {
   const contextBuilder = new ContextBuilder('/tmp', {

@@ -4,8 +4,8 @@
 import { config } from 'dotenv'
 config({ quiet: true })
 
-import { runCli } from './cli/run.js'
-import { defaultIO } from './cli/io.js'
+import { runCli } from './interfaces/cli/run.js'
+import { defaultIO } from './interfaces/cli/io.js'
 
 process.exitCode = await runCli({
   argv: process.argv.slice(2),

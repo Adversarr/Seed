@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildRiskyToolDisplay, buildConfirmInteraction } from '../../src/agents/displayBuilder.js'
-import type { ToolCallRequest } from '../../src/domain/ports/tool.js'
+import { buildRiskyToolDisplay, buildConfirmInteraction } from '../../src/agents/display/displayBuilder.js'
+import type { ToolCallRequest } from '../../src/core/ports/tool.js'
 
 describe('DisplayBuilder', () => {
   describe('buildRiskyToolDisplay', () => {

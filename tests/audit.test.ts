@@ -3,9 +3,9 @@ import { join } from 'node:path'
 import { rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { nanoid } from 'nanoid'
-import { createAuditLog } from '../src/infra/jsonlAuditLog.js'
-import { AuditService } from '../src/application/auditService.js'
-import type { AuditLogEntry } from '../src/domain/ports/auditLog.js'
+import { createAuditLog } from '../src/infrastructure/persistence/jsonlAuditLog.js'
+import { AuditService } from '../src/application/services/auditService.js'
+import type { AuditLogEntry } from '../src/core/ports/auditLog.js'
 
 describe('Audit System', () => {
   let baseDir: string

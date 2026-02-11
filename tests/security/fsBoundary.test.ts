@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { FsArtifactStore } from '../../src/infra/fsArtifactStore.js'
+import { FsArtifactStore } from '../../src/infrastructure/filesystem/fsArtifactStore.js'
 
 describe('Security: FsArtifactStore Boundary Enforement', () => {
   let rootDir: string

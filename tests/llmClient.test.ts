@@ -27,7 +27,7 @@ vi.mock('@ai-sdk/openai-compatible', () => {
   }
 })
 
-import { OpenAILLMClient, toToolCallRequests } from '../src/infra/openaiLLMClient.js'
+import { OpenAILLMClient, toToolCallRequests } from '../src/infrastructure/llm/openaiLLMClient.js'
 
 describe('OpenAILLMClient (LLMClient port)', () => {
   beforeEach(() => {

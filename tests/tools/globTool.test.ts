@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { vol } from 'memfs'
-import { globTool } from '../../src/infra/tools/globTool.js'
-import { MemFsArtifactStore } from '../../src/infra/memFsArtifactStore.js'
+import { globTool } from '../../src/infrastructure/tools/globTool.js'
+import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
 
 describe('globTool', () => {
   const baseDir = '/test-workspace'

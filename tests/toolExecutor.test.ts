@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { DefaultToolExecutor } from '../src/infra/toolExecutor.js'
-import type { ToolRegistry, Tool, ToolContext } from '../src/domain/ports/tool.js'
-import type { AuditLog } from '../src/domain/ports/auditLog.js'
+import { DefaultToolExecutor } from '../src/infrastructure/tools/toolExecutor.js'
+import type { ToolRegistry, Tool, ToolContext } from '../src/core/ports/tool.js'
+import type { AuditLog } from '../src/core/ports/auditLog.js'
 import { Subject } from 'rxjs'
 
 describe('DefaultToolExecutor', () => {

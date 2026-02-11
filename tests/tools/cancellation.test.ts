@@ -5,10 +5,10 @@
  */
 
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
-import { DefaultToolExecutor } from '../../src/infra/toolExecutor.js'
-import { DefaultToolRegistry } from '../../src/infra/toolRegistry.js'
-import type { Tool, ToolContext, ToolResult } from '../../src/domain/ports/tool.js'
-import type { AuditLog } from '../../src/domain/ports/auditLog.js'
+import { DefaultToolExecutor } from '../../src/infrastructure/tools/toolExecutor.js'
+import { DefaultToolRegistry } from '../../src/infrastructure/tools/toolRegistry.js'
+import type { Tool, ToolContext, ToolResult } from '../../src/core/ports/tool.js'
+import type { AuditLog } from '../../src/core/ports/auditLog.js'
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -164,7 +164,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
 describe('PR-001: runCommand abort support', () => {
   test('runCommand returns error when signal is pre-aborted', async () => {
     // Import dynamically to use the real mock
-    const { runCommandTool } = await import('../../src/infra/tools/runCommand.js')
+    const { runCommandTool } = await import('../../src/infrastructure/tools/runCommand.js')
 
     const controller = new AbortController()
     controller.abort()

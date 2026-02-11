@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from 'vitest'
-import { formatAuditEntry } from '../../src/tui/utils.js'
+import { formatAuditEntry } from '../../src/interfaces/tui/utils.js'
 
 describe('tui/utils', () => {
   describe('formatAuditEntry', () => {

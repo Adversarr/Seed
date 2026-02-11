@@ -9,8 +9,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { WebSocket } from 'ws'
-import { createApp, type App } from '../../src/app/createApp.js'
-import { CoAuthorServer } from '../../src/infra/server.js'
+import { createApp, type App } from '../../src/interfaces/app/createApp.js'
+import { CoAuthorServer } from '../../src/infrastructure/servers/server.js'
 
 describe('Server Integration', () => {
   let tmpDir: string

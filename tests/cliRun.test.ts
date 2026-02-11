@@ -2,11 +2,11 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { runCli } from '../src/cli/run.js'
-import type { IO } from '../src/cli/io.js'
-import { createApp } from '../src/app/createApp.js'
-import { CoAuthorServer } from '../src/infra/server.js'
-import { lockFilePath, writeLockFile, removeLockFile } from '../src/infra/master/lockFile.js'
+import { runCli } from '../src/interfaces/cli/run.js'
+import type { IO } from '../src/interfaces/cli/io.js'
+import { createApp } from '../src/interfaces/app/createApp.js'
+import { CoAuthorServer } from '../src/infrastructure/servers/server.js'
+import { lockFilePath, writeLockFile, removeLockFile } from '../src/infrastructure/master/lockFile.js'
 
 function createTestIO(opts: { stdinText?: string }) {
   const out: string[] = []

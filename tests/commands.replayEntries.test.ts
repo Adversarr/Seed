@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { LLMMessage } from '../src/domain/ports/llmClient.js'
-import { buildReplayEntries } from '../src/tui/commands.js'
+import type { LLMMessage } from '../src/core/ports/llmClient.js'
+import { buildReplayEntries } from '../src/interfaces/tui/commands.js'
 
 describe('buildReplayEntries', () => {
   it('formats assistant tool calls with readable payload', () => {

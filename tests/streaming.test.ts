@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { OutputHandler } from '../src/agents/outputHandler.js'
-import type { OutputContext } from '../src/agents/outputHandler.js'
-import type { UiBus, UiEvent } from '../src/domain/ports/uiBus.js'
-import type { LLMStreamChunk } from '../src/domain/ports/llmClient.js'
-import { FakeLLMClient } from '../src/infra/fakeLLMClient.js'
+import { OutputHandler } from '../src/agents/orchestration/outputHandler.js'
+import type { OutputContext } from '../src/agents/orchestration/outputHandler.js'
+import type { UiBus, UiEvent } from '../src/core/ports/uiBus.js'
+import type { LLMStreamChunk } from '../src/core/ports/llmClient.js'
+import { FakeLLMClient } from '../src/infrastructure/llm/fakeLLMClient.js'
 
 // ============================================================================
 // Helpers
@@ -515,7 +515,7 @@ describe('/stream command', () => {
   // with the full command context. Instead, test the parsing logic directly.
 
   it('handles /stream on', async () => {
-    const { handleCommand } = await import('../src/tui/commands.js')
+    const { handleCommand } = await import('../src/interfaces/tui/commands.js')
     const setStreamingEnabled = vi.fn()
     const setStatus = vi.fn()
     const ctx = {
@@ -537,7 +537,7 @@ describe('/stream command', () => {
   })
 
   it('handles /stream off', async () => {
-    const { handleCommand } = await import('../src/tui/commands.js')
+    const { handleCommand } = await import('../src/interfaces/tui/commands.js')
     const setStreamingEnabled = vi.fn()
     const setStatus = vi.fn()
     const ctx = {
@@ -559,7 +559,7 @@ describe('/stream command', () => {
   })
 
   it('handles /stream toggle (no argument)', async () => {
-    const { handleCommand } = await import('../src/tui/commands.js')
+    const { handleCommand } = await import('../src/interfaces/tui/commands.js')
     const setStreamingEnabled = vi.fn()
     const setStatus = vi.fn()
     const ctx = {
@@ -589,7 +589,7 @@ describe('/stream command', () => {
 describe('RuntimeManager streaming propagation', () => {
   it('streamingEnabled defaults to false', async () => {
     // Lightweight import to avoid full infra setup
-    const { RuntimeManager } = await import('../src/agents/runtimeManager.js')
+    const { RuntimeManager } = await import('../src/agents/orchestration/runtimeManager.js')
 
     const manager = new RuntimeManager({
       store: {} as any,
@@ -605,7 +605,7 @@ describe('RuntimeManager streaming propagation', () => {
   })
 
   it('streamingEnabled can be toggled', async () => {
-    const { RuntimeManager } = await import('../src/agents/runtimeManager.js')
+    const { RuntimeManager } = await import('../src/agents/orchestration/runtimeManager.js')
 
     const manager = new RuntimeManager({
       store: {} as any,

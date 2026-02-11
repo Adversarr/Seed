@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { render } from 'ink-testing-library'
-import { FakeLLMClient } from '../../src/infra/fakeLLMClient.js'
-import { createApp } from '../../src/app/createApp.js'
-import { MainTui } from '../../src/tui/main.js'
-import { DEFAULT_USER_ACTOR_ID, DEFAULT_AGENT_ACTOR_ID } from '../../src/domain/actor.js'
-import type { App } from '../../src/app/createApp.js'
+import { FakeLLMClient } from '../../src/infrastructure/llm/fakeLLMClient.js'
+import { createApp } from '../../src/interfaces/app/createApp.js'
+import { MainTui } from '../../src/interfaces/tui/main.js'
+import { DEFAULT_USER_ACTOR_ID, DEFAULT_AGENT_ACTOR_ID } from '../../src/core/entities/actor.js'
+import type { App } from '../../src/interfaces/app/createApp.js'
 
 // ============================================================================
 // Helpers
