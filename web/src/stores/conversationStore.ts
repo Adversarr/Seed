@@ -156,26 +156,37 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 }))
 
-// Subscribe to real-time events — append to existing conversation
-eventBus.on('domain-event', (event) => {
-  const taskId = (event.payload as Record<string, unknown>).taskId as string | undefined
-  if (!taskId) return
+let conversationUnsub: (() => void) | null = null
 
-  const newMessages = eventToMessages(event)
-  if (newMessages.length === 0) return
+export function registerConversationSubscriptions(): void {
+  if (conversationUnsub) return
+  conversationUnsub = eventBus.on('domain-event', (event) => {
+    const taskId = (event.payload as Record<string, unknown>).taskId as string | undefined
+    if (!taskId) return
 
-  useConversationStore.setState((state) => {
-    // Only append if we already have a conversation loaded for this task.
-    const existing = state.conversations[taskId]
-    if (!existing) return state
+    const newMessages = eventToMessages(event)
+    if (newMessages.length === 0) return
 
-    // Deduplicate by id.
-    const existingIds = new Set(existing.map(m => m.id))
-    const unique = newMessages.filter(m => !existingIds.has(m.id))
-    if (unique.length === 0) return state
+    useConversationStore.setState((state) => {
+      const existing = state.conversations[taskId]
+      if (!existing) return state
 
-    return {
-      conversations: { ...state.conversations, [taskId]: [...existing, ...unique] },
-    }
+      const existingIds = new Set(existing.map(m => m.id))
+      const unique = newMessages.filter(m => !existingIds.has(m.id))
+      if (unique.length === 0) return state
+
+      return {
+        conversations: { ...state.conversations, [taskId]: [...existing, ...unique] },
+      }
+    })
   })
-})
+}
+
+export function unregisterConversationSubscriptions(): void {
+  if (conversationUnsub) {
+    conversationUnsub()
+    conversationUnsub = null
+  }
+}
+
+registerConversationSubscriptions()

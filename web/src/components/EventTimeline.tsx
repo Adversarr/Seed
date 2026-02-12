@@ -1,11 +1,14 @@
 /**
  * EventTimeline — displays a chronological list of events for a task.
+ *
+ * Subscribes to eventBus for real-time updates with deduplication.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatTime } from '@/lib/utils'
 import { api } from '@/services/api'
+import { eventBus } from '@/stores'
 import type { StoredEvent } from '@/types'
 
 const eventColors: Record<string, string> = {
@@ -21,19 +24,44 @@ const eventColors: Record<string, string> = {
   UserInteractionResponded: 'text-amber-300',
 }
 
+const MAX_EVENTS = 500
+
 export function EventTimeline({ taskId }: { taskId: string }) {
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const seenIdsRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
-    api.getEvents(0, taskId).then(setEvents).catch(err => {
+    seenIdsRef.current.clear()
+    api.getEvents(0, taskId).then(fetched => {
+      for (const e of fetched) seenIdsRef.current.add(e.id)
+      setEvents(fetched.length > MAX_EVENTS ? fetched.slice(-MAX_EVENTS) : fetched)
+    }).catch(err => {
       console.error('[EventTimeline] Failed to load events:', err)
     })
   }, [taskId])
 
+  useEffect(() => {
+    const unsub = eventBus.on('domain-event', (event) => {
+      const payload = event.payload as Record<string, unknown>
+      if (payload.taskId !== taskId) return
+      if (seenIdsRef.current.has(event.id)) return
+      seenIdsRef.current.add(event.id)
+      setEvents(prev => {
+        const next = [...prev, event]
+        return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+      })
+    })
+    return unsub
+  }, [taskId])
+
   const toggle = (id: number) => {
     const next = new Set(expanded)
-    next.has(id) ? next.delete(id) : next.add(id)
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
     setExpanded(next)
   }
 

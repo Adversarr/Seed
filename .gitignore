@@ -6,6 +6,7 @@ coverage
 .trae
 .agents
 .claude/skills/
+*.tsbuildinfo
 
 # Environment variables - never commit!
 .env

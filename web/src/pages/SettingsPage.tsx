@@ -16,6 +16,7 @@ export function SettingsPage() {
   const disconnect = useConnectionStore(s => s.disconnect)
   const [token, setToken] = useState(sessionStorage.getItem('coauthor-token') ?? '')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
+  const [isReconnecting, setIsReconnecting] = useState(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -27,20 +28,25 @@ export function SettingsPage() {
   }, [])
 
   const saveToken = () => {
+    if (isReconnecting) return
+    setIsReconnecting(true)
     try {
       sessionStorage.setItem('coauthor-token', token)
     } catch {
       setSaveStatus('error')
+      setIsReconnecting(false)
       return
     }
     disconnect()
-    // Wait for disconnect to settle before reconnecting
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
     if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
     reconnectTimerRef.current = setTimeout(() => {
       connect()
       setSaveStatus('saved')
-      statusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+      statusTimerRef.current = setTimeout(() => {
+        setSaveStatus('idle')
+        setIsReconnecting(false)
+      }, 2000)
     }, 200)
   }
 
@@ -70,7 +76,9 @@ export function SettingsPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Button onClick={saveToken}>Save & Reconnect</Button>
+            <Button onClick={saveToken} disabled={isReconnecting}>
+              {isReconnecting ? 'Reconnecting…' : 'Save & Reconnect'}
+            </Button>
             <p className="text-sm text-zinc-500">
               Status: <span className="text-zinc-200">{status}</span>
             </p>

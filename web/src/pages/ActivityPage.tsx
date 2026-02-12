@@ -4,9 +4,11 @@
  * Two sections:
  * 1. Event Log — all domain events (TaskCreated, TaskStarted, etc.)
  * 2. Audit Log — audit entries from the audit service
+ *
+ * Deduplicates events from initial fetch and real-time subscription.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatTime } from '@/lib/utils'
 import { api } from '@/services/api'
@@ -31,15 +33,23 @@ const eventIcons: Record<string, string> = {
   TaskInstructionAdded: '✎', UserInteractionRequested: '?', UserInteractionResponded: '↩',
 }
 
+const MAX_ACTIVITY_EVENTS = 2000
+
 export function ActivityPage() {
   const [events, setEvents] = useState<StoredEvent[]>([])
   const [auditEntries, setAuditEntries] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'events' | 'audit'>('events')
+  const seenIdsRef = useRef<Set<number>>(new Set())
 
   const fetchEvents = useCallback(() => {
     setLoading(true)
-    api.getEvents(0).then(e => { setEvents(e); setLoading(false) }).catch(err => {
+    seenIdsRef.current.clear()
+    api.getEvents(0).then(fetched => {
+      for (const e of fetched) seenIdsRef.current.add(e.id)
+      setEvents(fetched.length > MAX_ACTIVITY_EVENTS ? fetched.slice(-MAX_ACTIVITY_EVENTS) : fetched)
+      setLoading(false)
+    }).catch(err => {
       console.error('[ActivityPage] Failed to fetch events:', err)
       setLoading(false)
     })
@@ -53,13 +63,12 @@ export function ActivityPage() {
     })
   }, [])
 
-  // Initial fetch
   useEffect(() => { fetchEvents(); fetchAudit() }, [fetchEvents, fetchAudit])
 
-  // Subscribe to real-time events for live updates (capped to prevent memory leak)
   useEffect(() => {
-    const MAX_ACTIVITY_EVENTS = 2000
     const unsub = eventBus.on('domain-event', (event) => {
+      if (seenIdsRef.current.has(event.id)) return
+      seenIdsRef.current.add(event.id)
       setEvents(prev => {
         const next = [...prev, event]
         return next.length > MAX_ACTIVITY_EVENTS ? next.slice(-MAX_ACTIVITY_EVENTS) : next

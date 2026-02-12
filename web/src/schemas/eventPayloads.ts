@@ -64,13 +64,13 @@ export const InstructionAddedPayload = z.object({
 // ── Stream / UI events ─────────────────────────────────────────────────
 
 export const StreamPayload = z.object({
-  taskId: z.string(),
+  taskId: z.string().min(1),
   kind: z.enum(['text', 'reasoning', 'verbose', 'error']),
   content: z.string(),
 })
 
 export const StreamEndPayload = z.object({
-  taskId: z.string(),
+  taskId: z.string().min(1),
 })
 
 // ── Type helpers ───────────────────────────────────────────────────────

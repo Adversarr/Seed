@@ -2,7 +2,7 @@
  * Tests for the stream store.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useStreamStore } from '@/stores/streamStore'
 import type { UiEvent } from '@/types'
 
@@ -58,11 +58,60 @@ describe('streamStore', () => {
     store.handleUiEvent({ type: 'stream_delta', payload: { taskId: 'task-1', agentId: 'a', kind: 'text', content: 'done' } })
     expect(useStreamStore.getState().streams['task-1']!.completed).toBe(false)
     store.handleUiEvent({ type: 'stream_end', payload: { taskId: 'task-1', agentId: 'a' } })
-    // Stream data should be preserved but marked completed
     const stream = useStreamStore.getState().streams['task-1']!
     expect(stream).toBeDefined()
     expect(stream.completed).toBe(true)
     expect(stream.chunks).toHaveLength(1)
     expect(stream.chunks[0]!.content).toBe('done')
+  })
+})
+
+describe('streamStore — payload validation (Task 4)', () => {
+  beforeEach(() => {
+    useStreamStore.setState({ streams: {} })
+  })
+
+  it('ignores stream_delta with empty taskId', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    useStreamStore.getState().handleUiEvent({
+      type: 'stream_delta',
+      payload: { taskId: '', agentId: 'a', kind: 'text', content: 'test' },
+    })
+    expect(useStreamStore.getState().streams['']).toBeUndefined()
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('ignores stream_delta with missing taskId', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    useStreamStore.getState().handleUiEvent({
+      type: 'stream_delta',
+      payload: { agentId: 'a', kind: 'text', content: 'test' } as never,
+    })
+    expect(Object.keys(useStreamStore.getState().streams)).toHaveLength(0)
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('ignores stream_end with empty taskId', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    useStreamStore.getState().handleUiEvent({
+      type: 'stream_end',
+      payload: { taskId: '', agentId: 'a' },
+    })
+    expect(Object.keys(useStreamStore.getState().streams)).toHaveLength(0)
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('processes valid stream_delta normally', () => {
+    useStreamStore.getState().handleUiEvent({
+      type: 'stream_delta',
+      payload: { taskId: 'task-valid', agentId: 'a', kind: 'text', content: 'valid content' },
+    })
+    const stream = useStreamStore.getState().streams['task-valid']
+    expect(stream).toBeDefined()
+    expect(stream!.chunks).toHaveLength(1)
+    expect(stream!.chunks[0]!.content).toBe('valid content')
   })
 })
