@@ -91,6 +91,14 @@ export const ToolCallEndPayload = z.object({
   durationMs: z.number(),
 })
 
+export const ToolCallHeartbeatPayload = z.object({
+  taskId: z.string().min(1),
+  agentId: z.string(),
+  toolCallId: z.string(),
+  toolName: z.string(),
+  elapsedMs: z.number().int().min(0),
+})
+
 export const ToolCallsBatchStartPayload = z.object({
   taskId: z.string().min(1),
   agentId: z.string(),
@@ -117,6 +125,7 @@ export type StreamPayload = z.infer<typeof StreamPayload>
 export type StreamEndPayload = z.infer<typeof StreamEndPayload>
 export type ToolCallStartPayload = z.infer<typeof ToolCallStartPayload>
 export type ToolCallEndPayload = z.infer<typeof ToolCallEndPayload>
+export type ToolCallHeartbeatPayload = z.infer<typeof ToolCallHeartbeatPayload>
 export type ToolCallsBatchStartPayload = z.infer<typeof ToolCallsBatchStartPayload>
 export type ToolCallsBatchEndPayload = z.infer<typeof ToolCallsBatchEndPayload>
 

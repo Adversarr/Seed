@@ -14,8 +14,8 @@ import { DEFAULT_COAUTHOR_SYSTEM_PROMPT } from './templates.js'
  * Full-capability agent with access to all tool groups.
  * Implements the tool loop: call LLM → yield tool calls → repeat.
  *
- * The agent is risk-unaware. It yields `{ kind: 'tool_call' }` for every
- * tool. The Runtime/OutputHandler intercepts risky tools and handles UIP
+ * The agent is risk-unaware. It yields tool call outputs without any risk
+ * gating. The Runtime/OutputHandler intercepts risky tools and handles UIP
  * confirmation before execution — agents never need to know about risk.
  */
 export class DefaultCoAuthorAgent extends BaseToolAgent {
@@ -42,4 +42,3 @@ export class DefaultCoAuthorAgent extends BaseToolAgent {
     this.defaultProfile = opts.defaultProfile ?? 'fast'
   }
 }
-

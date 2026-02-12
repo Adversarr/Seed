@@ -391,21 +391,23 @@ export class AgentRuntime {
         this.#pendingInstructions, conversationHistory, persistMessage
       )
 
-      // Process pending tool calls from previous turn (e.g. multi-tool batch)
+      // Process pending tool calls from previous turn using the same
+      // batching strategy as fresh agent outputs.
       const pendingCalls = this.#conversationManager.getPendingToolCalls(conversationHistory)
-      for (const call of pendingCalls) {
+      if (pendingCalls.length > 0) {
         // Check for cancel signal
-        if (this.#isCanceled) break
+        if (this.#isCanceled) return { taskId, events: emittedEvents }
 
         // Check for pause signal — only at safe conversation state
         if (this.#isPaused && this.#conversationManager.isSafeToInject(conversationHistory)) {
-          break
+          return { taskId, events: emittedEvents }
         }
 
-        const result = await this.#outputHandler.handle(
-          { kind: 'tool_call', call },
-          outputCtx
-        )
+        const pendingOutput = pendingCalls.length === 1
+          ? ({ kind: 'tool_call', call: pendingCalls[0]! } as const)
+          : ({ kind: 'tool_calls', calls: pendingCalls } as const)
+
+        const result = await this.#outputHandler.handle(pendingOutput, outputCtx)
 
         if (result.event) {
           const currentTask = await this.#taskService.getTask(taskId)
@@ -416,7 +418,7 @@ export class AgentRuntime {
               `[AgentRuntime] Skipping ${result.event.type}: task ${taskId} ` +
               `is in state ${currentTask.status}, breaking loop gracefully`
             )
-            break
+            return { taskId, events: emittedEvents }
           }
 
           await this.#store.append(taskId, [result.event])

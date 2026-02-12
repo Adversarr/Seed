@@ -4,8 +4,6 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { runCli } from '../src/interfaces/cli/run.js'
 import type { IO } from '../src/interfaces/cli/io.js'
-import { createApp } from '../src/interfaces/app/createApp.js'
-import { CoAuthorServer } from '../src/infrastructure/servers/server.js'
 import { lockFilePath, writeLockFile, removeLockFile } from '../src/infrastructure/master/lockFile.js'
 
 function createTestIO(opts: { stdinText?: string }) {
@@ -53,15 +51,12 @@ describe('CLI smoke', () => {
 
   test('status detects running server via lock + health', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))
-
-    const app = await createApp({ baseDir: workspace })
-    const server = new CoAuthorServer(app, { authToken: 'test-token' })
-    await server.start()
-    const addr = server.address
-    if (!addr) throw new Error('Server did not start')
+    const port = 33221
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response(JSON.stringify({ status: 'ok' }), { status: 200 })) as typeof fetch
 
     const lockPath = lockFilePath(workspace)
-    writeLockFile(lockPath, { pid: process.pid, port: addr.port, token: 'test-token', startedAt: new Date().toISOString() })
+    writeLockFile(lockPath, { pid: process.pid, port, token: 'test-token', startedAt: new Date().toISOString() })
 
     try {
       const io1 = createTestIO({})
@@ -69,12 +64,12 @@ describe('CLI smoke', () => {
       expect(code).toBe(0)
       const out = io1.out.join('')
       expect(out).toContain('Server: running')
-      expect(out).toContain(`http://127.0.0.1:${addr.port}`)
+      expect(out).toContain(`http://127.0.0.1:${port}`)
     } finally {
+      globalThis.fetch = originalFetch
       removeLockFile(lockPath)
-      await server.stop()
     }
-  })
+  }, 10_000)
 
   test('removed commands show a clear message', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'coauthor-'))

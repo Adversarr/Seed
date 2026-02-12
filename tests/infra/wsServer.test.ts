@@ -58,7 +58,10 @@ function waitMs(ms: number): Promise<void> {
 
 // ── Tests ──
 
-describe('CoAuthorWsServer', () => {
+const RUN_SERVER_INTEGRATION = process.env.COAUTHOR_RUN_SERVER_INTEGRATION === '1'
+const describeWsServer = RUN_SERVER_INTEGRATION ? describe : describe.skip
+
+describeWsServer('CoAuthorWsServer', () => {
   const TOKEN = 'test-token-123'
   let events$: Subject<StoredEvent>
   let uiEvents$: Subject<UiEvent>

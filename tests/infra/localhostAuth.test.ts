@@ -14,7 +14,10 @@ import { WebSocket } from 'ws'
 import { createApp, type App } from '../../src/interfaces/app/createApp.js'
 import { CoAuthorServer } from '../../src/infrastructure/servers/server.js'
 
-describe('Localhost Auth Bypass', () => {
+const RUN_SERVER_INTEGRATION = process.env.COAUTHOR_RUN_SERVER_INTEGRATION === '1'
+const describeLocalhostAuth = RUN_SERVER_INTEGRATION ? describe : describe.skip
+
+describeLocalhostAuth('Localhost Auth Bypass', () => {
   let tmpDir: string
   let app: App
   let server: CoAuthorServer

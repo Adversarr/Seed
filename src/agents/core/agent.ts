@@ -24,7 +24,7 @@ export type AgentInteractionRequest = InteractionRequest & {
  * AgentOutput represents what an Agent yields during execution.
  * The AgentRuntime interprets these outputs and takes appropriate actions.
  *
- * When an agent yields `tool_call`, control transfers to the Runtime which:
+ * When an agent yields `tool_call` or `tool_calls`, control transfers to the Runtime which:
  * 1. Executes the tool via ToolExecutor
  * 2. Persists the tool-result message into conversationHistory
  * 3. Returns control to the agent generator
@@ -56,7 +56,8 @@ export type AgentOutput =
  * which ensures they are both persisted and available in `conversationHistory`.
  *
  * Tool results are NOT exposed to agents via a Map. Instead, when an agent
- * yields `{ kind: 'tool_call' }`, the Runtime executes the tool and persists
+ * yields `{ kind: 'tool_call' }` or `{ kind: 'tool_calls' }`, the Runtime executes
+ * the tool(s) and persists
  * the result into `conversationHistory`. The agent sees tool results as
  * `role: 'tool'` messages on the next LLM call — single source of truth.
  */
@@ -144,7 +145,7 @@ export interface Agent {
    * Yields AgentOutput as the agent progresses through its workflow.
    * The AgentRuntime handles each output type:
    * - 'text': Logged/displayed
-   * - 'tool_call': Executed via ToolExecutor, result injected back
+   * - 'tool_call' / 'tool_calls': Executed via ToolExecutor, result injected back
    * - 'interaction': UIP event emitted, waits for response
    * - 'done': TaskCompleted event emitted
    * - 'failed': TaskFailed event emitted

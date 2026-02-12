@@ -99,4 +99,47 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
       }]
     })
   })
+
+  it('should yield tool_calls batch in streaming mode too', async () => {
+    const streamLLM: LLMClient = {
+      complete: vi.fn(),
+      stream: vi.fn().mockImplementation(async (_req, onChunk) => {
+        onChunk({ type: 'tool_call_start', toolCallId: 'call_stream_1', toolName: 'editFile' })
+        onChunk({ type: 'tool_call_end', toolCallId: 'call_stream_1' })
+        onChunk({ type: 'done', stopReason: 'tool_use' })
+        return {
+          toolCalls: [{
+            toolCallId: 'call_stream_1',
+            toolName: 'editFile',
+            arguments: { path: 'test.txt', oldString: 'A', newString: 'B' }
+          }],
+          stopReason: 'tool_use'
+        }
+      })
+    }
+
+    const streamContext: AgentContext = {
+      ...mockContext,
+      llm: streamLLM,
+      onStreamChunk: vi.fn(),
+      getStreamParts: vi.fn().mockReturnValue([]),
+    }
+
+    const generator = agent.run(mockTask, streamContext)
+
+    await generator.next() // [Iteration] Calling LLM...
+    await generator.next() // Executing tools...
+    const result = await generator.next() // tool_calls
+
+    expect(result.value).toMatchObject({
+      kind: 'tool_calls',
+      calls: [{
+        toolCallId: 'call_stream_1',
+        toolName: 'editFile',
+        arguments: { path: 'test.txt', oldString: 'A', newString: 'B' }
+      }]
+    })
+    expect(streamLLM.stream).toHaveBeenCalled()
+    expect(streamLLM.complete).not.toHaveBeenCalled()
+  })
 })

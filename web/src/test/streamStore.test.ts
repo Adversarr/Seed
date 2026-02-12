@@ -64,6 +64,55 @@ describe('streamStore', () => {
     expect(stream.chunks).toHaveLength(1)
     expect(stream.chunks[0]!.content).toBe('done')
   })
+
+  it('updates running tool chunk on tool_call_heartbeat', () => {
+    const store = useStreamStore.getState()
+    store.handleUiEvent({
+      type: 'tool_call_start',
+      payload: {
+        taskId: 'task-1',
+        agentId: 'a',
+        toolCallId: 'tc-1',
+        toolName: 'readFile',
+        arguments: {},
+      },
+    })
+
+    store.handleUiEvent({
+      type: 'tool_call_heartbeat',
+      payload: {
+        taskId: 'task-1',
+        agentId: 'a',
+        toolCallId: 'tc-1',
+        toolName: 'readFile',
+        elapsedMs: 4_200,
+      },
+    })
+
+    const stream = useStreamStore.getState().streams['task-1']!
+    expect(stream.chunks).toHaveLength(1)
+    expect(stream.chunks[0]!.kind).toBe('tool_call')
+    expect(stream.chunks[0]!.content).toContain('Running readFile')
+    expect(stream.chunks[0]!.content).toContain('(4s)')
+  })
+
+  it('adds a fallback verbose chunk when heartbeat arrives before tool_call_start', () => {
+    useStreamStore.getState().handleUiEvent({
+      type: 'tool_call_heartbeat',
+      payload: {
+        taskId: 'task-1',
+        agentId: 'a',
+        toolCallId: 'tc-1',
+        toolName: 'readFile',
+        elapsedMs: 1_000,
+      },
+    })
+
+    const stream = useStreamStore.getState().streams['task-1']!
+    expect(stream.chunks).toHaveLength(1)
+    expect(stream.chunks[0]!.kind).toBe('verbose')
+    expect(stream.chunks[0]!.content).toContain('Running readFile')
+  })
 })
 
 describe('streamStore — payload validation (Task 4)', () => {

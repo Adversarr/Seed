@@ -65,6 +65,7 @@ export class OutputHandler {
   readonly #uiBus: UiBus | null
   readonly #conversationManager: ConversationManager
   readonly #telemetry: TelemetrySink
+  readonly #toolHeartbeatMs: number
 
   constructor(opts: {
     toolExecutor: ToolExecutor
@@ -73,6 +74,7 @@ export class OutputHandler {
     uiBus?: UiBus | null
     conversationManager: ConversationManager
     telemetry?: TelemetrySink
+    toolHeartbeatMs?: number
   }) {
     this.#toolExecutor = opts.toolExecutor
     this.#toolRegistry = opts.toolRegistry
@@ -80,6 +82,7 @@ export class OutputHandler {
     this.#uiBus = opts.uiBus ?? null
     this.#conversationManager = opts.conversationManager
     this.#telemetry = opts.telemetry ?? { emit: () => {} }
+    this.#toolHeartbeatMs = opts.toolHeartbeatMs ?? 4_000
   }
 
   /**
@@ -160,15 +163,12 @@ export class OutputHandler {
   // ---------- batch tool execution ----------
 
   /**
-   * Handle a batch of tool calls with concurrent execution for safe tools.
+   * Handle a batch of tool calls with an order-preserving hybrid strategy:
+   * - contiguous safe segments execute concurrently
+   * - risky calls execute sequentially and require UIP confirmation
    *
-   * Strategy:
-   * 1. Partition tool calls into safe (concurrent) and risky (sequential)
-   * 2. Execute all safe tools concurrently via Promise.allSettled
-   * 3. Process risky tools sequentially with UIP confirmation
-   *
-   * This provides significant performance improvement when agents request
-   * multiple independent read-only operations (readFile, glob, grep, etc.)
+   * Risky calls are ordering barriers. This preserves model intent while still
+   * unlocking concurrency for independent safe calls.
    */
   async handleToolCalls(calls: ToolCallRequest[], ctx: OutputContext): Promise<OutputResult> {
     if (calls.length === 0) return {}
@@ -177,7 +177,7 @@ export class OutputHandler {
       return this.#handleSingleToolCall(calls[0]!, ctx)
     }
 
-    const { safeCalls, riskyCalls } = this.#partitionByRisk(calls)
+    const { safeCount, riskyCount } = this.#countByRisk(calls)
 
     // Emit batch start event for UI feedback
     this.#uiBus?.emit({
@@ -186,82 +186,40 @@ export class OutputHandler {
         taskId: ctx.taskId,
         agentId: ctx.agentId,
         count: calls.length,
-        safeCount: safeCalls.length,
-        riskyCount: riskyCalls.length,
+        safeCount,
+        riskyCount,
       }
     })
 
-    // Execute safe tools concurrently
-    if (safeCalls.length > 0) {
-      await this.#executeConcurrent(safeCalls, ctx)
-    }
-
-    // Process risky tools sequentially with UIP confirmation
-    for (const call of riskyCalls) {
-      const result = await this.#handleSingleToolCall(call, ctx)
-      if (result.pause || result.event) {
-        this.#uiBus?.emit({
-          type: 'tool_calls_batch_end',
-          payload: { taskId: ctx.taskId, agentId: ctx.agentId }
-        })
-        return result
-      }
-    }
-
-    this.#uiBus?.emit({
-      type: 'tool_calls_batch_end',
-      payload: { taskId: ctx.taskId, agentId: ctx.agentId }
-    })
-
-    return {}
-  }
-
-  /**
-   * Partition tool calls by risk level.
-   */
-  #partitionByRisk(calls: ToolCallRequest[]): { safeCalls: ToolCallRequest[]; riskyCalls: ToolCallRequest[] } {
-    const safeCalls: ToolCallRequest[] = []
-    const riskyCalls: ToolCallRequest[] = []
-
-    for (const call of calls) {
-      const tool = this.#toolRegistry.get(call.toolName)
-      if (tool?.riskLevel === 'risky') {
-        riskyCalls.push(call)
-      } else {
-        safeCalls.push(call)
-      }
-    }
-
-    return { safeCalls, riskyCalls }
-  }
-
-  /**
-   * Execute multiple safe tool calls concurrently.
-   * Uses Promise.allSettled so one failure doesn't block others.
-   */
-  async #executeConcurrent(calls: ToolCallRequest[], ctx: OutputContext): Promise<void> {
-    const results = await Promise.allSettled(
-      calls.map(call => this.#executeToolWithoutRiskCheck(call, ctx))
-    )
-
-    // Log any rejections (shouldn't happen for safe tools, but handle gracefully)
-    for (let index = 0; index < results.length; index++) {
-      const result = results[index]
-      if (result.status === 'rejected') {
+    try {
+      // Execute in original order. Risky calls are barriers.
+      for (let index = 0; index < calls.length;) {
         const call = calls[index]!
-        console.error(
-          `[OutputHandler] Tool ${call.toolName} (${call.toolCallId}) rejected:`,
-          result.reason
-        )
+        if (this.#isRiskyCall(call)) {
+          const result = await this.#handleSingleToolCall(call, ctx)
+          if (result.pause || result.event || result.terminal) return result
+          index += 1
+          continue
+        }
+
+        // Run contiguous safe segment concurrently.
+        const safeSegment: ToolCallRequest[] = []
+        while (index < calls.length && !this.#isRiskyCall(calls[index]!)) {
+          safeSegment.push(calls[index]!)
+          index += 1
+        }
+        await this.#executeConcurrentSegment(safeSegment, ctx)
       }
+      return {}
+    } finally {
+      this.#uiBus?.emit({
+        type: 'tool_calls_batch_end',
+        payload: { taskId: ctx.taskId, agentId: ctx.agentId }
+      })
     }
   }
 
-  /**
-   * Execute a single safe tool call without risk checks.
-   * Used by #executeConcurrent for parallel execution.
-   */
-  async #executeToolWithoutRiskCheck(call: ToolCallRequest, ctx: OutputContext): Promise<void> {
+  async #executeSafeToolCall(call: ToolCallRequest, ctx: OutputContext): Promise<void> {
     const tool = this.#toolRegistry.get(call.toolName)
 
     const toolContext = {
@@ -292,7 +250,61 @@ export class OutputHandler {
       }
     }
 
-    // Emit tool_call_start UiEvent
+    await this.#executeToolCall(call, toolContext, ctx)
+  }
+
+  /**
+   * Execute a contiguous safe segment concurrently and fail fast if any item
+   * rejects before it can persist a deterministic tool result.
+   */
+  async #executeConcurrentSegment(calls: ToolCallRequest[], ctx: OutputContext): Promise<void> {
+    if (calls.length === 0) return
+
+    const settled = await Promise.allSettled(
+      calls.map(call => this.#executeSafeToolCall(call, ctx))
+    )
+
+    const rejected = settled
+      .map((result, index) => ({ result, call: calls[index]! }))
+      .filter(
+        (entry): entry is { result: PromiseRejectedResult; call: ToolCallRequest } =>
+          entry.result.status === 'rejected'
+      )
+
+    if (rejected.length === 0) return
+
+    const details = rejected
+      .map(({ call, result }) => `${call.toolName}(${call.toolCallId}): ${String(result.reason)}`)
+      .join('; ')
+    throw new Error(`Concurrent tool segment failed for ${rejected.length} call(s): ${details}`)
+  }
+
+  #isRiskyCall(call: ToolCallRequest): boolean {
+    return this.#toolRegistry.get(call.toolName)?.riskLevel === 'risky'
+  }
+
+  #countByRisk(calls: ToolCallRequest[]): { safeCount: number; riskyCount: number } {
+    let safeCount = 0
+    let riskyCount = 0
+    for (const call of calls) {
+      if (this.#isRiskyCall(call)) riskyCount += 1
+      else safeCount += 1
+    }
+    return { safeCount, riskyCount }
+  }
+
+  async #executeToolCall(
+    call: ToolCallRequest,
+    toolContext: {
+      taskId: string
+      actorId: string
+      baseDir: string
+      confirmedInteractionId?: string
+      artifactStore: ArtifactStore
+      signal?: AbortSignal
+    },
+    ctx: OutputContext
+  ): Promise<void> {
     this.#uiBus?.emit({
       type: 'tool_call_start',
       payload: {
@@ -305,10 +317,22 @@ export class OutputHandler {
     })
 
     const startMs = Date.now()
-    const result: ToolResult = await this.#toolExecutor.execute(call, toolContext)
+
+    let result: ToolResult
+    try {
+      result = await this.#runWithToolHeartbeat(call, ctx, startMs, () =>
+        this.#toolExecutor.execute(call, toolContext)
+      )
+    } catch (error) {
+      result = {
+        toolCallId: call.toolCallId,
+        output: { error: error instanceof Error ? error.message : String(error) },
+        isError: true,
+      }
+    }
+
     const durationMs = Date.now() - startMs
 
-    // Emit tool_call_end UiEvent
     this.#uiBus?.emit({
       type: 'tool_call_end',
       payload: {
@@ -322,7 +346,6 @@ export class OutputHandler {
       }
     })
 
-    // Persist into conversation
     await this.#conversationManager.persistToolResultIfMissing(
       ctx.taskId,
       call.toolCallId,
@@ -332,6 +355,34 @@ export class OutputHandler {
       ctx.conversationHistory,
       ctx.persistMessage
     )
+  }
+
+  async #runWithToolHeartbeat<T>(
+    call: ToolCallRequest,
+    ctx: OutputContext,
+    startMs: number,
+    work: () => Promise<T>
+  ): Promise<T> {
+    if (this.#toolHeartbeatMs <= 0 || !this.#uiBus) return work()
+
+    const heartbeat = setInterval(() => {
+      this.#uiBus?.emit({
+        type: 'tool_call_heartbeat',
+        payload: {
+          taskId: ctx.taskId,
+          agentId: ctx.agentId,
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          elapsedMs: Date.now() - startMs,
+        }
+      })
+    }, this.#toolHeartbeatMs)
+
+    try {
+      return await work()
+    } finally {
+      clearInterval(heartbeat)
+    }
   }
 
   /**
@@ -399,46 +450,7 @@ export class OutputHandler {
       return { event, pause: true }
     }
 
-    // Emit tool_call_start UiEvent so the frontend can show real-time tool activity
-    this.#uiBus?.emit({
-      type: 'tool_call_start',
-      payload: {
-        taskId: ctx.taskId,
-        agentId: ctx.agentId,
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        arguments: call.arguments,
-      }
-    })
-
-    const startMs = Date.now()
-    const result: ToolResult = await this.#toolExecutor.execute(call, toolContext)
-    const durationMs = Date.now() - startMs
-
-    // Emit tool_call_end UiEvent with result
-    this.#uiBus?.emit({
-      type: 'tool_call_end',
-      payload: {
-        taskId: ctx.taskId,
-        agentId: ctx.agentId,
-        toolCallId: call.toolCallId,
-        toolName: call.toolName,
-        output: result.output,
-        isError: result.isError,
-        durationMs,
-      }
-    })
-
-    // Persist into conversation (idempotent)
-    await this.#conversationManager.persistToolResultIfMissing(
-      ctx.taskId,
-      call.toolCallId,
-      call.toolName,
-      result.output,
-      result.isError,
-      ctx.conversationHistory,
-      ctx.persistMessage
-    )
+    await this.#executeToolCall(call, toolContext, ctx)
 
     if (isRisky) {
       // Clear the one-time confirmation after use

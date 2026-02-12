@@ -13,7 +13,7 @@ import type { UiEvent } from '@/types'
 import { eventBus } from './eventBus'
 import {
   StreamPayload, StreamEndPayload,
-  ToolCallStartPayload, ToolCallEndPayload,
+  ToolCallStartPayload, ToolCallEndPayload, ToolCallHeartbeatPayload,
   ToolCallsBatchStartPayload, ToolCallsBatchEndPayload,
   safeParse,
 } from '@/schemas/eventPayloads'
@@ -128,6 +128,44 @@ export const useStreamStore = create<StreamState>((set) => ({
           streams: {
             ...state.streams,
             [p.taskId]: { chunks: clampChunks([...existing.chunks, chunk]), completed: false },
+          },
+        }
+      })
+    }
+
+    if (event.type === 'tool_call_heartbeat') {
+      const p = safeParse(ToolCallHeartbeatPayload, event.payload, event.type)
+      if (!p) return
+      set(state => {
+        const existing = state.streams[p.taskId] ?? { chunks: [], completed: false }
+        const chunks = [...existing.chunks]
+        const seconds = Math.max(1, Math.floor(p.elapsedMs / 1000))
+        const content = `Running ${p.toolName}… (${seconds}s)`
+
+        let updated = false
+        for (let i = chunks.length - 1; i >= 0; i--) {
+          const chunk = chunks[i]
+          if (chunk?.kind === 'tool_call' && chunk.toolCallId === p.toolCallId) {
+            chunks[i] = { ...chunk, content, timestamp: Date.now() }
+            updated = true
+            break
+          }
+        }
+
+        if (!updated) {
+          chunks.push({
+            kind: 'verbose',
+            content,
+            timestamp: Date.now(),
+            toolCallId: p.toolCallId,
+            toolName: p.toolName,
+          })
+        }
+
+        return {
+          streams: {
+            ...state.streams,
+            [p.taskId]: { chunks: clampChunks(chunks), completed: false },
           },
         }
       })

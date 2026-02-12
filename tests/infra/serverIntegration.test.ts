@@ -12,7 +12,10 @@ import { WebSocket } from 'ws'
 import { createApp, type App } from '../../src/interfaces/app/createApp.js'
 import { CoAuthorServer } from '../../src/infrastructure/servers/server.js'
 
-describe('Server Integration', () => {
+const RUN_SERVER_INTEGRATION = process.env.COAUTHOR_RUN_SERVER_INTEGRATION === '1'
+const describeServerIntegration = RUN_SERVER_INTEGRATION ? describe : describe.skip
+
+describeServerIntegration('Server Integration', () => {
   let tmpDir: string
   let app: App
   let server: CoAuthorServer
@@ -21,7 +24,8 @@ describe('Server Integration', () => {
   beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'coauthor-integ-'))
     app = await createApp({ baseDir: tmpDir })
-    server = new CoAuthorServer(app, { authToken: TOKEN })
+    // Use an ephemeral port to avoid collisions with dev servers on 3120.
+    server = new CoAuthorServer(app, { authToken: TOKEN, port: 0 })
     await server.start()
   })
 

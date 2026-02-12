@@ -23,6 +23,10 @@ export type UiEvent =
       payload: { taskId: string; agentId: string; toolCallId: string; toolName: string; output: unknown; isError: boolean; durationMs: number }
     }
   | {
+      type: 'tool_call_heartbeat'
+      payload: { taskId: string; agentId: string; toolCallId: string; toolName: string; elapsedMs: number }
+    }
+  | {
       type: 'tool_calls_batch_start'
       payload: { taskId: string; agentId: string; count: number; safeCount: number; riskyCount: number }
     }
