@@ -21,6 +21,20 @@ import type { TaskView, TaskStatus } from '@/types'
 
 const STATUS_ORDER: TaskStatus[] = ['in_progress', 'awaiting_user', 'open', 'paused', 'done', 'failed', 'canceled']
 
+const FILTER_STORAGE_KEY = 'coauthor-task-filter'
+
+function getInitialFilter(): 'all' | 'active' | 'done' {
+  try {
+    const saved = sessionStorage.getItem(FILTER_STORAGE_KEY)
+    if (saved && ['all', 'active', 'done'].includes(saved)) {
+      return saved as 'all' | 'active' | 'done'
+    }
+  } catch {
+    // sessionStorage may be restricted
+  }
+  return 'all'
+}
+
 function sortTasks(tasks: TaskView[]): TaskView[] {
   return [...tasks].sort((a, b) => {
     const ai = STATUS_ORDER.indexOf(a.status)
@@ -37,12 +51,23 @@ export function DashboardPage() {
   const streams = useStreamStore(s => s.streams)
   const fetchRuntime = useRuntimeStore(s => s.fetchRuntime)
   const [showCreate, setShowCreate] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'active' | 'done'>('all')
+  const [filter, setFilter] = useState<'all' | 'active' | 'done'>(getInitialFilter)
   const navigate = useNavigate()
 
+  // Persist filter state to sessionStorage (B19)
   useEffect(() => {
-    fetchTasks()
-    fetchRuntime()
+    try {
+      sessionStorage.setItem(FILTER_STORAGE_KEY, filter)
+    } catch {
+      // sessionStorage may be restricted
+    }
+  }, [filter])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchTasks({ signal: controller.signal })
+    fetchRuntime({ signal: controller.signal })
+    return () => controller.abort()
   }, [fetchTasks, fetchRuntime])
 
   // Listen for Ctrl+N shortcut

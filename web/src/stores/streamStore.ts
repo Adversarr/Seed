@@ -89,7 +89,20 @@ export const useStreamStore = create<StreamState>((set, get) => ({
   },
 }))
 
-// Subscribe to eventBus — decoupled from connectionStore
-eventBus.on('ui-event', (event) => {
-  useStreamStore.getState().handleUiEvent(event)
-})
+let streamStoreUnsub: (() => void) | null = null
+
+export function registerStreamStoreSubscriptions(): void {
+  if (streamStoreUnsub) return
+  streamStoreUnsub = eventBus.on('ui-event', (event) => {
+    useStreamStore.getState().handleUiEvent(event)
+  })
+}
+
+export function unregisterStreamStoreSubscriptions(): void {
+  if (streamStoreUnsub) {
+    streamStoreUnsub()
+    streamStoreUnsub = null
+  }
+}
+
+registerStreamStoreSubscriptions()

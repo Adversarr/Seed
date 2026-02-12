@@ -22,7 +22,7 @@ interface RuntimeState {
   error: string | null
 
   /** Fetch runtime config from the server. */
-  fetchRuntime: () => Promise<void>
+  fetchRuntime: (opts?: { signal?: AbortSignal }) => Promise<void>
 
   /** Get a specific agent by ID. */
   getAgent: (id: string) => AgentInfo | undefined
@@ -35,10 +35,10 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   loading: false,
   error: null,
 
-  fetchRuntime: async () => {
+  fetchRuntime: async (opts?: { signal?: AbortSignal }) => {
     set({ loading: true, error: null })
     try {
-      const data = await api.getRuntime()
+      const data = await api.getRuntime(opts)
       set({
         agents: data.agents,
         defaultAgentId: data.defaultAgentId,

@@ -134,7 +134,11 @@ function RuntimeInfoCard() {
   const fetchRuntime = useRuntimeStore(s => s.fetchRuntime)
   const defaultAgentId = useRuntimeStore(s => s.defaultAgentId)
 
-  useEffect(() => { fetchRuntime() }, [fetchRuntime])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchRuntime({ signal: controller.signal })
+    return () => controller.abort()
+  }, [fetchRuntime])
 
   return (
     <Card className="max-w-md bg-zinc-950/40">

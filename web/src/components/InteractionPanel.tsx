@@ -62,6 +62,7 @@ export function InteractionPanel({ interaction }: { interaction: PendingInteract
               key={opt.id}
               disabled={submitting}
               onClick={() => respond(opt.id)}
+              aria-label={`Select option: ${opt.label}`}
               className={cn(
                 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50',
                 opt.style === 'primary' && 'bg-violet-600 hover:bg-violet-500 text-white',
@@ -89,6 +90,7 @@ export function InteractionPanel({ interaction }: { interaction: PendingInteract
           <button
             onClick={() => respond()}
             disabled={submitting || !inputValue.trim()}
+            aria-label="Send response"
             className="px-4 py-1.5 rounded-md bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium disabled:opacity-50"
           >
             Send

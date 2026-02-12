@@ -1,6 +1,6 @@
 export { eventBus } from './eventBus'
 export { useConnectionStore } from './connectionStore'
-export { useTaskStore } from './taskStore'
-export { useStreamStore } from './streamStore'
+export { useTaskStore, registerTaskStoreSubscriptions, unregisterTaskStoreSubscriptions } from './taskStore'
+export { useStreamStore, registerStreamStoreSubscriptions, unregisterStreamStoreSubscriptions } from './streamStore'
 export { useRuntimeStore } from './runtimeStore'
 export { useConversationStore, registerConversationSubscriptions, unregisterConversationSubscriptions } from './conversationStore'

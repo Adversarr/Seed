@@ -21,10 +21,10 @@ interface TaskState {
   error: string | null
 
   /** Initial fetch from HTTP */
-  fetchTasks: () => Promise<void>
+  fetchTasks: (opts?: { signal?: AbortSignal }) => Promise<void>
 
   /** Fetch a single task from HTTP and add to store */
-  fetchTask: (taskId: string) => Promise<TaskView | null>
+  fetchTask: (taskId: string, opts?: { signal?: AbortSignal }) => Promise<TaskView | null>
 
   /** Apply a real-time StoredEvent to update local state */
   applyEvent: (event: StoredEvent) => void
@@ -35,19 +35,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   loading: false,
   error: null,
 
-  fetchTasks: async () => {
+  fetchTasks: async (opts?: { signal?: AbortSignal }) => {
     set({ loading: true, error: null })
     try {
-      const tasks = await api.listTasks()
+      const tasks = await api.listTasks(opts)
       set({ tasks, loading: false })
     } catch (e) {
       set({ error: (e as Error).message, loading: false })
     }
   },
 
-  fetchTask: async (taskId: string) => {
+  fetchTask: async (taskId: string, opts?: { signal?: AbortSignal }) => {
     try {
-      const task = await api.getTask(taskId)
+      const task = await api.getTask(taskId, opts)
       if (task) {
         const { tasks } = get()
         const idx = tasks.findIndex(t => t.taskId === taskId)
@@ -140,7 +140,20 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   },
 }))
 
-// Subscribe to eventBus — decoupled from connectionStore
-eventBus.on('domain-event', (event) => {
-  useTaskStore.getState().applyEvent(event)
-})
+let taskStoreUnsub: (() => void) | null = null
+
+export function registerTaskStoreSubscriptions(): void {
+  if (taskStoreUnsub) return
+  taskStoreUnsub = eventBus.on('domain-event', (event) => {
+    useTaskStore.getState().applyEvent(event)
+  })
+}
+
+export function unregisterTaskStoreSubscriptions(): void {
+  if (taskStoreUnsub) {
+    taskStoreUnsub()
+    taskStoreUnsub = null
+  }
+}
+
+registerTaskStoreSubscriptions()

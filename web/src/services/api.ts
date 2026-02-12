@@ -43,8 +43,8 @@ export const api = {
   health: () => get<HealthResponse>('/api/health'),
 
   // Tasks
-  listTasks: () => get<{ tasks: TaskView[] }>('/api/tasks').then(r => r.tasks),
-  getTask: (id: string) => get<TaskView>(`/api/tasks/${id}`),
+  listTasks: (opts?: { signal?: AbortSignal }) => get<{ tasks: TaskView[] }>('/api/tasks', opts).then(r => r.tasks),
+  getTask: (id: string, opts?: { signal?: AbortSignal }) => get<TaskView>(`/api/tasks/${id}`, opts),
   createTask: (body: { title: string; intent?: string; priority?: string; agentId?: string }) =>
     post<CreateTaskResponse>('/api/tasks', body),
   cancelTask: (id: string, reason?: string) => post<void>(`/api/tasks/${id}/cancel`, { reason }),
@@ -54,30 +54,30 @@ export const api = {
     post<void>(`/api/tasks/${id}/instruction`, { instruction }),
 
   // Events
-  getEvents: (after = 0, streamId?: string) => {
+  getEvents: (after = 0, streamId?: string, opts?: { signal?: AbortSignal }) => {
     const params = new URLSearchParams({ after: String(after) })
     if (streamId) params.set('streamId', streamId)
-    return get<{ events: StoredEvent[] }>(`/api/events?${params}`).then(r => r.events)
+    return get<{ events: StoredEvent[] }>(`/api/events?${params}`, opts).then(r => r.events)
   },
 
   // Interactions
-  getPendingInteraction: (taskId: string) =>
-    get<{ pending: PendingInteraction | null }>(`/api/tasks/${taskId}/interaction/pending`).then(r => r.pending),
+  getPendingInteraction: (taskId: string, opts?: { signal?: AbortSignal }) =>
+    get<{ pending: PendingInteraction | null }>(`/api/tasks/${taskId}/interaction/pending`, opts).then(r => r.pending),
   respondToInteraction: (taskId: string, interactionId: string, body: { selectedOptionId?: string; inputValue?: string }) =>
     post<void>(`/api/tasks/${taskId}/interaction/${interactionId}/respond`, body),
 
   // Runtime
-  getRuntime: () => get<{
+  getRuntime: (opts?: { signal?: AbortSignal }) => get<{
     agents: Array<{ id: string; displayName: string; description: string }>
     defaultAgentId: string
     streamingEnabled: boolean
-  }>('/api/runtime'),
+  }>('/api/runtime', opts),
 
   // Audit
-  getAudit: (limit = 50, taskId?: string) => {
+  getAudit: (limit = 50, taskId?: string, opts?: { signal?: AbortSignal }) => {
     const params = new URLSearchParams({ limit: String(limit) })
     if (taskId) params.set('taskId', taskId)
-    return get<{ entries: unknown[] }>(`/api/audit?${params}`).then(r => r.entries)
+    return get<{ entries: unknown[] }>(`/api/audit?${params}`, opts).then(r => r.entries)
   },
 
   // Files

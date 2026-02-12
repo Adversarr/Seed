@@ -260,11 +260,19 @@ export class CoAuthorWsServer {
   }
 
   #authenticate(req: IncomingMessage): boolean {
-    // Bypass auth for localhost connections (server only binds 127.0.0.1 by default)
-    const remoteAddr = req.socket?.remoteAddress
+    // Localhost bypass: server binds 127.0.0.1 by default, so local connections
+    // are trusted without token. This simplifies local development and CLI usage.
+    // For remote deployments, the token query param is required.
+    const socket = req.socket
+    if (!socket) {
+      // No socket available — reject (should not happen in normal HTTP upgrade)
+      return false
+    }
+    const remoteAddr = socket.remoteAddress
     if (remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1') {
       return true
     }
+    // Non-localhost: require valid token
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     return url.searchParams.get('token') === this.#deps.authToken
   }

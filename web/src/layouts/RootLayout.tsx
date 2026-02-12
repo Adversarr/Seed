@@ -2,10 +2,16 @@
  * Root layout — sidebar + main content area.
  */
 
+import { useEffect } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Sparkles, LayoutDashboard, Settings, Activity } from 'lucide-react'
 import { ConnectionIndicator } from '@/components/ConnectionIndicator'
-import { useTaskStore } from '@/stores'
+import {
+  useTaskStore,
+  unregisterTaskStoreSubscriptions,
+  unregisterStreamStoreSubscriptions,
+  unregisterConversationSubscriptions,
+} from '@/stores'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import {
   Sidebar,
@@ -31,6 +37,15 @@ export function RootLayout() {
 
   // Global keyboard shortcuts (Ctrl+N, Escape, g-h / g-a / g-s)
   useKeyboardShortcuts()
+
+  // Cleanup store subscriptions on unmount (B6: prevents memory leaks on HMR)
+  useEffect(() => {
+    return () => {
+      unregisterTaskStoreSubscriptions()
+      unregisterStreamStoreSubscriptions()
+      unregisterConversationSubscriptions()
+    }
+  }, [])
 
   return (
     <SidebarProvider defaultOpen>

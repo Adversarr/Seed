@@ -42,28 +42,39 @@ export function ActivityPage() {
   const [tab, setTab] = useState<'events' | 'audit'>('events')
   const seenIdsRef = useRef<Set<number>>(new Set())
 
-  const fetchEvents = useCallback(() => {
+  const fetchEvents = useCallback((signal?: AbortSignal) => {
     setLoading(true)
     seenIdsRef.current.clear()
-    api.getEvents(0).then(fetched => {
-      for (const e of fetched) seenIdsRef.current.add(e.id)
-      setEvents(fetched.length > MAX_ACTIVITY_EVENTS ? fetched.slice(-MAX_ACTIVITY_EVENTS) : fetched)
-      setLoading(false)
-    }).catch(err => {
-      console.error('[ActivityPage] Failed to fetch events:', err)
-      setLoading(false)
-    })
+    api.getEvents(0, undefined, { signal })
+      .then(fetched => {
+        for (const e of fetched) seenIdsRef.current.add(e.id)
+        setEvents(fetched.length > MAX_ACTIVITY_EVENTS ? fetched.slice(-MAX_ACTIVITY_EVENTS) : fetched)
+        setLoading(false)
+      })
+      .catch(err => {
+        if ((err as Error).name === 'AbortError') return
+        console.error('[ActivityPage] Failed to fetch events:', err)
+        setLoading(false)
+      })
   }, [])
 
-  const fetchAudit = useCallback(() => {
-    api.getAudit(100).then(entries => {
-      setAuditEntries(entries as Record<string, unknown>[])
-    }).catch(err => {
-      console.error('[ActivityPage] Failed to fetch audit entries:', err)
-    })
+  const fetchAudit = useCallback((signal?: AbortSignal) => {
+    api.getAudit(100, undefined, { signal })
+      .then(entries => {
+        setAuditEntries(entries as Record<string, unknown>[])
+      })
+      .catch(err => {
+        if ((err as Error).name === 'AbortError') return
+        console.error('[ActivityPage] Failed to fetch audit entries:', err)
+      })
   }, [])
 
-  useEffect(() => { fetchEvents(); fetchAudit() }, [fetchEvents, fetchAudit])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchEvents(controller.signal)
+    fetchAudit(controller.signal)
+    return () => controller.abort()
+  }, [fetchEvents, fetchAudit])
 
   useEffect(() => {
     const unsub = eventBus.on('domain-event', (event) => {

@@ -47,33 +47,49 @@ export function TaskDetailPage() {
       return
     }
     if (lastFetchIdRef.current === taskId && fetchInFlightRef.current) return
+
+    const controller = new AbortController()
     lastFetchIdRef.current = taskId
     fetchInFlightRef.current = true
     setTaskLoading(true)
-    fetchTask(taskId)
+    fetchTask(taskId, { signal: controller.signal })
       .then(t => {
+        if (controller.signal.aborted) return
         setTaskLoading(false)
         if (!t) setTaskNotFound(true)
       })
-      .finally(() => {
-        fetchInFlightRef.current = false
+      .catch(err => {
+        if (controller.signal.aborted) return
+        console.error('[TaskDetailPage] Failed to fetch task:', err)
+        setTaskLoading(false)
       })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          fetchInFlightRef.current = false
+        }
+      })
+
+    return () => controller.abort()
   }, [taskId, task, fetchTask])
 
   // Fetch pending interaction (B4: cancel on unmount)
   useEffect(() => {
-    let cancelled = false
-    if (taskId && task?.pendingInteractionId) {
-      api.getPendingInteraction(taskId).then(p => {
-        if (!cancelled) setInteraction(p)
-      }).catch(err => {
-        if (!cancelled) console.error('[TaskDetailPage] Failed to fetch interaction:', err)
-      })
-    } else {
+    if (!taskId || !task?.pendingInteractionId) {
       if (interaction) setInteraction(null)
+      return
     }
-    return () => { cancelled = true }
-  }, [taskId, task?.pendingInteractionId])
+
+    const controller = new AbortController()
+    api.getPendingInteraction(taskId, { signal: controller.signal })
+      .then(p => {
+        if (!controller.signal.aborted) setInteraction(p)
+      })
+      .catch(err => {
+        if (!controller.signal.aborted) console.error('[TaskDetailPage] Failed to fetch interaction:', err)
+      })
+
+    return () => controller.abort()
+  }, [taskId, task?.pendingInteractionId, interaction])
 
   if (taskLoading) {
     return (
@@ -108,7 +124,7 @@ export function TaskDetailPage() {
       {/* ── Header ── */}
       <div className="shrink-0 space-y-4 pb-4 border-b border-border">
         <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="mt-1">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="mt-1" aria-label="Back to task list">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
