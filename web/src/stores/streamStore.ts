@@ -14,6 +14,7 @@ import { eventBus } from './eventBus'
 import {
   StreamPayload, StreamEndPayload,
   ToolCallStartPayload, ToolCallEndPayload,
+  ToolCallsBatchStartPayload, ToolCallsBatchEndPayload,
   safeParse,
 } from '@/schemas/eventPayloads'
 
@@ -145,6 +146,31 @@ export const useStreamStore = create<StreamState>((set) => ({
           },
         }
       })
+    }
+
+    if (event.type === 'tool_calls_batch_start') {
+      const p = safeParse(ToolCallsBatchStartPayload, event.payload, event.type)
+      if (!p) return
+      set(state => {
+        const existing = state.streams[p.taskId] ?? { chunks: [], completed: false }
+        const chunk: StreamChunk = {
+          kind: 'verbose',
+          content: `Executing ${p.count} tools (${p.safeCount} concurrent, ${p.riskyCount} sequential)…`,
+          timestamp: Date.now(),
+        }
+        return {
+          streams: {
+            ...state.streams,
+            [p.taskId]: { chunks: clampChunks([...existing.chunks, chunk]), completed: false },
+          },
+        }
+      })
+    }
+
+    if (event.type === 'tool_calls_batch_end') {
+      const p = safeParse(ToolCallsBatchEndPayload, event.payload, event.type)
+      if (!p) return
+      // Batch end is informational - individual tool_call_end events provide details
     }
   },
 

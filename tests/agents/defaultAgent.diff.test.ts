@@ -73,22 +73,22 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
     persistMessage: vi.fn()
   }
 
-  it('should yield tool_call for risky editFile (agent is risk-unaware)', async () => {
+  it('should yield tool_calls batch for risky editFile (agent is risk-unaware)', async () => {
     const generator = agent.run(mockTask, mockContext)
     
     // 1. Verbose yield (Calling LLM...)
     let result = await generator.next()
     expect(result.value).toMatchObject({ kind: 'verbose' })
 
-    // 2. Verbose yield (Executing tool...)
+    // 2. Verbose yield (Executing tools...)
     result = await generator.next()
-    expect(result.value).toMatchObject({ kind: 'verbose', content: expect.stringContaining('Executing tool') })
+    expect(result.value).toMatchObject({ kind: 'verbose', content: expect.stringContaining('Executing tools') })
 
-    // 3. tool_call yield — agent doesn't know about risk, just yields it
+    // 3. tool_calls batch yield — agent yields all tool calls as a batch
     result = await generator.next()
     expect(result.value).toMatchObject({
-      kind: 'tool_call',
-      call: {
+      kind: 'tool_calls',
+      calls: [{
         toolCallId: 'call_1',
         toolName: 'editFile',
         arguments: {
@@ -96,7 +96,7 @@ describe('DefaultCoAuthorAgent Diff Generation', () => {
           oldString: 'Hello World',
           newString: 'Hello CoAuthor'
         }
-      }
+      }]
     })
   })
 })

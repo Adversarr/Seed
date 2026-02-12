@@ -100,14 +100,21 @@ export abstract class BaseToolAgent implements Agent {
         return
       }
 
+      // Validate all tool calls exist before yielding batch
+      const validToolCalls = []
       for (const toolCall of llmResponse.toolCalls) {
         const tool = context.tools.get(toolCall.toolName)
         if (!tool) {
           yield { kind: 'error', content: `Unknown tool: ${toolCall.toolName}` }
           continue
         }
-        yield { kind: 'verbose', content: `Executing tool: ${toolCall.toolName}` }
-        yield { kind: 'tool_call', call: toolCall }
+        validToolCalls.push(toolCall)
+      }
+
+      if (validToolCalls.length > 0) {
+        const toolNames = validToolCalls.map(call => call.toolName).join(', ')
+        yield { kind: 'verbose', content: `Executing tools: ${toolNames}` }
+        yield { kind: 'tool_calls', calls: validToolCalls }
       }
     }
 

@@ -91,6 +91,19 @@ export const ToolCallEndPayload = z.object({
   durationMs: z.number(),
 })
 
+export const ToolCallsBatchStartPayload = z.object({
+  taskId: z.string().min(1),
+  agentId: z.string(),
+  count: z.number().int().min(1),
+  safeCount: z.number().int().min(0),
+  riskyCount: z.number().int().min(0),
+})
+
+export const ToolCallsBatchEndPayload = z.object({
+  taskId: z.string().min(1),
+  agentId: z.string(),
+})
+
 // ── Type helpers ───────────────────────────────────────────────────────
 
 export type TaskCreatedPayload = z.infer<typeof TaskCreatedPayload>
@@ -104,6 +117,8 @@ export type StreamPayload = z.infer<typeof StreamPayload>
 export type StreamEndPayload = z.infer<typeof StreamEndPayload>
 export type ToolCallStartPayload = z.infer<typeof ToolCallStartPayload>
 export type ToolCallEndPayload = z.infer<typeof ToolCallEndPayload>
+export type ToolCallsBatchStartPayload = z.infer<typeof ToolCallsBatchStartPayload>
+export type ToolCallsBatchEndPayload = z.infer<typeof ToolCallsBatchEndPayload>
 
 /**
  * Safely parse an event payload. Returns undefined on validation failure (logs warning).

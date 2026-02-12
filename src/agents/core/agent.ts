@@ -38,6 +38,7 @@ export type AgentOutput =
   | { kind: 'error'; content: string }
   | { kind: 'reasoning'; content: string }
   | { kind: 'tool_call'; call: ToolCallRequest }
+  | { kind: 'tool_calls'; calls: ToolCallRequest[] }
   | { kind: 'interaction'; request: AgentInteractionRequest }
   | { kind: 'done'; summary?: string }
   | { kind: 'failed'; reason: string }

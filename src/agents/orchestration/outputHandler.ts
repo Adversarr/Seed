@@ -103,116 +103,11 @@ export class OutputHandler {
         if (!ctx.streamingEnabled) this.#emitUi(ctx, 'reasoning', output.content)
         return {}
 
-      case 'tool_call': {
-        const tool = this.#toolRegistry.get(output.call.toolName)
-        
-        const toolContext = {
-          taskId: ctx.taskId,
-          actorId: ctx.agentId,
-          baseDir: ctx.baseDir,
-          confirmedInteractionId: ctx.confirmedInteractionId,
-          artifactStore: this.#artifactStore,
-          signal: ctx.signal
-        }
+      case 'tool_call':
+        return this.#handleSingleToolCall(output.call, ctx)
 
-        // Universal Pre-Execution Check
-        // If the tool implements canExecute, run it first.
-        // If it fails, we skip risk checks and execution, returning the error immediately.
-        if (tool?.canExecute) {
-          try {
-            await tool.canExecute(output.call.arguments, toolContext)
-          } catch (error) {
-            const errMessage = error instanceof Error ? error.message : String(error)
-            
-            await this.#conversationManager.persistToolResultIfMissing(
-              ctx.taskId,
-              output.call.toolCallId,
-              output.call.toolName,
-              { error: errMessage },
-              true,
-              ctx.conversationHistory,
-              ctx.persistMessage
-            )
-            return {}
-          }
-        }
-
-        const isRisky = tool?.riskLevel === 'risky'
-
-        // Risky tool: needs confirmation. Either unconfirmed, or confirmed
-        // for a different tool call (SA-001 — approval must be action-bound).
-        const needsConfirmation = isRisky && (
-          !ctx.confirmedInteractionId ||
-          (ctx.confirmedToolCallId && ctx.confirmedToolCallId !== output.call.toolCallId)
-        )
-
-        if (needsConfirmation) {
-          const confirmReq = buildConfirmInteraction(output.call)
-          const event: DomainEvent = {
-            type: 'UserInteractionRequested',
-            payload: {
-              taskId: ctx.taskId,
-              interactionId: confirmReq.interactionId,
-              kind: confirmReq.kind,
-              purpose: confirmReq.purpose,
-              display: confirmReq.display,
-              options: confirmReq.options,
-              validation: confirmReq.validation,
-              authorActorId: ctx.agentId
-            }
-          }
-          return { event, pause: true }
-        }
-
-        // Emit tool_call_start UiEvent so the frontend can show real-time tool activity
-        this.#uiBus?.emit({
-          type: 'tool_call_start',
-          payload: {
-            taskId: ctx.taskId,
-            agentId: ctx.agentId,
-            toolCallId: output.call.toolCallId,
-            toolName: output.call.toolName,
-            arguments: output.call.arguments,
-          }
-        })
-
-        const startMs = Date.now()
-        const result: ToolResult = await this.#toolExecutor.execute(output.call, toolContext)
-        const durationMs = Date.now() - startMs
-
-        // Emit tool_call_end UiEvent with result
-        this.#uiBus?.emit({
-          type: 'tool_call_end',
-          payload: {
-            taskId: ctx.taskId,
-            agentId: ctx.agentId,
-            toolCallId: output.call.toolCallId,
-            toolName: output.call.toolName,
-            output: result.output,
-            isError: result.isError,
-            durationMs,
-          }
-        })
-
-        // Persist into conversation (idempotent)
-        await this.#conversationManager.persistToolResultIfMissing(
-          ctx.taskId,
-          output.call.toolCallId,
-          output.call.toolName,
-          result.output,
-          result.isError,
-          ctx.conversationHistory,
-          ctx.persistMessage
-        )
-
-        if (isRisky) {
-          // Clear the one-time confirmation after use
-          ctx.confirmedInteractionId = undefined
-          ctx.confirmedToolCallId = undefined
-        }
-
-        return {}
-      }
+      case 'tool_calls':
+        return this.handleToolCalls(output.calls, ctx)
 
       case 'interaction': {
         const event: DomainEvent = {
@@ -260,6 +155,298 @@ export class OutputHandler {
         return _exhaustive
       }
     }
+  }
+
+  // ---------- batch tool execution ----------
+
+  /**
+   * Handle a batch of tool calls with concurrent execution for safe tools.
+   *
+   * Strategy:
+   * 1. Partition tool calls into safe (concurrent) and risky (sequential)
+   * 2. Execute all safe tools concurrently via Promise.allSettled
+   * 3. Process risky tools sequentially with UIP confirmation
+   *
+   * This provides significant performance improvement when agents request
+   * multiple independent read-only operations (readFile, glob, grep, etc.)
+   */
+  async handleToolCalls(calls: ToolCallRequest[], ctx: OutputContext): Promise<OutputResult> {
+    if (calls.length === 0) return {}
+
+    if (calls.length === 1) {
+      return this.#handleSingleToolCall(calls[0]!, ctx)
+    }
+
+    const { safeCalls, riskyCalls } = this.#partitionByRisk(calls)
+
+    // Emit batch start event for UI feedback
+    this.#uiBus?.emit({
+      type: 'tool_calls_batch_start',
+      payload: {
+        taskId: ctx.taskId,
+        agentId: ctx.agentId,
+        count: calls.length,
+        safeCount: safeCalls.length,
+        riskyCount: riskyCalls.length,
+      }
+    })
+
+    // Execute safe tools concurrently
+    if (safeCalls.length > 0) {
+      await this.#executeConcurrent(safeCalls, ctx)
+    }
+
+    // Process risky tools sequentially with UIP confirmation
+    for (const call of riskyCalls) {
+      const result = await this.#handleSingleToolCall(call, ctx)
+      if (result.pause || result.event) {
+        this.#uiBus?.emit({
+          type: 'tool_calls_batch_end',
+          payload: { taskId: ctx.taskId, agentId: ctx.agentId }
+        })
+        return result
+      }
+    }
+
+    this.#uiBus?.emit({
+      type: 'tool_calls_batch_end',
+      payload: { taskId: ctx.taskId, agentId: ctx.agentId }
+    })
+
+    return {}
+  }
+
+  /**
+   * Partition tool calls by risk level.
+   */
+  #partitionByRisk(calls: ToolCallRequest[]): { safeCalls: ToolCallRequest[]; riskyCalls: ToolCallRequest[] } {
+    const safeCalls: ToolCallRequest[] = []
+    const riskyCalls: ToolCallRequest[] = []
+
+    for (const call of calls) {
+      const tool = this.#toolRegistry.get(call.toolName)
+      if (tool?.riskLevel === 'risky') {
+        riskyCalls.push(call)
+      } else {
+        safeCalls.push(call)
+      }
+    }
+
+    return { safeCalls, riskyCalls }
+  }
+
+  /**
+   * Execute multiple safe tool calls concurrently.
+   * Uses Promise.allSettled so one failure doesn't block others.
+   */
+  async #executeConcurrent(calls: ToolCallRequest[], ctx: OutputContext): Promise<void> {
+    const results = await Promise.allSettled(
+      calls.map(call => this.#executeToolWithoutRiskCheck(call, ctx))
+    )
+
+    // Log any rejections (shouldn't happen for safe tools, but handle gracefully)
+    for (let index = 0; index < results.length; index++) {
+      const result = results[index]
+      if (result.status === 'rejected') {
+        const call = calls[index]!
+        console.error(
+          `[OutputHandler] Tool ${call.toolName} (${call.toolCallId}) rejected:`,
+          result.reason
+        )
+      }
+    }
+  }
+
+  /**
+   * Execute a single safe tool call without risk checks.
+   * Used by #executeConcurrent for parallel execution.
+   */
+  async #executeToolWithoutRiskCheck(call: ToolCallRequest, ctx: OutputContext): Promise<void> {
+    const tool = this.#toolRegistry.get(call.toolName)
+
+    const toolContext = {
+      taskId: ctx.taskId,
+      actorId: ctx.agentId,
+      baseDir: ctx.baseDir,
+      confirmedInteractionId: ctx.confirmedInteractionId,
+      artifactStore: this.#artifactStore,
+      signal: ctx.signal
+    }
+
+    // Pre-execution check (canExecute)
+    if (tool?.canExecute) {
+      try {
+        await tool.canExecute(call.arguments, toolContext)
+      } catch (error) {
+        const errMessage = error instanceof Error ? error.message : String(error)
+        await this.#conversationManager.persistToolResultIfMissing(
+          ctx.taskId,
+          call.toolCallId,
+          call.toolName,
+          { error: errMessage },
+          true,
+          ctx.conversationHistory,
+          ctx.persistMessage
+        )
+        return
+      }
+    }
+
+    // Emit tool_call_start UiEvent
+    this.#uiBus?.emit({
+      type: 'tool_call_start',
+      payload: {
+        taskId: ctx.taskId,
+        agentId: ctx.agentId,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        arguments: call.arguments,
+      }
+    })
+
+    const startMs = Date.now()
+    const result: ToolResult = await this.#toolExecutor.execute(call, toolContext)
+    const durationMs = Date.now() - startMs
+
+    // Emit tool_call_end UiEvent
+    this.#uiBus?.emit({
+      type: 'tool_call_end',
+      payload: {
+        taskId: ctx.taskId,
+        agentId: ctx.agentId,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        output: result.output,
+        isError: result.isError,
+        durationMs,
+      }
+    })
+
+    // Persist into conversation
+    await this.#conversationManager.persistToolResultIfMissing(
+      ctx.taskId,
+      call.toolCallId,
+      call.toolName,
+      result.output,
+      result.isError,
+      ctx.conversationHistory,
+      ctx.persistMessage
+    )
+  }
+
+  /**
+   * Handle a single tool call with full risk assessment and UIP confirmation.
+   * This is the original tool_call handling logic, extracted for reuse.
+   */
+  async #handleSingleToolCall(call: ToolCallRequest, ctx: OutputContext): Promise<OutputResult> {
+    const tool = this.#toolRegistry.get(call.toolName)
+
+    const toolContext = {
+      taskId: ctx.taskId,
+      actorId: ctx.agentId,
+      baseDir: ctx.baseDir,
+      confirmedInteractionId: ctx.confirmedInteractionId,
+      artifactStore: this.#artifactStore,
+      signal: ctx.signal
+    }
+
+    // Universal Pre-Execution Check
+    // If the tool implements canExecute, run it first.
+    // If it fails, we skip risk checks and execution, returning the error immediately.
+    if (tool?.canExecute) {
+      try {
+        await tool.canExecute(call.arguments, toolContext)
+      } catch (error) {
+        const errMessage = error instanceof Error ? error.message : String(error)
+
+        await this.#conversationManager.persistToolResultIfMissing(
+          ctx.taskId,
+          call.toolCallId,
+          call.toolName,
+          { error: errMessage },
+          true,
+          ctx.conversationHistory,
+          ctx.persistMessage
+        )
+        return {}
+      }
+    }
+
+    const isRisky = tool?.riskLevel === 'risky'
+
+    // Risky tool: needs confirmation. Either unconfirmed, or confirmed
+    // for a different tool call (SA-001 — approval must be action-bound).
+    const needsConfirmation = isRisky && (
+      !ctx.confirmedInteractionId ||
+      (ctx.confirmedToolCallId && ctx.confirmedToolCallId !== call.toolCallId)
+    )
+
+    if (needsConfirmation) {
+      const confirmReq = buildConfirmInteraction(call)
+      const event: DomainEvent = {
+        type: 'UserInteractionRequested',
+        payload: {
+          taskId: ctx.taskId,
+          interactionId: confirmReq.interactionId,
+          kind: confirmReq.kind,
+          purpose: confirmReq.purpose,
+          display: confirmReq.display,
+          options: confirmReq.options,
+          validation: confirmReq.validation,
+          authorActorId: ctx.agentId
+        }
+      }
+      return { event, pause: true }
+    }
+
+    // Emit tool_call_start UiEvent so the frontend can show real-time tool activity
+    this.#uiBus?.emit({
+      type: 'tool_call_start',
+      payload: {
+        taskId: ctx.taskId,
+        agentId: ctx.agentId,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        arguments: call.arguments,
+      }
+    })
+
+    const startMs = Date.now()
+    const result: ToolResult = await this.#toolExecutor.execute(call, toolContext)
+    const durationMs = Date.now() - startMs
+
+    // Emit tool_call_end UiEvent with result
+    this.#uiBus?.emit({
+      type: 'tool_call_end',
+      payload: {
+        taskId: ctx.taskId,
+        agentId: ctx.agentId,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        output: result.output,
+        isError: result.isError,
+        durationMs,
+      }
+    })
+
+    // Persist into conversation (idempotent)
+    await this.#conversationManager.persistToolResultIfMissing(
+      ctx.taskId,
+      call.toolCallId,
+      call.toolName,
+      result.output,
+      result.isError,
+      ctx.conversationHistory,
+      ctx.persistMessage
+    )
+
+    if (isRisky) {
+      // Clear the one-time confirmation after use
+      ctx.confirmedInteractionId = undefined
+      ctx.confirmedToolCallId = undefined
+    }
+
+    return {}
   }
 
   // ---------- rejection handling ----------
