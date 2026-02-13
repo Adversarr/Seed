@@ -86,16 +86,16 @@ export function DashboardPage() {
   const activeTasks = tasks.filter(t => !['done', 'failed', 'canceled'].includes(t.status))
 
   return (
-    <div className="h-full overflow-y-auto space-y-6">
+    <div className="h-full min-w-0 overflow-x-hidden overflow-y-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-zinc-100">Tasks</h1>
           <p className="text-sm text-zinc-500 mt-1">
             {activeTasks.length} active · {tasks.length} total
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
@@ -139,8 +139,8 @@ export function DashboardPage() {
             >
               <PriorityIcon priority={task.priority} />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-zinc-200 truncate group-hover:text-zinc-100">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 text-sm font-medium text-zinc-200 truncate group-hover:text-zinc-100">
                     {task.title}
                   </span>
                   {task.parentTaskId && (

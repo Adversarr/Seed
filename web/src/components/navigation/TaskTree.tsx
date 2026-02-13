@@ -48,7 +48,7 @@ function TreeNodeRow({ node, depth, activeTaskId }: { node: TreeNode; depth: num
       <Link
         to={`/tasks/${node.task.taskId}`}
         className={cn(
-          'flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-accent/40 transition-colors text-left group',
+          'flex w-full min-w-0 items-center gap-2 px-3 py-1.5 rounded-md hover:bg-accent/40 transition-colors text-left group',
           isActive && 'bg-accent/30 ring-1 ring-accent',
         )}
         style={{ paddingLeft: `${12 + depth * 16}px` }}
@@ -94,7 +94,7 @@ export function TaskTree({ activeTaskId, className }: TaskTreeProps) {
   }
 
   return (
-    <nav className={cn('space-y-0.5', className)} aria-label="Task tree">
+    <nav className={cn('w-full min-w-0 space-y-0.5 overflow-hidden', className)} aria-label="Task tree">
       {roots.map(node => (
         <TreeNodeRow key={node.task.taskId} node={node} depth={0} activeTaskId={activeTaskId} />
       ))}
