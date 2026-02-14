@@ -43,7 +43,7 @@ export function AgentSelector({ value, onChange, className }: AgentSelectorProps
       value={selectedAgentId}
       onValueChange={onChange}
     >
-      <SelectTrigger className={cn('min-w-0 max-w-full', className)}>
+      <SelectTrigger className={cn('min-w-0 w-full', className)}>
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <Bot className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
           <div className="min-w-0 flex-1 overflow-hidden text-left">
@@ -53,7 +53,7 @@ export function AgentSelector({ value, onChange, className }: AgentSelectorProps
           </div>
         </div>
       </SelectTrigger>
-      <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
+      <SelectContent position="popper" className="max-w-(--radix-select-trigger-width)">
         {agents.map(agent => (
           <SelectItem key={agent.id} value={agent.id}>
             <div className="min-w-0">

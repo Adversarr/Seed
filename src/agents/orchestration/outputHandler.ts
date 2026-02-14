@@ -112,23 +112,6 @@ export class OutputHandler {
       case 'tool_calls':
         return this.handleToolCalls(output.calls, ctx)
 
-      case 'interaction': {
-        const event: DomainEvent = {
-          type: 'UserInteractionRequested',
-          payload: {
-            taskId: ctx.taskId,
-            interactionId: output.request.interactionId,
-            kind: output.request.kind,
-            purpose: output.request.purpose,
-            display: output.request.display,
-            options: output.request.options,
-            validation: output.request.validation,
-            authorActorId: ctx.agentId
-          }
-        }
-        return { event, pause: true }
-      }
-
       case 'done': {
         const event: DomainEvent = {
           type: 'TaskCompleted',
