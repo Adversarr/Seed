@@ -1,5 +1,5 @@
 /**
- * StreamOutput replay transcript tests.
+ * StreamOutput tests (live UiEvent feedback + persisted replay transcript).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -21,6 +21,16 @@ type TestConversationMessage = {
 const mockFetchConversation = vi.fn()
 let mockMessages: TestConversationMessage[] = []
 let mockLoading = false
+type TestStreamChunk = {
+  kind: 'text' | 'reasoning' | 'verbose' | 'error' | 'tool_call' | 'tool_result'
+  content: string
+  timestamp: number
+  toolCallId?: string
+  toolName?: string
+  toolArguments?: Record<string, unknown>
+  isError?: boolean
+}
+let mockStreams: Record<string, { chunks: TestStreamChunk[]; completed: boolean }> = {}
 
 vi.mock('@/stores/conversationStore', () => ({
   useConversationStore: vi.fn((selector: (state: {
@@ -34,16 +44,20 @@ vi.mock('@/stores/conversationStore', () => ({
   })),
 }))
 
-// Regression guard: output transcript must not consume stream store data.
-vi.mock('@/stores/streamStore', () => {
-  throw new Error('StreamOutput should not import streamStore in replay-only mode')
-})
+vi.mock('@/stores/streamStore', () => ({
+  useStreamStore: vi.fn((selector: (state: {
+    streams: Record<string, { chunks: TestStreamChunk[]; completed: boolean }>
+  }) => unknown) => selector({
+    streams: mockStreams,
+  })),
+}))
 
-describe('StreamOutput replay transcript', () => {
+describe('StreamOutput', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockMessages = []
     mockLoading = false
+    mockStreams = {}
     mockFetchConversation.mockResolvedValue(undefined)
   })
 
@@ -86,6 +100,58 @@ describe('StreamOutput replay transcript', () => {
     expect(screen.getByText('Final replay answer.')).toBeInTheDocument()
     expect(screen.getByText(/"query": "paper"/)).toBeInTheDocument()
     expect(screen.getByText('search results')).toBeInTheDocument()
+  })
+
+  it('renders live UiEvent chunks for the active task', () => {
+    mockStreams = {
+      'task-1': {
+        completed: false,
+        chunks: [
+          { kind: 'text', content: 'Live assistant output', timestamp: 1 },
+          { kind: 'tool_call', content: 'Running read_file…', timestamp: 2, toolName: 'read_file', toolArguments: { path: 'README.md' } },
+          { kind: 'tool_result', content: 'File contents', timestamp: 3, toolName: 'read_file' },
+        ],
+      },
+    }
+
+    render(<StreamOutput taskId="task-1" />)
+
+    expect(screen.getByText('Live Agent Activity')).toBeInTheDocument()
+    expect(screen.getByText('Assistant (Live)')).toBeInTheDocument()
+    expect(screen.getByText('Tool Call (Live): read_file')).toBeInTheDocument()
+    expect(screen.getByText('Tool Result (Live): read_file')).toBeInTheDocument()
+    expect(screen.getByText('Live assistant output')).toBeInTheDocument()
+    expect(screen.getByText(/Running read_file/)).toBeInTheDocument()
+    expect(screen.getByText(/"path": "README.md"/)).toBeInTheDocument()
+    expect(screen.getByText('File contents')).toBeInTheDocument()
+    expect(screen.getByText('Running')).toBeInTheDocument()
+  })
+
+  it('renders live activity and persisted transcript together', () => {
+    mockMessages = [
+      {
+        id: 'm-assistant',
+        role: 'assistant',
+        timestamp: new Date().toISOString(),
+        parts: [{ kind: 'text', content: 'Persisted assistant answer' }],
+      },
+    ]
+    mockStreams = {
+      'task-1': {
+        completed: true,
+        chunks: [
+          { kind: 'text', content: 'Live chunk before persistence', timestamp: 10 },
+        ],
+      },
+    }
+
+    render(<StreamOutput taskId="task-1" />)
+
+    expect(screen.getByText('Live Agent Activity')).toBeInTheDocument()
+    expect(screen.getByText('Persisted Transcript')).toBeInTheDocument()
+    expect(screen.getByText('Live chunk before persistence')).toBeInTheDocument()
+    expect(screen.getByText('Persisted assistant answer')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
   })
 
   it('shows empty state when conversation is empty', () => {

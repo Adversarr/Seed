@@ -15,8 +15,10 @@ import {
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import {
   registerConversationSubscriptions,
+  registerStreamStoreSubscriptions,
   registerTaskStoreSubscriptions,
   unregisterConversationSubscriptions,
+  unregisterStreamStoreSubscriptions,
   unregisterTaskStoreSubscriptions,
 } from "@/stores"
 
@@ -29,10 +31,12 @@ export function RootLayout() {
     // Re-register on mount so StrictMode/HMR unmount-remount cycles keep stores live.
     registerTaskStoreSubscriptions()
     registerConversationSubscriptions()
+    registerStreamStoreSubscriptions()
 
     return () => {
       unregisterTaskStoreSubscriptions()
       unregisterConversationSubscriptions()
+      unregisterStreamStoreSubscriptions()
     }
   }, [])
 
