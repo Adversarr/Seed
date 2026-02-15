@@ -8,7 +8,7 @@
 
 import { create } from 'zustand'
 import { api } from '@/services/api'
-import type { LLMMessage } from '@/types'
+import type { LLMMessage, UiEvent } from '@/types'
 import { eventBus } from './eventBus'
 
 // ── Conversation message types (preserve interleaved order) ────────────
@@ -39,7 +39,7 @@ interface ConversationState {
   loadingTasks: Set<string>
 
   /** Fetch conversation history for a task from the conversation API. */
-  fetchConversation: (taskId: string) => Promise<void>
+  fetchConversation: (taskId: string, opts?: { preserveLive?: boolean }) => Promise<void>
 
   /** Get messages for a task. */
   getMessages: (taskId: string) => ConversationMessage[]
@@ -52,6 +52,29 @@ let messageIndex = 0
 
 function generateMessageId(): string {
   return `msg-${Date.now()}-${++messageIndex}`
+}
+
+function generateLiveMessageId(): string {
+  return `live-${Date.now()}-${++messageIndex}`
+}
+
+function isLiveMessage(message: ConversationMessage): boolean {
+  return message.id.startsWith('live-')
+}
+
+function getTaskIdFromUiEvent(event: UiEvent): string | null {
+  const payload = event.payload as Record<string, unknown> | undefined
+  const taskId = payload?.taskId
+  return typeof taskId === 'string' && taskId.length > 0 ? taskId : null
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 function transformLLMMessage(message: LLMMessage): ConversationMessage {
@@ -142,22 +165,42 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   conversations: {},
   loadingTasks: new Set(),
 
-  fetchConversation: async (taskId) => {
-    const loading = new Set(get().loadingTasks)
-    loading.add(taskId)
-    set({ loadingTasks: loading })
+  fetchConversation: async (taskId, opts) => {
+    const preserveLive = opts?.preserveLive ?? true
+    set((state) => {
+      const loading = new Set(state.loadingTasks)
+      loading.add(taskId)
+      if (state.conversations[taskId]) {
+        return { loadingTasks: loading }
+      }
+      // Create an empty entry immediately so live UiEvents during fetch
+      // can be appended instead of being dropped.
+      return {
+        loadingTasks: loading,
+        conversations: { ...state.conversations, [taskId]: [] },
+      }
+    })
 
     try {
       const llmMessages = await api.getConversation(taskId)
       const messages = llmMessages.map(transformLLMMessage)
-      const conversations = { ...get().conversations, [taskId]: messages }
-      const done = new Set(get().loadingTasks)
-      done.delete(taskId)
-      set({ conversations, loadingTasks: done })
+      set((state) => {
+        const liveMessages = preserveLive
+          ? (state.conversations[taskId] ?? []).filter(isLiveMessage)
+          : []
+        const done = new Set(state.loadingTasks)
+        done.delete(taskId)
+        return {
+          conversations: { ...state.conversations, [taskId]: [...messages, ...liveMessages] },
+          loadingTasks: done,
+        }
+      })
     } catch {
-      const done = new Set(get().loadingTasks)
-      done.delete(taskId)
-      set({ loadingTasks: done })
+      set((state) => {
+        const done = new Set(state.loadingTasks)
+        done.delete(taskId)
+        return { loadingTasks: done }
+      })
     }
   },
 
@@ -171,9 +214,110 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 }))
 
 let conversationUnsub: (() => void) | null = null
+let conversationUiUnsub: (() => void) | null = null
+
+function appendLiveAssistantPart(taskId: string, part: Exclude<MessagePart, { kind: 'tool_result' }>): void {
+  useConversationStore.setState((state) => {
+    const existing = state.conversations[taskId]
+    if (!existing) return state
+
+    const messages = [...existing]
+    const last = messages[messages.length - 1]
+    const now = new Date().toISOString()
+
+    if (last && last.role === 'assistant' && isLiveMessage(last)) {
+      const parts = [...last.parts]
+      const lastPart = parts[parts.length - 1]
+
+      // Merge only consecutive text/reasoning chunks for readability.
+      if (
+        (part.kind === 'text' || part.kind === 'reasoning') &&
+        lastPart &&
+        lastPart.kind === part.kind
+      ) {
+        parts[parts.length - 1] = { ...lastPart, content: lastPart.content + part.content }
+      } else {
+        parts.push(part)
+      }
+
+      messages[messages.length - 1] = { ...last, parts, timestamp: now }
+    } else {
+      messages.push({
+        id: generateLiveMessageId(),
+        role: 'assistant',
+        parts: [part],
+        timestamp: now,
+      })
+    }
+
+    return {
+      conversations: { ...state.conversations, [taskId]: messages },
+    }
+  })
+}
+
+function appendLiveToolResult(taskId: string, toolCallId: string, toolName: string, content: string): void {
+  useConversationStore.setState((state) => {
+    const existing = state.conversations[taskId]
+    if (!existing) return state
+
+    const newMessage: ConversationMessage = {
+      id: generateLiveMessageId(),
+      role: 'tool',
+      parts: [{ kind: 'tool_result', toolCallId, toolName, content }],
+      timestamp: new Date().toISOString(),
+    }
+    return {
+      conversations: { ...state.conversations, [taskId]: [...existing, newMessage] },
+    }
+  })
+}
+
+function handleUiConversationEvent(event: UiEvent): void {
+  const taskId = getTaskIdFromUiEvent(event)
+  if (!taskId) return
+
+  if (event.type === 'agent_output') {
+    if (event.payload.kind === 'reasoning') {
+      appendLiveAssistantPart(taskId, { kind: 'reasoning', content: event.payload.content })
+      return
+    }
+    if (event.payload.kind === 'text') {
+      appendLiveAssistantPart(taskId, { kind: 'text', content: event.payload.content })
+      return
+    }
+    if (event.payload.kind === 'error') {
+      appendLiveAssistantPart(taskId, { kind: 'text', content: `Error: ${event.payload.content}` })
+    }
+    return
+  }
+
+  if (event.type === 'stream_delta') {
+    const part = event.payload.kind === 'reasoning'
+      ? { kind: 'reasoning', content: event.payload.content } as const
+      : { kind: 'text', content: event.payload.content } as const
+    appendLiveAssistantPart(taskId, part)
+    return
+  }
+
+  if (event.type === 'tool_call_start') {
+    appendLiveAssistantPart(taskId, {
+      kind: 'tool_call',
+      toolCallId: event.payload.toolCallId,
+      toolName: event.payload.toolName,
+      arguments: event.payload.arguments,
+    })
+    return
+  }
+
+  if (event.type === 'tool_call_end') {
+    const content = stringifyUnknown(event.payload.output)
+    appendLiveToolResult(taskId, event.payload.toolCallId, event.payload.toolName, content)
+  }
+}
 
 export function registerConversationSubscriptions(): void {
-  if (conversationUnsub) return
+  if (conversationUnsub || conversationUiUnsub) return
   conversationUnsub = eventBus.on('domain-event', (event) => {
     const taskId = (event.payload as Record<string, unknown>).taskId as string | undefined
     if (!taskId) return
@@ -200,8 +344,12 @@ export function registerConversationSubscriptions(): void {
     }
 
     if (event.type === 'TaskCompleted' || event.type === 'TaskFailed') {
-      void useConversationStore.getState().fetchConversation(taskId)
+      // Reconcile with persisted canonical history on terminal events.
+      void useConversationStore.getState().fetchConversation(taskId, { preserveLive: false })
     }
+  })
+  conversationUiUnsub = eventBus.on('ui-event', (event) => {
+    handleUiConversationEvent(event)
   })
 }
 
@@ -209,6 +357,10 @@ export function unregisterConversationSubscriptions(): void {
   if (conversationUnsub) {
     conversationUnsub()
     conversationUnsub = null
+  }
+  if (conversationUiUnsub) {
+    conversationUiUnsub()
+    conversationUiUnsub = null
   }
 }
 

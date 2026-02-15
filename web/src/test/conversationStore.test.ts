@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useConversationStore, registerConversationSubscriptions, unregisterConversationSubscriptions } from '@/stores/conversationStore'
 import { eventBus } from '@/stores/eventBus'
-import type { StoredEvent } from '@/types'
+import type { StoredEvent, UiEvent } from '@/types'
 import * as api from '@/services/api'
 
 vi.mock('@/services/api', () => ({
@@ -23,6 +23,10 @@ function makeEvent(id: number, type: string, payload: Record<string, unknown>): 
     payload,
     createdAt: new Date().toISOString(),
   } as StoredEvent
+}
+
+function makeUiEvent(event: UiEvent): UiEvent {
+  return event
 }
 
 describe('conversationStore', () => {
@@ -160,5 +164,96 @@ describe('conversationStore', () => {
 
     const msgs = useConversationStore.getState().getMessages('task-unknown')
     expect(msgs).toHaveLength(0)
+  })
+
+  it('appends live reasoning -> tool -> reasoning -> content sequentially', () => {
+    useConversationStore.setState({
+      conversations: { 'task-1': [] },
+      loadingTasks: new Set(),
+    })
+
+    eventBus.emit('ui-event', makeUiEvent({
+      type: 'agent_output',
+      payload: { taskId: 'task-1', agentId: 'a', kind: 'reasoning', content: 'reason-1' },
+    }))
+    eventBus.emit('ui-event', makeUiEvent({
+      type: 'tool_call_start',
+      payload: {
+        taskId: 'task-1',
+        agentId: 'a',
+        toolCallId: 'tc-1',
+        toolName: 'read_file',
+        arguments: { path: 'README.md' },
+      },
+    }))
+    eventBus.emit('ui-event', makeUiEvent({
+      type: 'tool_call_end',
+      payload: {
+        taskId: 'task-1',
+        agentId: 'a',
+        toolCallId: 'tc-1',
+        toolName: 'read_file',
+        output: 'file-content',
+        isError: false,
+        durationMs: 12,
+      },
+    }))
+    eventBus.emit('ui-event', makeUiEvent({
+      type: 'agent_output',
+      payload: { taskId: 'task-1', agentId: 'a', kind: 'reasoning', content: 'reason-2' },
+    }))
+    eventBus.emit('ui-event', makeUiEvent({
+      type: 'agent_output',
+      payload: { taskId: 'task-1', agentId: 'a', kind: 'text', content: 'final-content' },
+    }))
+
+    const msgs = useConversationStore.getState().getMessages('task-1')
+    expect(msgs).toHaveLength(3)
+
+    expect(msgs[0]!.role).toBe('assistant')
+    expect(msgs[0]!.parts).toEqual([
+      { kind: 'reasoning', content: 'reason-1' },
+      { kind: 'tool_call', toolCallId: 'tc-1', toolName: 'read_file', arguments: { path: 'README.md' } },
+    ])
+
+    expect(msgs[1]!.role).toBe('tool')
+    expect(msgs[1]!.parts).toEqual([
+      { kind: 'tool_result', toolCallId: 'tc-1', toolName: 'read_file', content: 'file-content' },
+    ])
+
+    expect(msgs[2]!.role).toBe('assistant')
+    expect(msgs[2]!.parts).toEqual([
+      { kind: 'reasoning', content: 'reason-2' },
+      { kind: 'text', content: 'final-content' },
+    ])
+  })
+
+  it('reconciles to persisted conversation on terminal events', async () => {
+    useConversationStore.setState({
+      conversations: { 'task-1': [] },
+      loadingTasks: new Set(),
+    })
+
+    eventBus.emit('ui-event', makeUiEvent({
+      type: 'agent_output',
+      payload: { taskId: 'task-1', agentId: 'a', kind: 'reasoning', content: 'live-reasoning' },
+    }))
+    expect(useConversationStore.getState().getMessages('task-1')).toHaveLength(1)
+
+    vi.mocked(api.api.getConversation).mockResolvedValue([
+      { role: 'assistant', parts: [{ kind: 'reasoning', content: 'persisted-reasoning' }, { kind: 'text', content: 'persisted-final' }] },
+    ])
+
+    const terminalEvent = makeEvent(9, 'TaskCompleted', { taskId: 'task-1', summary: 'done' })
+    eventBus.emit('domain-event', terminalEvent)
+
+    await vi.waitFor(() => {
+      const msgs = useConversationStore.getState().getMessages('task-1')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0]!.parts).toEqual([
+        { kind: 'reasoning', content: 'persisted-reasoning' },
+        { kind: 'text', content: 'persisted-final' },
+      ])
+    })
   })
 })
