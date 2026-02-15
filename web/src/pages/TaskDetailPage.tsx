@@ -112,10 +112,10 @@ export function TaskDetailPage() {
     )
   }
 
-  const isActive = ['open', 'in_progress', 'awaiting_user'].includes(task.status)
+  const isActive = ['open', 'in_progress', 'awaiting_user', 'done'].includes(task.status)
   const canPause = task.status === 'in_progress'
   const canResume = task.status === 'paused'
-  const canCancel = isActive || task.status === 'paused'
+  const canCancel = (isActive && task.status !== 'done') || task.status === 'paused'
 
   // Resolve child tasks from the store
   const childTasks = allTasks.filter(t => t.parentTaskId === task.taskId)

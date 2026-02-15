@@ -111,7 +111,9 @@ vi.mock('@/components/panels/ConversationView', () => ({
 }))
 
 vi.mock('@/components/panels/PromptBar', () => ({
-  PromptBar: () => <div data-testid="prompt-bar">Prompt Bar</div>,
+  PromptBar: ({ disabled = false }: { disabled?: boolean }) => (
+    <div data-testid="prompt-bar" data-disabled={String(disabled)}>Prompt Bar</div>
+  ),
 }))
 
 vi.mock('@/components/panels/StreamOutput', () => ({
@@ -189,5 +191,14 @@ describe('TaskDetailPage tab layout', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Summary/i }))
 
     expect(await screen.findByText('No summary available yet.')).toBeVisible()
+  })
+
+  it('keeps prompt enabled and hides cancel action for done tasks', async () => {
+    mockTasks = [makeTask({ status: 'done', summary: 'Done summary' })]
+
+    render(<TaskDetailPage />)
+
+    expect(await screen.findByTestId('prompt-bar')).toHaveAttribute('data-disabled', 'false')
+    expect(screen.queryByRole('button', { name: /Cancel/i })).not.toBeInTheDocument()
   })
 })

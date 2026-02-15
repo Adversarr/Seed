@@ -261,4 +261,27 @@ describe('TaskService Command Validation', () => {
     // canceled → instruction now throws (CC-004: paused/canceled block instructions)
     await expect(service.addInstruction(taskId, 'wake up')).rejects.toThrow(/Invalid transition/)
   })
+
+  test('allows adding instruction to done task (re-activation)', async () => {
+    const { store, service } = setup()
+    const taskId = await createTask(service)
+
+    // open -> in_progress
+    await store.append(taskId, [{
+      type: 'TaskStarted',
+      payload: { taskId, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID }
+    }])
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
+
+    // in_progress -> done
+    await store.append(taskId, [{
+      type: 'TaskCompleted',
+      payload: { taskId, summary: 'completed successfully', authorActorId: DEFAULT_AGENT_ACTOR_ID }
+    }])
+    expect((await service.getTask(taskId))?.status).toBe('done')
+
+    // done -> in_progress via addInstruction (re-activation)
+    await service.addInstruction(taskId, 'continue working')
+    expect((await service.getTask(taskId))?.status).toBe('in_progress')
+  })
 })
