@@ -1,12 +1,9 @@
 /**
- * Tests for TaskDetailPage tab layout updates:
- * - Summary is a dedicated tab (not fixed in header)
- * - Default tab remains conversation
- * - Summary tab supports empty/non-empty states
+ * TaskDetailPage tests for replay-only task detail behavior.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TaskDetailPage } from '@/pages/TaskDetailPage'
 import type { TaskView } from '@/types'
 import type { ReactNode } from 'react'
@@ -25,7 +22,7 @@ vi.mock('react-router-dom', () => ({
 
 vi.mock('@/stores', () => ({
   useTaskStore: vi.fn((selector: (state: { tasks: TaskView[]; fetchTask: typeof mockFetchTask }) => unknown) =>
-    selector({ tasks: mockTasks, fetchTask: mockFetchTask })
+    selector({ tasks: mockTasks, fetchTask: mockFetchTask }),
   ),
 }))
 
@@ -107,7 +104,9 @@ vi.mock('@/components/ui/tabs', async () => {
 })
 
 vi.mock('@/components/panels/ConversationView', () => ({
-  ConversationView: () => <div data-testid="conversation-view">Conversation View</div>,
+  ConversationView: () => (
+    <div data-testid="conversation-view">Conversation View</div>
+  ),
 }))
 
 vi.mock('@/components/panels/PromptBar', () => ({
@@ -117,7 +116,7 @@ vi.mock('@/components/panels/PromptBar', () => ({
 }))
 
 vi.mock('@/components/panels/StreamOutput', () => ({
-  StreamOutput: () => <div data-testid="stream-output">Stream Output</div>,
+  StreamOutput: () => <div data-testid="replay-output">Replay Output</div>,
 }))
 
 vi.mock('@/components/panels/EventTimeline', () => ({
@@ -151,7 +150,7 @@ function makeTask(overrides: Partial<TaskView> = {}): TaskView {
   }
 }
 
-describe('TaskDetailPage tab layout', () => {
+describe('TaskDetailPage replay-only tabs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetPendingInteraction.mockResolvedValue(null)
@@ -168,6 +167,14 @@ describe('TaskDetailPage tab layout', () => {
 
     expect(screen.getByTestId('conversation-view')).toBeInTheDocument()
     expect(screen.getByTestId('prompt-bar')).toBeInTheDocument()
+  })
+
+  it('shows replay output panel in output tab', async () => {
+    render(<TaskDetailPage />)
+
+    fireEvent.click(screen.getByRole('tab', { name: /Output/i }))
+
+    expect(await screen.findByTestId('replay-output')).toBeInTheDocument()
   })
 
   it('shows task summary only when summary tab is selected', async () => {
@@ -200,5 +207,29 @@ describe('TaskDetailPage tab layout', () => {
 
     expect(await screen.findByTestId('prompt-bar')).toHaveAttribute('data-disabled', 'false')
     expect(screen.queryByRole('button', { name: /Cancel/i })).not.toBeInTheDocument()
+  })
+
+  it('fetches pending interaction once for a stable pendingInteractionId', async () => {
+    mockTasks = [makeTask({ pendingInteractionId: 'pi-1' })]
+    mockGetPendingInteraction.mockResolvedValue({
+      interactionId: 'pi-1',
+      taskId: 'task-1',
+      kind: 'Input',
+      purpose: 'Need input',
+      display: { title: 'Input needed' },
+      options: [],
+    })
+
+    render(<TaskDetailPage />)
+
+    await waitFor(() => expect(mockGetPendingInteraction).toHaveBeenCalledTimes(1))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockGetPendingInteraction).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders replay conversation path exactly once', async () => {
+    render(<TaskDetailPage />)
+
+    expect(await screen.findAllByTestId('conversation-view')).toHaveLength(1)
   })
 })

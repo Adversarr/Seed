@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/sidebar"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import {
+  registerConversationSubscriptions,
+  registerTaskStoreSubscriptions,
   unregisterConversationSubscriptions,
-  unregisterStreamStoreSubscriptions,
   unregisterTaskStoreSubscriptions,
 } from "@/stores"
 
@@ -25,9 +26,12 @@ export function RootLayout() {
 
   // Cleanup store subscriptions on unmount (prevents leaked listeners on HMR).
   useEffect(() => {
+    // Re-register on mount so StrictMode/HMR unmount-remount cycles keep stores live.
+    registerTaskStoreSubscriptions()
+    registerConversationSubscriptions()
+
     return () => {
       unregisterTaskStoreSubscriptions()
-      unregisterStreamStoreSubscriptions()
       unregisterConversationSubscriptions()
     }
   }, [])

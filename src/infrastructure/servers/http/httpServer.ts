@@ -156,6 +156,7 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
   })
 
   app.get('/api/tasks/:id', async (c) => {
+    c.header('Cache-Control', 'no-store')
     const task = await deps.taskService.getTask(c.req.param('id'))
     if (!task) return c.json({ error: 'Task not found' }, 404)
     return c.json(task)
@@ -229,12 +230,14 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
 
   // ── Conversations ──
   app.get('/api/tasks/:id/conversation', async (c) => {
+    c.header('Cache-Control', 'no-store')
     const messages = await deps.conversationStore.getMessages(c.req.param('id'))
     return c.json({ messages })
   })
 
   // ── Interactions ──
   app.get('/api/tasks/:taskId/interaction/pending', async (c) => {
+    c.header('Cache-Control', 'no-store')
     const pending = await deps.interactionService.getPendingInteraction(c.req.param('taskId'))
     return c.json({ pending })
   })

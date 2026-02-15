@@ -1,7 +1,7 @@
 /**
  * Dashboard page — task list overview with real-time updates.
  *
- * Enhanced with streaming status indicators and subtask badges.
+ * Uses task projection status for activity semantics.
  */
 
 import { useEffect, useState } from 'react'
@@ -9,13 +9,12 @@ import { useNavigate, Link } from 'react-router-dom'
 import { Plus, ListTodo, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { timeAgo, truncate } from '@/lib/utils'
-import { useTaskStore, useStreamStore, useRuntimeStore } from '@/stores'
+import { useTaskStore, useRuntimeStore } from '@/stores'
 import { StatusBadge } from '@/components/display/StatusBadge'
 import { PriorityIcon } from '@/components/display/PriorityIcon'
 import { CreateTaskDialog } from '@/components/dialogs/CreateTaskDialog'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Shimmer } from '@/components/ai-elements/shimmer'
 import { SHORTCUT_EVENTS } from '@/hooks/useKeyboardShortcuts'
 import type { TaskView, TaskStatus } from '@/types'
 
@@ -48,7 +47,6 @@ export function DashboardPage() {
   const tasks = useTaskStore(s => s.tasks)
   const loading = useTaskStore(s => s.loading)
   const fetchTasks = useTaskStore(s => s.fetchTasks)
-  const streams = useStreamStore(s => s.streams)
   const fetchRuntime = useRuntimeStore(s => s.fetchRuntime)
   const [showCreate, setShowCreate] = useState(false)
   const [filter, setFilter] = useState<'all' | 'active' | 'done'>(getInitialFilter)
@@ -152,10 +150,6 @@ export function DashboardPage() {
                 )}
               </div>
               <StatusBadge status={task.status} />
-              {/* Show streaming indicator for tasks with active output */}
-              {streams[task.taskId] && !streams[task.taskId]!.completed && (
-                <Shimmer className="h-3">streaming</Shimmer>
-              )}
               <span className="text-xs text-zinc-600 w-16 text-right shrink-0">{timeAgo(task.updatedAt)}</span>
             </Link>
           ))}

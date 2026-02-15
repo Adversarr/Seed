@@ -6,6 +6,9 @@
  * so users can still review output after the agent finishes.
  *
  * Supports text, reasoning, verbose, error, tool_call, and tool_result chunk kinds.
+ *
+ * NOTE: Deprecated for web content rendering. Web pages now render replayed
+ * conversation history only. This store remains for backward compatibility.
  */
 
 import { create } from 'zustand'
@@ -236,5 +239,3 @@ export function unregisterStreamStoreSubscriptions(): void {
     streamStoreUnsub = null
   }
 }
-
-registerStreamStoreSubscriptions()

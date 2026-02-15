@@ -9,6 +9,7 @@ import { TaskService } from '../../src/application/services/taskService.js'
 import { EventService } from '../../src/application/services/eventService.js'
 import { InteractionService } from '../../src/application/services/interactionService.js'
 import { AuditService } from '../../src/application/services/auditService.js'
+import type { ConversationStore } from '../../src/core/ports/conversationStore.js'
 
 // ── Mock Factories ──
 
@@ -57,6 +58,33 @@ function createMockAuditLog() {
   }
 }
 
+function createMockConversationStore(): ConversationStore {
+  const conversations = new Map<string, Array<Record<string, unknown>>>()
+  return {
+    ensureSchema: async () => {},
+    append: async (taskId, message) => {
+      const existing = conversations.get(taskId) ?? []
+      existing.push(message as Record<string, unknown>)
+      conversations.set(taskId, existing)
+      return {
+        id: existing.length,
+        taskId,
+        index: existing.length - 1,
+        message,
+        createdAt: new Date().toISOString(),
+      }
+    },
+    getMessages: async (taskId) => {
+      return (conversations.get(taskId) ?? []) as never[]
+    },
+    truncate: async () => {},
+    clear: async (taskId) => {
+      conversations.delete(taskId)
+    },
+    readAll: async () => [],
+  }
+}
+
 const AUTH_TOKEN = 'test-auth-token'
 
 // ── Setup ──
@@ -76,6 +104,7 @@ function createTestApp() {
     auditService,
     runtimeManager: createMockRuntimeManager() as unknown as HttpAppDeps['runtimeManager'],
     artifactStore: createMockArtifactStore() as unknown as HttpAppDeps['artifactStore'],
+    conversationStore: createMockConversationStore(),
     authToken: AUTH_TOKEN,
     baseDir: '/tmp/test',
   }
@@ -165,6 +194,7 @@ describe('HTTP API', () => {
       const { taskId } = await taskService.createTask({ title: 'My Task', agentId: 'agent-default' })
       const res = await request(app, 'GET', `/api/tasks/${taskId}`)
       expect(res.status).toBe(200)
+      expect(res.headers.get('cache-control')).toBe('no-store')
       const body = await res.json() as { taskId: string; title: string }
       expect(body.title).toBe('My Task')
     })
@@ -260,6 +290,7 @@ describe('HTTP API', () => {
     it('returns null when no pending interaction', async () => {
       const { taskId } = await taskService.createTask({ title: 'T1', agentId: 'a' })
       const res = await request(app, 'GET', `/api/tasks/${taskId}/interaction/pending`)
+      expect(res.headers.get('cache-control')).toBe('no-store')
       const body = await res.json() as { pending: unknown }
       expect(body.pending).toBeNull()
     })
@@ -293,6 +324,17 @@ describe('HTTP API', () => {
         inputValue: 'yes',
       })
       expect(res.status).toBe(200)
+    })
+  })
+
+  describe('Conversations', () => {
+    it('returns conversation with no-store cache header', async () => {
+      const { taskId } = await taskService.createTask({ title: 'T1', agentId: 'a' })
+      const res = await request(app, 'GET', `/api/tasks/${taskId}/conversation`)
+      expect(res.status).toBe(200)
+      expect(res.headers.get('cache-control')).toBe('no-store')
+      const body = await res.json() as { messages: unknown[] }
+      expect(Array.isArray(body.messages)).toBe(true)
     })
   })
 

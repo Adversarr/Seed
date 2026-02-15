@@ -149,6 +149,27 @@ describeWsServer('CoAuthorWsServer', () => {
     ws.close()
   })
 
+  it('attach is idempotent and does not duplicate event broadcasts', async () => {
+    wsServer.attach(httpServer)
+
+    const ws = await connectWs(port, TOKEN)
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'] }))
+    await receiveMessage(ws) // ack
+
+    const received: Array<{ type: string; data?: StoredEvent }> = []
+    ws.on('message', (raw) => {
+      received.push(JSON.parse(String(raw)))
+    })
+
+    events$.next(makeEvent(10, 'task-1'))
+    await waitMs(60)
+
+    const eventMessages = received.filter((msg) => msg.type === 'event')
+    expect(eventMessages).toHaveLength(1)
+    expect(eventMessages[0]!.data?.id).toBe(10)
+    ws.close()
+  })
+
   it('accumulates channel subscriptions', async () => {
     const ws = await connectWs(port, TOKEN)
     ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'] }))
@@ -205,6 +226,25 @@ describeWsServer('CoAuthorWsServer', () => {
     ws.close()
   })
 
+  it('applies streamId filtering to UI events by payload.taskId', async () => {
+    const ws = await connectWs(port, TOKEN)
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['ui'], streamId: 'task-1' }))
+    await receiveMessage(ws) // ack
+
+    uiEvents$.next({ type: 'stream_delta', payload: { taskId: 'task-2', agentId: 'a-1', kind: 'text', content: 'ignore me' } })
+    await waitMs(30)
+
+    uiEvents$.next({ type: 'stream_delta', payload: { taskId: 'task-1', agentId: 'a-1', kind: 'text', content: 'deliver me' } })
+    const msg = await receiveMessage(ws) as { type: string; data: UiEvent }
+
+    expect(msg.type).toBe('ui_event')
+    expect(msg.data).toMatchObject({
+      type: 'stream_delta',
+      payload: { taskId: 'task-1', content: 'deliver me' },
+    })
+    ws.close()
+  })
+
   // ── Stream Filtering ──
 
   it('filters events by streamId when set', async () => {
@@ -254,6 +294,31 @@ describeWsServer('CoAuthorWsServer', () => {
     for (const m of events) {
       expect(m.data.streamId).toBe('task-1')
     }
+    ws.close()
+  })
+
+  it('deduplicates when gap-fill and live broadcast overlap on the same event ID', async () => {
+    storedEvents = [makeEvent(5, 'task-1')]
+
+    const ws = await connectWs(port, TOKEN)
+    const received: Array<{ type: string; data?: StoredEvent }> = []
+    ws.on('message', (raw) => {
+      received.push(JSON.parse(String(raw)))
+    })
+
+    ws.send(JSON.stringify({ type: 'subscribe', channels: ['events'], lastEventId: 0 }))
+    await waitMs(10)
+
+    // Simulate a live broadcast racing with replay for the same event ID.
+    events$.next(makeEvent(5, 'task-1'))
+    await waitMs(80)
+
+    const ids = received
+      .filter((msg) => msg.type === 'event')
+      .map((msg) => msg.data?.id)
+      .filter((id): id is number => typeof id === 'number')
+
+    expect(ids.filter((id) => id === 5)).toHaveLength(1)
     ws.close()
   })
 

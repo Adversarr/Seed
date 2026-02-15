@@ -1,152 +1,126 @@
 /**
- * StreamOutput — renders live agent streaming output for a task.
+ * StreamOutput (replay transcript) — renders a plain transcript from persisted
+ * conversation history for a task.
  *
- * Uses ai-elements Reasoning, Message, and Tool components for rich output.
- * Falls back to raw terminal view when there's only verbose/error content.
- * Now supports tool_call/tool_result stream chunks.
+ * Despite the legacy component name, this panel no longer consumes live stream
+ * chunks. The web UI uses conversation replay as its single source of truth.
  */
 
-import { useMemo } from 'react'
-import { useStreamStore, type StreamChunk } from '@/stores/streamStore'
-import { Terminal, TerminalContent, TerminalHeader, TerminalTitle } from '@/components/ai-elements/terminal'
-import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning'
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
-import { Tool, ToolHeader, ToolContent, ToolInput, ToolOutput } from '@/components/ai-elements/tool'
-import { Shimmer } from '@/components/ai-elements/shimmer'
-import { Bot, Clock } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import { useConversationStore, type ConversationMessage, type MessagePart } from '@/stores/conversationStore'
 
-function chunkToAnsi(chunk: StreamChunk): string {
-  switch (chunk.kind) {
-    case 'error':
-      return `\u001b[31m${chunk.content}\u001b[0m`
-    case 'reasoning':
-      return `\u001b[2m${chunk.content}\u001b[0m`
-    case 'verbose':
-      return `\u001b[2m${chunk.content}\u001b[0m`
-    case 'text':
-      return chunk.content
-    default:
-      return ''
+type TranscriptBlock = {
+  id: string
+  label: string
+  content: string
+  isError?: boolean
+}
+
+function stringify(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
   }
 }
 
+function detectToolError(content: string): boolean {
+  try {
+    const parsed = JSON.parse(content)
+    if (typeof parsed === 'object' && parsed !== null) {
+      if ('isError' in parsed && parsed.isError === true) return true
+      if ('error' in parsed && typeof parsed.error === 'string' && parsed.error.length > 0) return true
+    }
+    return false
+  } catch {
+    return /^(error:|fatal:|exception:|failed to |cannot |unable to )/i.test(content.trim())
+  }
+}
+
+function partToBlocks(messageId: string, role: ConversationMessage['role'], part: MessagePart, index: number): TranscriptBlock[] {
+  const id = `${messageId}-${index}`
+
+  switch (part.kind) {
+    case 'text': {
+      if (role === 'assistant') return [{ id, label: 'Assistant', content: part.content }]
+      if (role === 'user') return [{ id, label: 'User', content: part.content }]
+      if (role === 'system') return [{ id, label: 'System', content: part.content }]
+      return [{ id, label: 'Text', content: part.content }]
+    }
+    case 'reasoning':
+      return [{ id, label: 'Assistant Reasoning', content: part.content }]
+    case 'tool_call':
+      return [{
+        id,
+        label: `Tool Call: ${part.toolName}`,
+        content: stringify(part.arguments),
+      }]
+    case 'tool_result': {
+      const error = detectToolError(part.content)
+      return [{
+        id,
+        label: `Tool Result: ${part.toolName ?? 'tool'}`,
+        content: part.content,
+        isError: error,
+      }]
+    }
+  }
+}
+
+function buildTranscriptBlocks(messages: ConversationMessage[]): TranscriptBlock[] {
+  return messages.flatMap(message =>
+    message.parts.flatMap((part, idx) => partToBlocks(message.id, message.role, part, idx)),
+  )
+}
+
 export function StreamOutput({ taskId }: { taskId: string }) {
-  const stream = useStreamStore(s => s.streams[taskId])
-  const clearStream = useStreamStore(s => s.clearStream)
+  const messages = useConversationStore(s => s.getMessages(taskId))
+  const loading = useConversationStore(s => s.loadingTasks.has(taskId))
+  const fetchConversation = useConversationStore(s => s.fetchConversation)
 
-  const chunks = stream?.chunks ?? []
-  const isStreaming = stream ? !stream.completed : false
+  useEffect(() => {
+    fetchConversation(taskId)
+  }, [taskId, fetchConversation])
 
-  const textContent = useMemo(() => chunks.filter(c => c.kind === 'text').map(c => c.content).join(''), [chunks])
-  const reasoningContent = useMemo(() => chunks.filter(c => c.kind === 'reasoning').map(c => c.content).join(''), [chunks])
-  const verboseContent = useMemo(() => chunks.filter(c => c.kind === 'verbose' || c.kind === 'error').map(chunkToAnsi).join(''), [chunks])
+  const blocks = useMemo(() => buildTranscriptBlocks(messages), [messages])
 
-  // Collect tool calls and pair with results
-  const toolPairs = useMemo(() => {
-    const calls = chunks.filter((c): c is StreamChunk & { kind: 'tool_call' } => c.kind === 'tool_call')
-    return calls.map(call => {
-      const result = chunks.find(
-        c => c.kind === 'tool_result' && c.toolCallId === call.toolCallId
-      )
-      return { call, result: result?.kind === 'tool_result' ? result : undefined }
-    })
-  }, [chunks])
-
-  // Standalone tool results (no matching call)
-  const standaloneResults = useMemo(() => {
-    const callIds = new Set(chunks.filter(c => c.kind === 'tool_call').map(c => c.toolCallId))
-    return chunks.filter(
-      (c): c is StreamChunk & { kind: 'tool_result' } =>
-        c.kind === 'tool_result' && !callIds.has(c.toolCallId)
+  if (loading && blocks.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-8 text-zinc-500">
+        <p className="text-sm">Loading output transcript…</p>
+      </div>
     )
-  }, [chunks])
+  }
 
-  if (chunks.length === 0) {
+  if (blocks.length === 0) {
     return (
       <div className="flex items-center justify-center py-8 text-zinc-600">
-        <p className="text-sm">No output yet. Waiting for agent…</p>
+        <p className="text-sm">No output transcript available yet.</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
-      {/* Reasoning section */}
-      {reasoningContent && (
-        <Reasoning isStreaming={isStreaming} defaultOpen>
-          <ReasoningTrigger />
-          <ReasoningContent>{reasoningContent}</ReasoningContent>
-        </Reasoning>
-      )}
-
-      {/* Main text output as markdown */}
-      {textContent && (
-        <Message from="assistant">
-          <div className="flex items-center gap-2">
-            <div className="rounded-full bg-zinc-800 p-1">
-              <Bot className="h-3 w-3 text-zinc-400" />
-            </div>
-            {isStreaming && <Shimmer className="h-3">generating…</Shimmer>}
-            {stream?.completed && <span className="text-[10px] text-zinc-600">completed</span>}
-          </div>
-          <MessageContent>
-            <MessageResponse>{textContent}</MessageResponse>
-          </MessageContent>
-        </Message>
-      )}
-
-      {/* Tool calls with paired results */}
-      {toolPairs.map(({ call, result }, idx) => {
-        const isError = result?.isError ?? false
-        const state = result
-          ? (isError ? 'output-error' : 'output-available')
-          : 'input-available'
-
-        return (
-          <Tool key={`tool-${call.toolCallId ?? idx}`}>
-            <ToolHeader type="dynamic-tool" state={state} toolName={call.toolName ?? 'tool'} />
-            <ToolContent>
-              {call.toolArguments && <ToolInput input={call.toolArguments} />}
-              {!result && isStreaming && (
-                <div className="flex items-center gap-2 text-xs text-zinc-500">
-                  <Clock className="h-3 w-3 animate-pulse" />
-                  <Shimmer className="h-3">executing…</Shimmer>
-                </div>
-              )}
-              {result && (
-                <ToolOutput output={result.content} errorText={isError ? result.content : undefined} />
-              )}
-            </ToolContent>
-          </Tool>
-        )
-      })}
-
-      {/* Standalone tool results */}
-      {standaloneResults.map((chunk, idx) => (
-        <Tool key={`result-${chunk.toolCallId ?? idx}`}>
-          <ToolHeader
-            type="dynamic-tool"
-            state={chunk.isError ? 'output-error' : 'output-available'}
-            toolName={chunk.toolName ?? 'tool'}
-          />
-          <ToolContent>
-            <ToolOutput
-              output={chunk.content}
-              errorText={chunk.isError ? chunk.content : undefined}
-            />
-          </ToolContent>
-        </Tool>
+    <div className="space-y-3">
+      {blocks.map(block => (
+        <section key={block.id} className="rounded-md border border-zinc-800/80 bg-zinc-950/40 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-zinc-500">{block.label}</p>
+          <pre
+            className={[
+              'mt-2 whitespace-pre-wrap break-words text-sm leading-6 font-mono',
+              block.isError ? 'text-red-300' : 'text-zinc-200',
+            ].join(' ')}
+          >
+            {block.content}
+          </pre>
+        </section>
       ))}
-
-      {/* Verbose/error as raw terminal */}
-      {verboseContent && (
-        <Terminal output={verboseContent} onClear={() => clearStream(taskId)} className="border-border bg-zinc-950">
-          <TerminalHeader>
-            <TerminalTitle>Raw Output</TerminalTitle>
-          </TerminalHeader>
-          <TerminalContent />
-        </Terminal>
-      )}
     </div>
   )
 }
+
+/**
+ * Backward-compatible alias while callers migrate to replay-focused naming.
+ */
+export const ReplayOutput = StreamOutput

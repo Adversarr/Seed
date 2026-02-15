@@ -12,6 +12,7 @@
 import { WebSocketServer as WSServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { Server as HttpServer } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { Subscribable, Subscription } from '../../../core/ports/subscribable.js'
 import type { StoredEvent } from '../../../core/events/events.js'
 import type { UiEvent } from '../../../core/ports/uiBus.js'
@@ -48,7 +49,7 @@ export interface WsServerDeps {
 
 interface ClientState {
   channels: Set<Channel>
-  /** If set, only events for this streamId are forwarded on the 'events' channel. */
+  /** If set, only matching task stream updates are forwarded. */
   streamId: string | null
   /** Whether the client has responded to the last ping. */
   isAlive: boolean
@@ -65,6 +66,8 @@ export class CoAuthorWsServer {
   readonly #deps: WsServerDeps
   readonly #clients = new Map<WebSocket, ClientState>()
   readonly #subscriptions: Subscription[] = []
+  #attachedServer: HttpServer | null = null
+  #upgradeHandler: ((req: IncomingMessage, socket: Duplex, head: Buffer) => void) | null = null
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(deps: WsServerDeps) {
@@ -77,7 +80,14 @@ export class CoAuthorWsServer {
 
   /** Attach to an HTTP server — handles `upgrade` requests on `/ws`. */
   attach(server: HttpServer): void {
-    server.on('upgrade', (req, socket, head) => {
+    // Idempotent attach: avoids duplicate upgrade listeners/subscriptions when
+    // attach() is called multiple times in dev/HMR edge cases.
+    if (this.#attachedServer === server) return
+    if (this.#attachedServer && this.#attachedServer !== server) {
+      throw new Error('[WsServer] Already attached to a different HTTP server')
+    }
+
+    this.#upgradeHandler = (req, socket, head) => {
       if (!this.#isWsPath(req)) {
         socket.destroy()
         return
@@ -90,7 +100,9 @@ export class CoAuthorWsServer {
       this.#wss.handleUpgrade(req, socket, head, (ws) => {
         this.#wss.emit('connection', ws, req)
       })
-    })
+    }
+    server.on('upgrade', this.#upgradeHandler)
+    this.#attachedServer = server
 
     // Subscribe to global event streams (once)
     this.#subscriptions.push(
@@ -117,6 +129,12 @@ export class CoAuthorWsServer {
 
   /** Gracefully shut down: close all connections, unsubscribe. */
   close(): void {
+    if (this.#attachedServer && this.#upgradeHandler) {
+      this.#attachedServer.off('upgrade', this.#upgradeHandler)
+    }
+    this.#attachedServer = null
+    this.#upgradeHandler = null
+
     if (this.#heartbeatTimer) {
       clearInterval(this.#heartbeatTimer)
       this.#heartbeatTimer = undefined
@@ -203,6 +221,7 @@ export class CoAuthorWsServer {
 
         for (const event of missed) {
           if (sent >= MAX_GAP_FILL_EVENTS) break
+          if (event.id <= state.lastDeliveredEventId) continue
           if (state.streamId && event.streamId !== state.streamId) continue
           // Backpressure: abort if client is slow (B23)
           if (ws.bufferedAmount > MAX_BUFFERED_AMOUNT) {
@@ -239,17 +258,34 @@ export class CoAuthorWsServer {
     const msgType = channel === 'events' ? 'event' : 'ui_event'
     for (const [ws, state] of this.#clients) {
       if (!state.channels.has(channel)) continue
-      // Stream filtering for events channel
-      if (channel === 'events' && state.streamId) {
+      if (!this.#matchesStreamFilter(state, channel, data)) continue
+
+      if (channel === 'events') {
         const event = data as StoredEvent
-        if (event.streamId !== state.streamId) continue
+        // Defensive dedup: prevents replay-vs-live races from double-delivery.
+        if (event.id <= state.lastDeliveredEventId) continue
       }
+
       this.#send(ws, { type: msgType, data } as ServerMessage)
       // Track delivered event ID (B1)
       if (channel === 'events') {
         state.lastDeliveredEventId = Math.max(state.lastDeliveredEventId, (data as StoredEvent).id)
       }
     }
+  }
+
+  #matchesStreamFilter(state: ClientState, channel: Channel, data: StoredEvent | UiEvent): boolean {
+    if (!state.streamId) return true
+
+    if (channel === 'events') {
+      return (data as StoredEvent).streamId === state.streamId
+    }
+
+    const payload = (data as UiEvent).payload as Record<string, unknown> | undefined
+    const taskId = typeof payload?.taskId === 'string' ? payload.taskId : null
+    // UI events without task context remain unfiltered.
+    if (!taskId) return true
+    return taskId === state.streamId
   }
 
   // ── Auth & Utils ────────────────────────────────────────────────────

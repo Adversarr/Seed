@@ -1,5 +1,5 @@
 export { ConversationView } from './ConversationView'
-export { StreamOutput } from './StreamOutput'
+export { StreamOutput, ReplayOutput } from './StreamOutput'
 export { EventTimeline } from './EventTimeline'
 export { InteractionPanel } from './InteractionPanel'
 export { PromptBar } from './PromptBar'

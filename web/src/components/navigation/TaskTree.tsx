@@ -2,8 +2,7 @@
  * TaskTree — hierarchical tree view of tasks showing parent-child relationships.
  *
  * Renders a recursive tree structure from the flat task list.  Each node shows
- * status, title, and a "streaming" indicator when that task's agent is still
- * producing output.  Clicking a node navigates to the task detail page.
+ * status, title, and update time. Clicking a node navigates to task detail.
  */
 
 import { useMemo } from 'react'
@@ -11,9 +10,8 @@ import { Link } from 'react-router-dom'
 import { ChevronRight, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { timeAgo } from '@/lib/utils'
-import { useTaskStore, useStreamStore } from '@/stores'
+import { useTaskStore } from '@/stores'
 import { StatusBadge } from '@/components/display/StatusBadge'
-import { Shimmer } from '@/components/ai-elements/shimmer'
 import type { TaskView } from '@/types'
 
 interface TreeNode {
@@ -39,8 +37,6 @@ function buildTree(tasks: TaskView[]): TreeNode[] {
 
 function TreeNodeRow({ node, depth, activeTaskId }: { node: TreeNode; depth: number; activeTaskId?: string }) {
   const isActive = node.task.taskId === activeTaskId
-  const stream = useStreamStore(s => s.streams[node.task.taskId])
-  const hasStream = !!stream && !stream.completed
   const hasChildren = node.children.length > 0
 
   return (
@@ -65,7 +61,6 @@ function TreeNodeRow({ node, depth, activeTaskId }: { node: TreeNode; depth: num
         )}>
           {node.task.title}
         </span>
-        {hasStream && <Shimmer className="h-2.5 shrink-0">…</Shimmer>}
         <span className="text-[10px] shrink-0 text-muted-foreground/80">{timeAgo(node.task.updatedAt)}</span>
       </Link>
       {node.children.map(child => (

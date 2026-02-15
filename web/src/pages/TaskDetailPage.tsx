@@ -2,8 +2,8 @@
  * TaskDetailPage — detailed view of a single task with conversation, output, events, and summary.
  *
  * Four-tab layout:
- * 1. Conversation — rich chat interface (ai-elements) with live streaming (default)
- * 2. Output — raw streaming terminal output (power users)
+ * 1. Conversation — replayed persisted conversation history
+ * 2. Output — replay transcript derived from persisted conversation
  * 3. Events — raw event timeline (debugging)
  * 4. Summary — final task summary (when available)
  */
@@ -76,7 +76,7 @@ export function TaskDetailPage() {
   // Fetch pending interaction (B4: cancel on unmount)
   useEffect(() => {
     if (!taskId || !task?.pendingInteractionId) {
-      if (interaction) setInteraction(null)
+      setInteraction(prev => (prev ? null : prev))
       return
     }
 
@@ -90,7 +90,7 @@ export function TaskDetailPage() {
       })
 
     return () => controller.abort()
-  }, [taskId, task?.pendingInteractionId, interaction])
+  }, [taskId, task?.pendingInteractionId])
 
   if (taskLoading) {
     return (
