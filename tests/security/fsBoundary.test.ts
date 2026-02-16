@@ -77,4 +77,30 @@ describe('Security: FsArtifactStore Boundary Enforement', () => {
     await expect(store.stat('../outside.txt'))
       .rejects.toThrow('Access denied')
   })
+
+  it('should block writeFile to protected internal file AGENTS.md', async () => {
+    await expect(store.writeFile('AGENTS.md', 'hacked'))
+      .rejects.toThrow('protected internal path')
+  })
+
+  it('should block writeFile under protected .git directory', async () => {
+    await expect(store.writeFile('.git/config', 'hacked'))
+      .rejects.toThrow('protected internal path')
+  })
+
+  it('should block mkdir under protected .agents directory', async () => {
+    await expect(store.mkdir('.agents/cache'))
+      .rejects.toThrow('protected internal path')
+  })
+
+  it('should block writeFile to internal .seed state path', async () => {
+    await expect(store.writeFile('.seed/events.jsonl', '[]'))
+      .rejects.toThrow('protected internal path')
+  })
+
+  it('should still allow writes under .seed/workspaces', async () => {
+    await store.mkdir('.seed/workspaces/private/t-1')
+    await expect(store.writeFile('.seed/workspaces/private/t-1/note.txt', 'ok'))
+      .resolves.toBeUndefined()
+  })
 })

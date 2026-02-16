@@ -1,8 +1,19 @@
 import { readFile, writeFile, readdir, mkdir, access, stat, realpath } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { resolve, sep, relative } from 'node:path'
 import { glob } from 'glob'
 import type { ArtifactStore } from '../../core/ports/artifactStore.js'
+
+const PROTECTED_FILES = new Set([
+  'AGENTS.md',
+  'CLAUDE.md',
+  '.seed/events.jsonl',
+  '.seed/audit.jsonl',
+  '.seed/conversations.jsonl',
+  '.seed/server.lock'
+])
+
+const PROTECTED_DIR_PREFIXES = ['.git', '.agents', '.codex']
 
 export class FsArtifactStore implements ArtifactStore {
   readonly #baseDir: string
@@ -26,6 +37,30 @@ export class FsArtifactStore implements ArtifactStore {
       throw new Error(`Access denied: Path '${path}' resolves outside base directory`)
     }
     return resolved
+  }
+
+  private _assertMutablePathAllowed(originalPath: string, resolvedPath: string): void {
+    const relativePath = relative(this.#baseDir, resolvedPath).replaceAll(sep, '/')
+    if (relativePath === '' || relativePath === '.') {
+      throw new Error(`Access denied: Path '${originalPath}' targets protected internal path`)
+    }
+
+    if (PROTECTED_FILES.has(relativePath)) {
+      throw new Error(`Access denied: Path '${originalPath}' targets protected internal path`)
+    }
+
+    for (const prefix of PROTECTED_DIR_PREFIXES) {
+      if (relativePath === prefix || relativePath.startsWith(`${prefix}/`)) {
+        throw new Error(`Access denied: Path '${originalPath}' targets protected internal path`)
+      }
+    }
+
+    if (relativePath === '.seed' || relativePath.startsWith('.seed/')) {
+      // Keep task workspaces writable; block all other internal .seed paths.
+      if (relativePath !== '.seed/workspaces' && !relativePath.startsWith('.seed/workspaces/')) {
+        throw new Error(`Access denied: Path '${originalPath}' targets protected internal path`)
+      }
+    }
   }
 
   /** Additional symlink-aware check after resolving real path (B29). */
@@ -70,7 +105,9 @@ export class FsArtifactStore implements ArtifactStore {
   }
 
   async writeFile(path: string, content: string): Promise<void> {
-    await writeFile(this._resolve(path), content, 'utf8')
+    const resolved = this._resolve(path)
+    this._assertMutablePathAllowed(path, resolved)
+    await writeFile(resolved, content, 'utf8')
   }
 
   async exists(path: string): Promise<boolean> {
@@ -85,7 +122,9 @@ export class FsArtifactStore implements ArtifactStore {
   }
 
   async mkdir(path: string): Promise<void> {
-    await mkdir(this._resolve(path), { recursive: true })
+    const resolved = this._resolve(path)
+    this._assertMutablePathAllowed(path, resolved)
+    await mkdir(resolved, { recursive: true })
   }
 
   async glob(pattern: string, options?: { ignore?: string[] }): Promise<string[]> {
