@@ -21,6 +21,7 @@ const eventColors: Record<string, string> = {
   TaskPaused:               'text-muted-foreground',
   TaskResumed:              'text-primary',
   TaskInstructionAdded:     'text-sky-400',
+  TaskTodoUpdated:          'text-cyan-400',
   UserInteractionRequested: 'text-amber-400',
   UserInteractionResponded: 'text-amber-300',
 }

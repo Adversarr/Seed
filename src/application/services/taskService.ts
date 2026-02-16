@@ -2,7 +2,7 @@
 // Adapters should call services, not EventStore directly
 
 import { nanoid } from 'nanoid'
-import type { EventStore, StoredEvent, TaskPriority, ArtifactRef } from '../../core/index.js'
+import type { EventStore, StoredEvent, TaskPriority, ArtifactRef, TaskTodoItem, TaskTodoStatus } from '../../core/index.js'
 import { DEFAULT_USER_ACTOR_ID } from '../../core/entities/actor.js'
 import { runProjection } from '../projections/projector.js'
 
@@ -35,6 +35,7 @@ export type TaskView = {
   // Terminal output
   summary?: string                // From TaskCompleted
   failureReason?: string          // From TaskFailed
+  todos?: TaskTodoItem[]
   
   createdAt: string
   updatedAt: string               // Time of the last event
@@ -59,6 +60,15 @@ export type CreateTaskOptions = {
   /** Override the default author actor (e.g. agent-created subtasks). */
   authorActorId?: string
 }
+
+export type TaskTodoItemInput = {
+  id?: string
+  title: string
+  description?: string
+  status?: TaskTodoStatus
+}
+
+export type TaskTodoUpdateResult = TaskTodoItem | 'All todo complete'
 
 export class TaskService {
   readonly #store: EventStore
@@ -200,6 +210,34 @@ export class TaskService {
     ])
   }
 
+  /**
+   * Replace the full todo list for a task and return the next pending item.
+   *
+   * This is a full-list upsert: each call sends the authoritative list.
+   */
+  async updateTodoList(taskId: string, todos: TaskTodoItemInput[]): Promise<TaskTodoUpdateResult> {
+    const task = await this.getTask(taskId)
+    if (!task) throw new Error(`Task not found: ${taskId}`)
+    if (!this.canTransition(task.status, 'TaskTodoUpdated')) {
+      throw new Error(`Invalid transition: cannot update todos for task in state ${task.status}`)
+    }
+
+    const normalizedTodos = normalizeTodoItems(todos)
+    await this.#store.append(taskId, [
+      {
+        type: 'TaskTodoUpdated',
+        payload: {
+          taskId,
+          todos: normalizedTodos,
+          authorActorId: this.#currentActorId
+        }
+      }
+    ])
+
+    const nextPending = normalizedTodos.find((todo) => todo.status === 'pending')
+    return nextPending ?? 'All todo complete'
+  }
+
   // ============================================================================
   // Private Methods
   // ============================================================================
@@ -210,6 +248,9 @@ export class TaskService {
     // or canceled — those require explicit resume/restart (CC-004).
     if (eventType === 'TaskInstructionAdded') {
       return !['paused', 'canceled'].includes(currentStatus)
+    }
+    if (eventType === 'TaskTodoUpdated') {
+      return currentStatus !== 'canceled'
     }
     
     switch (currentStatus) {
@@ -257,6 +298,7 @@ export class TaskService {
           lastInteractionId: undefined,
           parentTaskId: parentId,
           childTaskIds: undefined,
+          todos: undefined,
           createdAt: event.createdAt,
           updatedAt: event.createdAt
         })
@@ -382,8 +424,85 @@ export class TaskService {
         task.updatedAt = event.createdAt
         return { tasks }
       }
+      case 'TaskTodoUpdated': {
+        const idx = findTaskIndex(event.payload.taskId)
+        if (idx === -1) return state
+        const task = tasks[idx]!
+        if (!this.canTransition(task.status, event.type)) return state
+
+        task.todos = event.payload.todos
+        task.updatedAt = event.createdAt
+        return { tasks }
+      }
       default:
         return state
     }
   }
+}
+
+function normalizeTodoItems(input: TaskTodoItemInput[]): TaskTodoItem[] {
+  if (!Array.isArray(input)) {
+    throw new Error('todos must be an array')
+  }
+  const normalized = input.map((todo, index) => normalizeTodoItem(todo, index))
+  return dedupeTodoIds(normalized)
+}
+
+function normalizeTodoItem(input: TaskTodoItemInput, index: number): TaskTodoItem {
+  if (!input || typeof input !== 'object') {
+    throw new Error(`Invalid todo at index ${index}: expected object`)
+  }
+
+  if (typeof input.title !== 'string') {
+    throw new Error(`Invalid todo at index ${index}: title must be a string`)
+  }
+  const title = input.title.trim()
+  if (!title) {
+    throw new Error(`Invalid todo at index ${index}: title cannot be empty`)
+  }
+
+  const rawDescription = input.description
+  if (rawDescription !== undefined && typeof rawDescription !== 'string') {
+    throw new Error(`Invalid todo at index ${index}: description must be a string`)
+  }
+  const description = rawDescription?.trim() || undefined
+
+  const status: TaskTodoStatus = input.status ?? 'pending'
+  if (status !== 'pending' && status !== 'completed') {
+    throw new Error(`Invalid todo at index ${index}: status must be pending or completed`)
+  }
+
+  const rawId = typeof input.id === 'string' ? input.id.trim() : ''
+  const id = rawId || buildTodoIdFromTitle(title, index)
+
+  return {
+    id,
+    title,
+    description,
+    status
+  }
+}
+
+function buildTodoIdFromTitle(title: string, index: number): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const safeSlug = slug || 'item'
+  return `todo-${safeSlug}-${index + 1}`
+}
+
+function dedupeTodoIds(todos: TaskTodoItem[]): TaskTodoItem[] {
+  const used = new Set<string>()
+  return todos.map((todo) => {
+    const base = todo.id
+    let candidate = base
+    let suffix = 2
+    while (used.has(candidate)) {
+      candidate = `${base}-${suffix}`
+      suffix += 1
+    }
+    used.add(candidate)
+    return { ...todo, id: candidate }
+  })
 }

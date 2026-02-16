@@ -284,4 +284,109 @@ describe('TaskService Command Validation', () => {
     await service.addInstruction(taskId, 'continue working')
     expect((await service.getTask(taskId))?.status).toBe('in_progress')
   })
+
+  test('creates todo list on first update and returns next pending todo', async () => {
+    const { service } = setup()
+    const taskId = await createTask(service)
+
+    const result = await service.updateTodoList(taskId, [
+      { title: 'Write implementation', status: 'pending' },
+      { title: 'Ship changes', status: 'completed' }
+    ])
+
+    expect(result).toMatchObject({
+      title: 'Write implementation',
+      status: 'pending'
+    })
+
+    const task = await service.getTask(taskId)
+    expect(task?.todos).toHaveLength(2)
+    expect(task?.todos?.[0]?.id).toBe('todo-write-implementation-1')
+  })
+
+  test('replaces existing todo list and returns all-complete string when no pending item remains', async () => {
+    const { service } = setup()
+    const taskId = await createTask(service)
+
+    await service.updateTodoList(taskId, [
+      { title: 'Initial pending', status: 'pending' }
+    ])
+
+    const result = await service.updateTodoList(taskId, [
+      { title: 'Replacement done', status: 'completed' }
+    ])
+
+    expect(result).toBe('All todo complete')
+
+    const task = await service.getTask(taskId)
+    expect(task?.todos).toEqual([
+      {
+        id: 'todo-replacement-done-1',
+        title: 'Replacement done',
+        status: 'completed',
+        description: undefined
+      }
+    ])
+  })
+
+  test('rejects todo updates for canceled tasks', async () => {
+    const { service } = setup()
+    const taskId = await createTask(service)
+
+    await service.cancelTask(taskId, 'stop')
+    await expect(service.updateTodoList(taskId, [{ title: 'Do not run' }]))
+      .rejects
+      .toThrow(/Invalid transition/)
+  })
+
+  test('stores todos per-task without cross-task leakage', async () => {
+    const { service } = setup()
+    const taskId1 = await createTask(service)
+    const taskId2 = await createTask(service)
+
+    await service.updateTodoList(taskId1, [{ title: 'Task 1 todo' }])
+    await service.updateTodoList(taskId2, [{ title: 'Task 2 todo', status: 'completed' }])
+
+    const task1 = await service.getTask(taskId1)
+    const task2 = await service.getTask(taskId2)
+
+    expect(task1?.todos?.map((todo) => todo.title)).toEqual(['Task 1 todo'])
+    expect(task2?.todos?.map((todo) => todo.title)).toEqual(['Task 2 todo'])
+  })
+
+  test('returns all-complete for empty todo list and persists empty list', async () => {
+    const { service } = setup()
+    const taskId = await createTask(service)
+
+    const result = await service.updateTodoList(taskId, [])
+    expect(result).toBe('All todo complete')
+
+    const task = await service.getTask(taskId)
+    expect(task?.todos).toEqual([])
+  })
+
+  test('normalizes todo title/description and defaults status to pending', async () => {
+    const { service } = setup()
+    const taskId = await createTask(service)
+
+    const result = await service.updateTodoList(taskId, [
+      { title: '  Write docs  ', description: '  short note  ' }
+    ])
+
+    expect(result).toMatchObject({
+      id: 'todo-write-docs-1',
+      title: 'Write docs',
+      description: 'short note',
+      status: 'pending'
+    })
+  })
+
+  test('rejects todos with invalid status', async () => {
+    const { service } = setup()
+    const taskId = await createTask(service)
+
+    await expect(service.updateTodoList(taskId, [
+      { title: 'Bad', status: 'unknown' as any }
+    ])).rejects.toThrow(/status must be pending or completed/)
+  })
 })

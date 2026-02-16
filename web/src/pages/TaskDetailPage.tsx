@@ -21,6 +21,7 @@ import { EventTimeline } from '@/components/panels/EventTimeline'
 import { InteractionPanel } from '@/components/panels/InteractionPanel'
 import { ConversationView } from '@/components/panels/ConversationView'
 import { PromptBar } from '@/components/panels/PromptBar'
+import { TaskTodoQueue } from '@/components/panels/TaskTodoQueue'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -267,6 +268,11 @@ export function TaskDetailPage() {
             <AlertDescription><p className="whitespace-pre-wrap">{task.failureReason}</p></AlertDescription>
           </Alert>
         )}
+      </div>
+
+      {/* ── Todo Queue ── */}
+      <div className="shrink-0 py-2">
+        <TaskTodoQueue todos={task.todos} />
       </div>
 
       {/* ── Agent Group ── */}

@@ -80,6 +80,70 @@ describe('TUI', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  test('shows todo summary and next pending item in focused task detail', async () => {
+    const { app, dir } = await createTestApp()
+    const agentId = app.runtimeManager.defaultAgentId
+
+    await app.store.append('t1', [{
+      type: 'TaskCreated',
+      payload: {
+        taskId: 't1',
+        title: 'Todo task',
+        intent: '',
+        priority: 'foreground' as const,
+        agentId,
+        authorActorId: DEFAULT_USER_ACTOR_ID
+      }
+    }])
+    await app.store.append('t1', [{
+      type: 'TaskTodoUpdated',
+      payload: {
+        taskId: 't1',
+        todos: [
+          { id: 'todo-1', title: 'Write tests', status: 'pending' as const },
+          { id: 'todo-2', title: 'Ship release', status: 'completed' as const }
+        ],
+        authorActorId: DEFAULT_USER_ACTOR_ID
+      }
+    }])
+
+    const { lastFrame, unmount } = render(<MainTui app={app} />)
+    await wait(200)
+
+    const frame = lastFrame()!
+    expect(frame).toContain('Todos: 1 pending / 1 completed')
+    expect(frame).toContain('Next: Write tests')
+    expect(frame).toContain('[x] Ship release')
+
+    unmount()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('shows empty todo state when focused task has no todos', async () => {
+    const { app, dir } = await createTestApp()
+    const agentId = app.runtimeManager.defaultAgentId
+
+    await app.store.append('t1', [{
+      type: 'TaskCreated',
+      payload: {
+        taskId: 't1',
+        title: 'No todo task',
+        intent: '',
+        priority: 'foreground' as const,
+        agentId,
+        authorActorId: DEFAULT_USER_ACTOR_ID
+      }
+    }])
+
+    const { lastFrame, unmount } = render(<MainTui app={app} />)
+    await wait(200)
+
+    expect(lastFrame()).toContain('Todos: No todos yet')
+
+    unmount()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   test('displays subtask with tree prefix under parent', async () => {
     const { app, dir } = await createTestApp()
     const agentId = app.runtimeManager.defaultAgentId

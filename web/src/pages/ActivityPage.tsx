@@ -23,14 +23,14 @@ import { Activity, FileText, Zap } from 'lucide-react'
 const eventColors: Record<string, string> = {
   TaskCreated: 'text-emerald-400', TaskStarted: 'text-violet-400', TaskCompleted: 'text-emerald-400',
   TaskFailed: 'text-red-400', TaskCanceled: 'text-zinc-500', TaskPaused: 'text-zinc-400',
-  TaskResumed: 'text-violet-400', TaskInstructionAdded: 'text-sky-400',
+  TaskResumed: 'text-violet-400', TaskInstructionAdded: 'text-sky-400', TaskTodoUpdated: 'text-cyan-400',
   UserInteractionRequested: 'text-amber-400', UserInteractionResponded: 'text-amber-300',
 }
 
 const eventIcons: Record<string, string> = {
   TaskCreated: '✦', TaskStarted: '▶', TaskCompleted: '✓', TaskFailed: '✕',
   TaskCanceled: '⦸', TaskPaused: '‖', TaskResumed: '▶',
-  TaskInstructionAdded: '✎', UserInteractionRequested: '?', UserInteractionResponded: '↩',
+  TaskInstructionAdded: '✎', TaskTodoUpdated: '☑', UserInteractionRequested: '?', UserInteractionResponded: '↩',
 }
 
 const MAX_ACTIVITY_EVENTS = 2000

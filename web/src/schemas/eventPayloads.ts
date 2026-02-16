@@ -38,6 +38,18 @@ export const TaskCanceledPayload = z.object({
   reason: z.string().optional(),
 })
 
+export const TaskTodoItemPayload = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  status: z.enum(['pending', 'completed']),
+})
+
+export const TaskTodoUpdatedPayload = z.object({
+  taskId: z.string(),
+  todos: z.array(TaskTodoItemPayload),
+})
+
 // ── Interaction ────────────────────────────────────────────────────────
 
 export const InteractionRequestedPayload = z.object({
@@ -118,6 +130,7 @@ export type TaskCreatedPayload = z.infer<typeof TaskCreatedPayload>
 export type TaskCompletedPayload = z.infer<typeof TaskCompletedPayload>
 export type TaskFailedPayload = z.infer<typeof TaskFailedPayload>
 export type TaskCanceledPayload = z.infer<typeof TaskCanceledPayload>
+export type TaskTodoUpdatedPayload = z.infer<typeof TaskTodoUpdatedPayload>
 export type InteractionRequestedPayload = z.infer<typeof InteractionRequestedPayload>
 export type InteractionRespondedPayload = z.infer<typeof InteractionRespondedPayload>
 export type InstructionAddedPayload = z.infer<typeof InstructionAddedPayload>

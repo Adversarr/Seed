@@ -11,6 +11,7 @@ import { eventBus } from './eventBus'
 import {
   TaskCreatedPayload, TaskIdPayload, TaskCompletedPayload,
   TaskFailedPayload, TaskCanceledPayload,
+  TaskTodoUpdatedPayload,
   InteractionRequestedPayload, InteractionRespondedPayload,
   safeParse,
 } from '@/schemas/eventPayloads'
@@ -122,6 +123,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         const p = safeParse(TaskCanceledPayload, event.payload, event.type)
         if (!p) return
         updateTask(p.taskId, { status: 'canceled' })
+        break
+      }
+      case 'TaskTodoUpdated': {
+        const p = safeParse(TaskTodoUpdatedPayload, event.payload, event.type)
+        if (!p) return
+        updateTask(p.taskId, { todos: p.todos })
         break
       }
       case 'UserInteractionRequested': {

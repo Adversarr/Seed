@@ -15,6 +15,7 @@ import { JsonlConversationStore } from '../../infrastructure/persistence/jsonlCo
 import { DefaultToolRegistry } from '../../infrastructure/tools/toolRegistry.js'
 import { registerBuiltinTools } from '../../infrastructure/tools/index.js'
 import { registerAgentGroupTools } from '../../infrastructure/tools/agentGroupTools.js'
+import { registerTodoUpdateTool } from '../../infrastructure/tools/todoUpdate.js'
 import { DefaultToolExecutor } from '../../infrastructure/tools/toolExecutor.js'
 import { DefaultWorkspacePathResolver } from '../../infrastructure/workspace/workspacePathResolver.js'
 import { WorkspaceDirectoryProvisioner } from '../../infrastructure/workspace/workspaceDirectoryProvisioner.js'
@@ -238,6 +239,9 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   runtimeManager.registerAgent(defaultAgent)
   runtimeManager.registerAgent(searchAgent)
   runtimeManager.registerAgent(minimalAgent)
+
+  // Register top-level agent-group management tools.
+  registerTodoUpdateTool(toolRegistry, { taskService })
 
   // Register top-level agent-group management tools.
   registerAgentGroupTools(toolRegistry, {

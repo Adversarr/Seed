@@ -22,6 +22,11 @@ export function TaskDetail({ task, allTasks, columns }: Props) {
   const statusLabel = getStatusLabel(task.status)
   const agentLabel = task.agentId.replace(/^agent_/, '')
   const isTerminal = ['done', 'failed', 'canceled'].includes(task.status)
+  const todos = task.todos ?? []
+  const pendingTodos = todos.filter((todo) => todo.status === 'pending')
+  const completedTodos = todos.filter((todo) => todo.status === 'completed')
+  const nextTodo = pendingTodos[0]
+  const maxVisibleTodos = 6
 
   return (
     <Box
@@ -90,6 +95,38 @@ export function TaskDetail({ task, allTasks, columns }: Props) {
           <Text color="red">✖ {truncateText(task.failureReason, columns - 8)}</Text>
         </Box>
       ) : null}
+
+      {/* Todo list */}
+      {todos.length === 0 ? (
+        <Box>
+          <Text dimColor>Todos: No todos yet</Text>
+        </Box>
+      ) : (
+        <Box flexDirection="column">
+          <Text dimColor>
+            Todos: {pendingTodos.length} pending / {completedTodos.length} completed
+          </Text>
+          {nextTodo ? (
+            <Text color="yellow">
+              Next: {truncateText(nextTodo.title, columns - 8)}
+            </Text>
+          ) : (
+            <Text color="green">All todo complete</Text>
+          )}
+          {todos.slice(0, maxVisibleTodos).map((todo) => (
+            <Box key={todo.id} paddingLeft={2}>
+              <Text dimColor={todo.status === 'completed'}>
+                {todo.status === 'completed' ? '[x]' : '[ ]'} {truncateText(todo.title, columns - 16)}
+              </Text>
+            </Box>
+          ))}
+          {todos.length > maxVisibleTodos ? (
+            <Box paddingLeft={2}>
+              <Text dimColor>… and {todos.length - maxVisibleTodos} more</Text>
+            </Box>
+          ) : null}
+        </Box>
+      )}
     </Box>
   )
 }

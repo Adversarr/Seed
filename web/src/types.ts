@@ -7,6 +7,14 @@
 
 export type TaskStatus = 'open' | 'in_progress' | 'awaiting_user' | 'paused' | 'done' | 'failed' | 'canceled'
 export type TaskPriority = 'foreground' | 'normal' | 'background'
+export type TaskTodoStatus = 'pending' | 'completed'
+
+export interface TaskTodoItem {
+  id: string
+  title: string
+  description?: string
+  status: TaskTodoStatus
+}
 
 export interface TaskView {
   taskId: string
@@ -20,6 +28,7 @@ export interface TaskView {
   lastInteractionId?: string
   parentTaskId?: string
   childTaskIds?: string[]
+  todos?: TaskTodoItem[]
   summary?: string
   failureReason?: string
   createdAt: string
@@ -31,6 +40,7 @@ export interface TaskView {
 export type EventType =
   | 'TaskCreated' | 'TaskStarted' | 'TaskCompleted' | 'TaskFailed'
   | 'TaskCanceled' | 'TaskPaused' | 'TaskResumed' | 'TaskInstructionAdded'
+  | 'TaskTodoUpdated'
   | 'UserInteractionRequested' | 'UserInteractionResponded'
 
 export interface StoredEvent {

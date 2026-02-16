@@ -106,6 +106,15 @@ export const toolFormatters: Record<string, (output: any) => string | null> = {
       return `List ${output.total} sub-agents`
     }
     return null
+  },
+  TodoUpdate: (output: any) => {
+    if (output === 'All todo complete') {
+      return 'All todo complete'
+    }
+    if (output && typeof output === 'object' && typeof output.title === 'string') {
+      return `Next todo: ${output.title}`
+    }
+    return null
   }
 }
 
@@ -178,6 +187,13 @@ export const toolInputFormatters: Record<string, (input: any) => string | null> 
   },
   listSubtask: () => {
     return 'List sub-agents'
+  },
+  TodoUpdate: (input: any) => {
+    if (!input || !Array.isArray(input.todos)) return null
+    const total = input.todos.length
+    const completed = input.todos.filter((todo: any) => todo?.status === 'completed').length
+    const pending = total - completed
+    return `Update todos (${pending} pending, ${completed} completed)`
   }
 }
 

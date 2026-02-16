@@ -134,6 +134,7 @@ export function MainTui(props: Props) {
         parentTaskId: task.parentTaskId,
         agentId: task.agentId,
         childTaskIds: task.childTaskIds,
+        todos: task.todos,
         depth: 0,
         summary: task.summary,
         failureReason: task.failureReason

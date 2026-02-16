@@ -112,6 +112,29 @@ describe('taskStore', () => {
     expect(useTaskStore.getState().tasks[0]!.status).toBe('canceled')
   })
 
+  it('applies TaskTodoUpdated payload to task todos', () => {
+    useTaskStore.setState({ tasks: [{ taskId: 'task-1', status: 'in_progress' } as TaskView] })
+    useTaskStore.getState().applyEvent(
+      makeStoredEvent({
+        type: 'TaskTodoUpdated',
+        streamId: 'task-1',
+        payload: {
+          taskId: 'task-1',
+          todos: [
+            { id: 'todo-1', title: 'Write tests', status: 'pending' },
+            { id: 'todo-2', title: 'Ship', status: 'completed' }
+          ]
+        }
+      })
+    )
+
+    const t = useTaskStore.getState().tasks[0]!
+    expect(t.todos).toEqual([
+      { id: 'todo-1', title: 'Write tests', status: 'pending' },
+      { id: 'todo-2', title: 'Ship', status: 'completed' }
+    ])
+  })
+
   it('transitions UserInteractionRequested → awaiting_user', () => {
     useTaskStore.setState({ tasks: [{ taskId: 'task-1', status: 'in_progress' } as TaskView] })
     useTaskStore.getState().applyEvent(

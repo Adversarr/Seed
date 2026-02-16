@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ArtifactRefSchema, TaskPrioritySchema } from '../entities/task.js'
+import { ArtifactRefSchema, TaskPrioritySchema, TaskTodoItemSchema } from '../entities/task.js'
 
 // ============================================================================
 // Shared Payload Components
@@ -64,6 +64,12 @@ export const TaskResumedPayloadSchema = z.object({
 export const TaskInstructionAddedPayloadSchema = z.object({
   taskId: z.string().min(1),
   instruction: z.string().min(1),
+  ...withAuthor
+})
+
+export const TaskTodoUpdatedPayloadSchema = z.object({
+  taskId: z.string().min(1),
+  todos: z.array(TaskTodoItemSchema),
   ...withAuthor
 })
 
@@ -138,6 +144,7 @@ export const EventTypeSchema = z.enum([
   'TaskPaused',
   'TaskResumed',
   'TaskInstructionAdded',
+  'TaskTodoUpdated',
   // UIP
   'UserInteractionRequested',
   'UserInteractionResponded'
@@ -157,6 +164,7 @@ export type TaskCanceledPayload = z.infer<typeof TaskCanceledPayloadSchema>
 export type TaskPausedPayload = z.infer<typeof TaskPausedPayloadSchema>
 export type TaskResumedPayload = z.infer<typeof TaskResumedPayloadSchema>
 export type TaskInstructionAddedPayload = z.infer<typeof TaskInstructionAddedPayloadSchema>
+export type TaskTodoUpdatedPayload = z.infer<typeof TaskTodoUpdatedPayloadSchema>
 export type UserInteractionRequestedPayload = z.infer<typeof UserInteractionRequestedPayloadSchema>
 export type UserInteractionRespondedPayload = z.infer<typeof UserInteractionRespondedPayloadSchema>
 
@@ -169,7 +177,7 @@ export type InteractionDisplay = z.infer<typeof InteractionDisplaySchema>
 export type InteractionValidation = z.infer<typeof InteractionValidationSchema>
 
 // ============================================================================
-// Domain Event Union - 7 event types (V1 - UIP Architecture)
+// Domain Event Union (Task lifecycle + UIP architecture)
 // ============================================================================
 
 // Complete event union: all state transitions in the system
@@ -184,6 +192,7 @@ export type DomainEvent =
   | { type: 'TaskPaused'; payload: TaskPausedPayload }
   | { type: 'TaskResumed'; payload: TaskResumedPayload }
   | { type: 'TaskInstructionAdded'; payload: TaskInstructionAddedPayload }
+  | { type: 'TaskTodoUpdated'; payload: TaskTodoUpdatedPayload }
   // UIP (Universal Interaction Protocol)
   | { type: 'UserInteractionRequested'; payload: UserInteractionRequestedPayload }
   | { type: 'UserInteractionResponded'; payload: UserInteractionRespondedPayload }
@@ -214,6 +223,7 @@ export const DomainEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('TaskPaused'), payload: TaskPausedPayloadSchema }),
   z.object({ type: z.literal('TaskResumed'), payload: TaskResumedPayloadSchema }),
   z.object({ type: z.literal('TaskInstructionAdded'), payload: TaskInstructionAddedPayloadSchema }),
+  z.object({ type: z.literal('TaskTodoUpdated'), payload: TaskTodoUpdatedPayloadSchema }),
   // UIP
   z.object({ type: z.literal('UserInteractionRequested'), payload: UserInteractionRequestedPayloadSchema }),
   z.object({ type: z.literal('UserInteractionResponded'), payload: UserInteractionRespondedPayloadSchema })

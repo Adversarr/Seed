@@ -21,6 +21,18 @@ export const TaskPrioritySchema = z.enum([
   'background'
 ])
 
+export const TaskTodoStatusSchema = z.enum([
+  'pending',
+  'completed'
+])
+
+export const TaskTodoItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  status: TaskTodoStatusSchema
+})
+
 // ============================================================================
 // Artifact Reference Types
 // ============================================================================
@@ -69,7 +81,8 @@ export const TaskSchema = z.object({
   status: TaskStatusSchema,
   artifactRefs: z.array(ArtifactRefSchema).optional(),
   createdAt: z.string().min(1),
-  parentTaskId: z.string().optional()   // V1: Subtask support
+  parentTaskId: z.string().optional(),   // V1: Subtask support
+  todos: z.array(TaskTodoItemSchema).optional()
 })
 
 // ============================================================================
@@ -78,6 +91,8 @@ export const TaskSchema = z.object({
 
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
 export type TaskPriority = z.infer<typeof TaskPrioritySchema>
+export type TaskTodoStatus = z.infer<typeof TaskTodoStatusSchema>
+export type TaskTodoItem = z.infer<typeof TaskTodoItemSchema>
 export type FileRangeRef = z.infer<typeof FileRangeRefSchema>
 export type OutlineAnchorRef = z.infer<typeof OutlineAnchorRefSchema>
 export type AssetRef = z.infer<typeof AssetRefSchema>

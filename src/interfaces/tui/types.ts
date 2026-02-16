@@ -32,7 +32,15 @@ export type TaskView = {
   parentTaskId?: string
   agentId: string
   childTaskIds?: string[]
+  todos?: TaskTodoItem[]
   depth: number
   summary?: string
   failureReason?: string
+}
+
+export type TaskTodoItem = {
+  id: string
+  title: string
+  description?: string
+  status: 'pending' | 'completed'
 }

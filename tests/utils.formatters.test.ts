@@ -168,6 +168,17 @@ describe('toolFormatters.listSubtask', () => {
   })
 })
 
+describe('toolFormatters.TodoUpdate', () => {
+  it('formats all-complete output', () => {
+    expect(toolFormatters.TodoUpdate('All todo complete')).toBe('All todo complete')
+  })
+
+  it('formats next-item output', () => {
+    expect(toolFormatters.TodoUpdate({ id: 't1', title: 'Write tests', status: 'pending' }))
+      .toBe('Next todo: Write tests')
+  })
+})
+
 describe('formatToolInput', () => {
   it('formats readFile input', () => {
     expect(formatToolInput('readFile', { path: 'src/index.ts' }))
@@ -225,6 +236,15 @@ describe('formatToolInput', () => {
   it('formats listSubtask input', () => {
     expect(formatToolInput('listSubtask', {}))
       .toBe('List sub-agents')
+  })
+
+  it('formats TodoUpdate input summary', () => {
+    expect(formatToolInput('TodoUpdate', {
+      todos: [
+        { title: 'One', status: 'pending' },
+        { title: 'Two', status: 'completed' }
+      ]
+    })).toBe('Update todos (1 pending, 1 completed)')
   })
 
   it('formats legacy create_subtask_* input for historical messages', () => {

@@ -273,6 +273,32 @@ describe('TaskDetailPage replay-only tabs', () => {
     expect(await screen.findAllByTestId('conversation-view')).toHaveLength(1)
   })
 
+  it('renders todo queue with pending/completed sections and counts', async () => {
+    mockTasks = [makeTask({
+      todos: [
+        { id: 'todo-1', title: 'Write tests', status: 'pending' },
+        { id: 'todo-2', title: 'Ship release', status: 'completed' }
+      ]
+    })]
+
+    render(<TaskDetailPage />)
+
+    expect(screen.getByText('Todo Queue')).toBeInTheDocument()
+    expect(screen.getByText('1 Pending')).toBeInTheDocument()
+    expect(screen.getByText('1 Completed')).toBeInTheDocument()
+    expect(screen.getByText('Write tests')).toBeInTheDocument()
+    expect(screen.getByText('Ship release')).toBeInTheDocument()
+  })
+
+  it('renders empty todo queue messages when no todos exist', async () => {
+    mockTasks = [makeTask({ todos: undefined })]
+
+    render(<TaskDetailPage />)
+
+    expect(screen.getByText('No pending todos.')).toBeInTheDocument()
+    expect(screen.getByText('No completed todos.')).toBeInTheDocument()
+  })
+
   it('renders agent group section for root tasks and allows creating group members', async () => {
     mockTasks = [
       makeTask({ taskId: 'task-1', title: 'Root Task' }),

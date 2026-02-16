@@ -19,6 +19,10 @@ export { runCommandTool, createRunCommandTool } from './runCommand.js'
 export { globTool } from './globTool.js'
 export { grepTool } from './grepTool.js'
 export {
+  createTodoUpdateTool,
+  registerTodoUpdateTool
+} from './todoUpdate.js'
+export {
   createSubtasksTool,
   listSubtaskTool,
   registerAgentGroupTools
@@ -37,4 +41,6 @@ export function registerBuiltinTools(registry: ToolRegistry, config?: {
   registry.register(createRunCommandTool(config?.runCommand))
   registry.register(globTool)
   registry.register(grepTool)
+  // Task-aware tool registration happens in createApp (requires TaskService deps).
+  // registerTodoUpdateTool is intentionally excluded from generic built-ins.
 }

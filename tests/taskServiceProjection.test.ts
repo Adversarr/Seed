@@ -34,5 +34,32 @@ describe('TaskService projection checkpoint', () => {
 
     rmSync(dir, { recursive: true, force: true })
   })
-})
 
+  test('projects TaskTodoUpdated into task view todos', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'seed-'))
+    const store = new JsonlEventStore({
+      eventsPath: join(dir, 'events.jsonl'),
+      projectionsPath: join(dir, 'projections.jsonl')
+    })
+    await store.ensureSchema()
+
+    const svc = new TaskService(store, DEFAULT_USER_ACTOR_ID)
+    const { taskId } = await svc.createTask({
+      title: 'Todo projection task',
+      agentId: DEFAULT_AGENT_ACTOR_ID
+    })
+
+    await svc.updateTodoList(taskId, [
+      { title: 'First', status: 'pending' },
+      { title: 'Second', status: 'completed' }
+    ])
+
+    const projected = await svc.getTask(taskId)
+    expect(projected?.todos).toEqual([
+      { id: 'todo-first-1', title: 'First', status: 'pending', description: undefined },
+      { id: 'todo-second-2', title: 'Second', status: 'completed', description: undefined }
+    ])
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
