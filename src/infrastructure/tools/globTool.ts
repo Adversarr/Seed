@@ -7,17 +7,18 @@
 
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
-import { join } from 'node:path'
+import { posix as posixPath } from 'node:path'
+import { mapStorePathToLogicalPath, resolveToolPattern } from '../workspace/toolWorkspace.js'
 
 export const globTool: Tool = {
   name: 'globTool',
-  description: 'Find files matching a glob pattern. Returns relative paths.',
+  description: 'Find files matching a glob pattern. Pattern supports private:/, shared:/, public:/ prefixes. Unscoped patterns default to private:/.',
   parameters: {
     type: 'object',
     properties: {
       pattern: {
         type: 'string',
-        description: 'The glob pattern to match (e.g., "**/*.ts")'
+        description: 'Glob pattern. Supports private:/, shared:/, public:/. Unscoped patterns default to private:/.'
       },
       ignore: {
         type: 'array',
@@ -36,8 +37,11 @@ export const globTool: Tool = {
     const ignore = (args.ignore as string[]) ?? []
 
     try {
+      const resolvedPattern = await resolveToolPattern(ctx, pattern, { defaultScope: 'private' })
+      const scopedIgnore = mapIgnorePatterns(ignore, resolvedPattern.scopeRootStorePath)
+
       // Use ArtifactStore.glob
-      const matches = await ctx.artifactStore.glob(pattern, { ignore })
+      const matches = await ctx.artifactStore.glob(resolvedPattern.storePattern, { ignore: scopedIgnore })
       
       // Sort matches by recency if possible? 
       // Reference glob.ts sorts by mtime (newest first).
@@ -75,14 +79,27 @@ export const globTool: Tool = {
       // But tool description says "Returns absolute paths". I should probably fix description or return absolute.
       // I'll return relative paths but mention they are relative to workspace.
       
-      const content = sortedMatches.join('\n')
+      const logicalMatches = ctx.workspaceResolver
+        ? sortedMatches.map((storePath) =>
+            mapStorePathToLogicalPath(
+              {
+                scope: resolvedPattern.scope,
+                scopeRootStorePath: resolvedPattern.scopeRootStorePath
+              },
+              storePath
+            )
+          )
+        : sortedMatches
+
+      const content = logicalMatches.join('\n')
       
       return {
         toolCallId,
         output: { 
-          matches: sortedMatches, 
-          count: sortedMatches.length,
-          content: `Found ${sortedMatches.length} files matching '${pattern}':\n${content}`
+          matches: logicalMatches,
+          count: logicalMatches.length,
+          pattern: resolvedPattern.logicalPattern,
+          content: `Found ${logicalMatches.length} files matching '${resolvedPattern.logicalPattern}':\n${content}`
         },
         isError: false
       }
@@ -94,4 +111,20 @@ export const globTool: Tool = {
       }
     }
   }
+}
+
+function mapIgnorePatterns(ignore: string[], scopeRootStorePath: string): string[] {
+  if (ignore.length === 0) return ignore
+  if (scopeRootStorePath === '') return ignore
+
+  return ignore.map((pattern) => {
+    const trimmed = pattern.trim()
+    if (trimmed === '') return trimmed
+    if (/^(private|shared|public):\//u.test(trimmed)) {
+      // Leave explicit scoped ignore unchanged.
+      return trimmed
+    }
+    const normalized = trimmed.replace(/^\/+/u, '')
+    return posixPath.join(scopeRootStorePath, normalized)
+  })
 }

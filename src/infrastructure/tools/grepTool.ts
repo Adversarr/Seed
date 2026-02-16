@@ -7,7 +7,9 @@
 
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
-import { execFile, type ExecFileException } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { posix as posixPath } from 'node:path'
+import { mapStorePathToLogicalPath, resolveToolPath } from '../workspace/toolWorkspace.js'
 
 function execFilePromise(
   file: string,
@@ -34,7 +36,7 @@ function validatePattern(pattern: string): void {
 
 export const grepTool: Tool = {
   name: 'grepTool',
-  description: 'Search for patterns in files. Uses git-grep or grep if available, falling back to JS implementation.',
+  description: 'Search for patterns in files. Path supports private:/, shared:/, public:/ prefixes. Unscoped paths default to private:/. Uses git-grep or grep if available, falling back to JS implementation.',
   parameters: {
     type: 'object',
     properties: {
@@ -44,7 +46,7 @@ export const grepTool: Tool = {
       },
       path: {
         type: 'string',
-        description: 'Optional: Directory to search in (default: root)'
+        description: 'Optional directory path. Supports private:/, shared:/, public:/. Unscoped paths default to private:/. Default: private:/'
       },
       include: {
         type: 'string',
@@ -64,6 +66,8 @@ export const grepTool: Tool = {
 
     try {
       validatePattern(pattern)
+      const resolvedDir = await resolveToolPath(ctx, dirPath, { defaultScope: 'private' })
+      const storeDirPath = resolvedDir.storePath
 
       // Strategy 1: git grep (using execFile with argument arrays — no shell injection)
       try {
@@ -71,11 +75,17 @@ export const grepTool: Tool = {
         await execFilePromise('git', ['rev-parse', '--is-inside-work-tree'], { cwd: ctx.baseDir, encoding: 'utf8' })
         
         // Build git grep command with safe argument array
-        const gitArgs = ['grep', '-I', '-n', '-E', pattern, dirPath]
+        const gitArgs = ['grep', '-I', '-n', '-E', pattern, storeDirPath]
         if (include) gitArgs.push('--', include)
         
         const { stdout } = await execFilePromise('git', gitArgs, { cwd: ctx.baseDir, encoding: 'utf8' })
-        return successResult(toolCallId, stdout, 'git grep')
+        return successResult(
+          toolCallId,
+          ctx.workspaceResolver
+            ? remapGrepOutputPaths(stdout, resolvedDir.scope, resolvedDir.scopeRootStorePath)
+            : stdout,
+          'git grep'
+        )
       } catch (e) {
         // git grep failed or not a repo, fall through
       }
@@ -84,16 +94,24 @@ export const grepTool: Tool = {
       try {
         const grepArgs = ['-r', '-I', '-n', '-E', pattern]
         if (include) grepArgs.push(`--include=${include}`)
-        grepArgs.push(dirPath)
+        grepArgs.push(storeDirPath)
         
         const { stdout } = await execFilePromise('grep', grepArgs, { cwd: ctx.baseDir, encoding: 'utf8' })
-        return successResult(toolCallId, stdout, 'system grep')
+        return successResult(
+          toolCallId,
+          ctx.workspaceResolver
+            ? remapGrepOutputPaths(stdout, resolvedDir.scope, resolvedDir.scopeRootStorePath)
+            : stdout,
+          'system grep'
+        )
       } catch (e) {
         // grep failed, fall through
       }
 
       // Strategy 3: JS fallback
-      const searchPattern = include ?? (dirPath === '.' ? '**/*' : `${dirPath}/**/*`)
+      const searchPattern = include
+        ? buildIncludePattern(storeDirPath, include)
+        : (storeDirPath === '.' ? '**/*' : `${storeDirPath}/**/*`)
       const files = await ctx.artifactStore.glob(searchPattern)
       
       const regex = new RegExp(pattern, 'm') // Multiline? Or per line? Grep usually reports line numbers.
@@ -107,7 +125,16 @@ export const grepTool: Tool = {
           const lines = content.split('\n')
           lines.forEach((line, index) => {
             if (regex.test(line)) {
-              results.push(`${file}:${index + 1}:${line}`)
+              const logicalPath = ctx.workspaceResolver
+                ? mapStorePathToLogicalPath(
+                    {
+                      scope: resolvedDir.scope,
+                      scopeRootStorePath: resolvedDir.scopeRootStorePath
+                    },
+                    file
+                  )
+                : file
+              results.push(`${logicalPath}:${index + 1}:${line}`)
             }
           })
         } catch {
@@ -125,6 +152,35 @@ export const grepTool: Tool = {
       }
     }
   }
+}
+
+function buildIncludePattern(storeDirPath: string, include: string): string {
+  const normalizedInclude = include.replace(/^\/+/u, '')
+  if (storeDirPath === '.') return normalizedInclude
+  return posixPath.join(storeDirPath, '**', normalizedInclude)
+}
+
+function remapGrepOutputPaths(
+  content: string,
+  scope: 'private' | 'shared' | 'public',
+  scopeRootStorePath: string
+): string {
+  if (!content.trim()) return content.trim()
+
+  return content
+    .trim()
+    .split('\n')
+    .map((line) => {
+      const firstColon = line.indexOf(':')
+      const secondColon = firstColon === -1 ? -1 : line.indexOf(':', firstColon + 1)
+      if (firstColon <= 0 || secondColon <= firstColon) return line
+
+      const storePath = line.slice(0, firstColon)
+      const rest = line.slice(firstColon)
+      const logicalPath = mapStorePathToLogicalPath({ scope, scopeRootStorePath }, storePath)
+      return `${logicalPath}${rest}`
+    })
+    .join('\n')
 }
 
 function successResult(toolCallId: string, content: string, strategy: string): ToolResult {

@@ -62,6 +62,79 @@ export type ToolRiskLevel = 'safe' | 'risky'
 export type ToolGroup = 'search' | 'edit' | 'exec' | 'subtask'
 
 // ============================================================================
+// Workspace Path Resolution
+// ============================================================================
+
+/**
+ * Logical workspace scopes used by tool paths.
+ *
+ * Examples:
+ * - private:/src/index.ts
+ * - shared:/artifacts/report.md
+ * - public:/README.md
+ */
+export type WorkspaceScope = 'private' | 'shared' | 'public'
+
+/**
+ * Resolved concrete path information for file/dir style paths.
+ */
+export type WorkspacePathResolution = {
+  /** Resolved logical scope. */
+  scope: WorkspaceScope
+  /**
+   * Path under the scope root without prefix.
+   * Empty string means the scope root itself.
+   */
+  pathInScope: string
+  /** Scope-prefixed logical path (e.g. private:/foo/bar). */
+  logicalPath: string
+  /**
+   * Scope root relative to workspace root (empty for public).
+   * Example: .seed/workspaces/private/<taskId>
+   */
+  scopeRootStorePath: string
+  /**
+   * Path relative to workspace root for ArtifactStore operations.
+   * Example: .seed/workspaces/private/<taskId>/foo/bar
+   */
+  storePath: string
+  /** Absolute filesystem path for process cwd operations. */
+  absolutePath: string
+}
+
+/**
+ * Resolved concrete path information for glob/search patterns.
+ */
+export type WorkspacePatternResolution = {
+  scope: WorkspaceScope
+  patternInScope: string
+  logicalPattern: string
+  scopeRootStorePath: string
+  storePattern: string
+  scopeRootAbsolutePath: string
+}
+
+/**
+ * Optional resolver injected by runtime to implement scoped workspace rules.
+ * When omitted, tools should fall back to legacy workspace-root semantics.
+ */
+export interface WorkspacePathResolver {
+  resolvePath(
+    taskId: string,
+    rawPath: string,
+    options?: { defaultScope?: WorkspaceScope }
+  ): Promise<WorkspacePathResolution>
+
+  resolvePattern(
+    taskId: string,
+    rawPattern: string,
+    options?: { defaultScope?: WorkspaceScope }
+  ): Promise<WorkspacePatternResolution>
+
+  toLogicalPath(scope: WorkspaceScope, pathInScope: string): string
+}
+
+// ============================================================================
 // Tool Context (for execution)
 // ============================================================================
 
@@ -70,6 +143,8 @@ export type ToolContext = {
   actorId: string
   baseDir: string
   artifactStore: ArtifactStore
+  /** Optional scoped workspace path resolver. */
+  workspaceResolver?: WorkspacePathResolver
   /**
    * For risky tools: the interactionId of the UIP confirmation.
    * If a risky tool is called without this, the executor should reject.

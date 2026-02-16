@@ -1,4 +1,11 @@
-import type { ToolCallRequest, ToolExecutor, ToolRegistry, ToolResult } from '../../core/ports/tool.js'
+import type {
+  ToolCallRequest,
+  ToolContext,
+  ToolExecutor,
+  ToolRegistry,
+  ToolResult,
+  WorkspacePathResolver
+} from '../../core/ports/tool.js'
 import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 import type { UiBus } from '../../core/ports/uiBus.js'
 import type { TelemetrySink } from '../../core/ports/telemetry.js'
@@ -62,6 +69,7 @@ export class OutputHandler {
   readonly #toolExecutor: ToolExecutor
   readonly #toolRegistry: ToolRegistry
   readonly #artifactStore: ArtifactStore
+  readonly #workspaceResolver: WorkspacePathResolver | undefined
   readonly #uiBus: UiBus | null
   readonly #conversationManager: ConversationManager
   readonly #telemetry: TelemetrySink
@@ -71,6 +79,7 @@ export class OutputHandler {
     toolExecutor: ToolExecutor
     toolRegistry: ToolRegistry
     artifactStore: ArtifactStore
+    workspaceResolver?: WorkspacePathResolver
     uiBus?: UiBus | null
     conversationManager: ConversationManager
     telemetry?: TelemetrySink
@@ -79,6 +88,7 @@ export class OutputHandler {
     this.#toolExecutor = opts.toolExecutor
     this.#toolRegistry = opts.toolRegistry
     this.#artifactStore = opts.artifactStore
+    this.#workspaceResolver = opts.workspaceResolver
     this.#uiBus = opts.uiBus ?? null
     this.#conversationManager = opts.conversationManager
     this.#telemetry = opts.telemetry ?? { emit: () => {} }
@@ -205,12 +215,13 @@ export class OutputHandler {
   async #executeSafeToolCall(call: ToolCallRequest, ctx: OutputContext): Promise<void> {
     const tool = this.#toolRegistry.get(call.toolName)
 
-    const toolContext = {
+    const toolContext: ToolContext = {
       taskId: ctx.taskId,
       actorId: ctx.agentId,
       baseDir: ctx.baseDir,
       confirmedInteractionId: ctx.confirmedInteractionId,
       artifactStore: this.#artifactStore,
+      workspaceResolver: this.#workspaceResolver,
       signal: ctx.signal
     }
 
@@ -278,14 +289,7 @@ export class OutputHandler {
 
   async #executeToolCall(
     call: ToolCallRequest,
-    toolContext: {
-      taskId: string
-      actorId: string
-      baseDir: string
-      confirmedInteractionId?: string
-      artifactStore: ArtifactStore
-      signal?: AbortSignal
-    },
+    toolContext: ToolContext,
     ctx: OutputContext
   ): Promise<void> {
     this.#uiBus?.emit({
@@ -375,12 +379,13 @@ export class OutputHandler {
   async #handleSingleToolCall(call: ToolCallRequest, ctx: OutputContext): Promise<OutputResult> {
     const tool = this.#toolRegistry.get(call.toolName)
 
-    const toolContext = {
+    const toolContext: ToolContext = {
       taskId: ctx.taskId,
       actorId: ctx.agentId,
       baseDir: ctx.baseDir,
       confirmedInteractionId: ctx.confirmedInteractionId,
       artifactStore: this.#artifactStore,
+      workspaceResolver: this.#workspaceResolver,
       signal: ctx.signal
     }
 
@@ -459,11 +464,12 @@ export class OutputHandler {
     const rejectedCalls = pendingCalls.filter((call) => call.toolCallId === targetToolCallId)
     if (rejectedCalls.length === 0) return
 
-    const toolContext = {
+    const toolContext: ToolContext = {
       taskId: ctx.taskId,
       actorId: ctx.agentId,
       baseDir: ctx.baseDir,
-      artifactStore: this.#artifactStore
+      artifactStore: this.#artifactStore,
+      workspaceResolver: this.#workspaceResolver
     }
 
     for (const call of rejectedCalls) {

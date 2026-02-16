@@ -1,17 +1,16 @@
 /**
- * Tests for the SubAgent / SubTask feature.
+ * Tests for task hierarchy projection and agent-group tools.
  *
- * Covers:
- * - Projection: parentTaskId, childTaskIds, summary, failureReason
- * - Subtask tool: happy path, child failure, cascade cancel, depth limit
- * - Blocking across UIP
+ * Coverage:
+ * - Projection model fields for parent/child linkage and terminal metadata.
+ * - createSubtasks/listSubtask behavior and guards.
+ * - Runtime-coupled wait/abort behavior for child task orchestration.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { Subject } from 'rxjs'
 import { JsonlEventStore } from '../src/infrastructure/persistence/jsonlEventStore.js'
 import { JsonlAuditLog } from '../src/infrastructure/persistence/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../src/infrastructure/persistence/jsonlConversationStore.js'
@@ -22,59 +21,12 @@ import { OutputHandler } from '../src/agents/orchestration/outputHandler.js'
 import { FakeLLMClient } from '../src/infrastructure/llm/fakeLLMClient.js'
 import { DefaultToolRegistry } from '../src/infrastructure/tools/toolRegistry.js'
 import { DefaultToolExecutor } from '../src/infrastructure/tools/toolExecutor.js'
+import { registerAgentGroupTools } from '../src/infrastructure/tools/agentGroupTools.js'
 import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../src/core/entities/actor.js'
-import { createSubtaskTool, registerSubtaskTools } from '../src/infrastructure/tools/createSubtaskTool.js'
 import type { Agent, AgentOutput } from '../src/agents/core/agent.js'
-import type { DomainEvent, StoredEvent, EventStore } from '../src/core/index.js'
+import type { EventStore } from '../src/core/index.js'
 import type { ArtifactStore } from '../src/core/ports/artifactStore.js'
-
-// ============================================================================
-// In-Memory EventStore (from existing test pattern)
-// ============================================================================
-
-class InMemoryEventStore implements EventStore {
-  private events: StoredEvent[] = []
-  public events$ = new Subject<StoredEvent>()
-
-  async ensureSchema(): Promise<void> {}
-
-  async append(streamId: string, events: DomainEvent[]): Promise<StoredEvent[]> {
-    const currentStreamEvents = this.events.filter(ev => ev.streamId === streamId)
-    const newStoredEvents = events.map((e, i) => ({
-      id: this.events.length + i + 1,
-      streamId,
-      seq: currentStreamEvents.length + i + 1,
-      ...e,
-      createdAt: new Date().toISOString()
-    })) as StoredEvent[]
-    this.events.push(...newStoredEvents)
-    newStoredEvents.forEach(e => this.events$.next(e))
-    return newStoredEvents
-  }
-
-  async readStream(streamId: string): Promise<StoredEvent[]> {
-    return this.events.filter(e => e.streamId === streamId)
-  }
-
-  async readAll(fromIdExclusive?: number): Promise<StoredEvent[]> {
-    const startId = fromIdExclusive ?? 0
-    return this.events.filter(e => e.id > startId)
-  }
-
-  async readById(id: number): Promise<StoredEvent | null> {
-    return this.events.find(e => e.id === id) || null
-  }
-
-  async getProjection<TState>(name: string, defaultState: TState): Promise<{ cursorEventId: number; state: TState }> {
-    return { cursorEventId: 0, state: defaultState }
-  }
-
-  async saveProjection(): Promise<void> {}
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
+import { InMemoryEventStore } from './helpers/inMemoryEventStore.js'
 
 const mockArtifactStore: ArtifactStore = {
   readFile: async () => '',
@@ -83,19 +35,28 @@ const mockArtifactStore: ArtifactStore = {
   writeFile: async () => {},
   exists: async () => false,
   mkdir: async () => {},
+  glob: async () => [],
   stat: async () => null
 }
 
-// ============================================================================
-// Projection Tests
-// ============================================================================
+async function safeRemoveDir(dir: string): Promise<void> {
+  const retries = 5
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (attempt === retries - 1) throw error
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    }
+  }
+}
 
 describe('TaskService projection — subtask fields', () => {
   test('parentTaskId is stored on child and childTaskIds on parent', async () => {
     const store = new InMemoryEventStore()
     const svc = new TaskService(store as unknown as EventStore, DEFAULT_USER_ACTOR_ID)
 
-    // Create parent
     await store.append('parent1', [{
       type: 'TaskCreated',
       payload: {
@@ -104,7 +65,6 @@ describe('TaskService projection — subtask fields', () => {
       }
     }])
 
-    // Create child with parentTaskId
     await store.append('child1', [{
       type: 'TaskCreated',
       payload: {
@@ -120,41 +80,6 @@ describe('TaskService projection — subtask fields', () => {
 
     expect(child.parentTaskId).toBe('parent1')
     expect(parent.childTaskIds).toEqual(['child1'])
-  })
-
-  test('childTaskIds are idempotent on duplicate events', async () => {
-    const store = new InMemoryEventStore()
-    const svc = new TaskService(store as unknown as EventStore, DEFAULT_USER_ACTOR_ID)
-
-    await store.append('parent1', [{
-      type: 'TaskCreated',
-      payload: {
-        taskId: 'parent1', title: 'Parent', intent: '', priority: 'foreground',
-        agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_USER_ACTOR_ID
-      }
-    }])
-
-    await store.append('child1', [{
-      type: 'TaskCreated',
-      payload: {
-        taskId: 'child1', title: 'Child', intent: '', priority: 'normal',
-        agentId: DEFAULT_AGENT_ACTOR_ID, parentTaskId: 'parent1',
-        authorActorId: DEFAULT_AGENT_ACTOR_ID
-      }
-    }])
-
-    await store.append('child2', [{
-      type: 'TaskCreated',
-      payload: {
-        taskId: 'child2', title: 'Child 2', intent: '', priority: 'normal',
-        agentId: DEFAULT_AGENT_ACTOR_ID, parentTaskId: 'parent1',
-        authorActorId: DEFAULT_AGENT_ACTOR_ID
-      }
-    }])
-
-    const state = await svc.listTasks()
-    const parent = state.tasks.find(t => t.taskId === 'parent1')!
-    expect(parent.childTaskIds).toEqual(['child1', 'child2'])
   })
 
   test('summary stored on TaskCompleted', async () => {
@@ -206,66 +131,44 @@ describe('TaskService projection — subtask fields', () => {
     expect(task?.status).toBe('failed')
     expect(task?.failureReason).toBe('Something broke')
   })
-
-  test('createTask with parentTaskId and authorActorId override', async () => {
-    const store = new InMemoryEventStore()
-    const svc = new TaskService(store as unknown as EventStore, DEFAULT_USER_ACTOR_ID)
-
-    // Create parent
-    await svc.createTask({ title: 'Parent', agentId: DEFAULT_AGENT_ACTOR_ID })
-
-    const state1 = await svc.listTasks()
-    const parentId = state1.tasks[0]!.taskId
-
-    // Create child with overrides
-    const { taskId: childId } = await svc.createTask({
-      title: 'Child',
-      agentId: DEFAULT_AGENT_ACTOR_ID,
-      parentTaskId: parentId,
-      authorActorId: DEFAULT_AGENT_ACTOR_ID
-    })
-
-    const state2 = await svc.listTasks()
-    const parent = state2.tasks.find(t => t.taskId === parentId)!
-    const child = state2.tasks.find(t => t.taskId === childId)!
-
-    expect(child.parentTaskId).toBe(parentId)
-    expect(child.createdBy).toBe(DEFAULT_AGENT_ACTOR_ID)
-    expect(parent.childTaskIds).toContain(childId)
-  })
 })
 
-// ============================================================================
-// Subtask Tool Tests (unit level, using InMemoryEventStore)
-// ============================================================================
-
-describe('createSubtaskTool', () => {
-  /** A simple agent that immediately completes with a summary. */
+describe('agentGroupTools', () => {
   const completingAgent: Agent = {
     id: 'agent_completer',
     displayName: 'Completer',
-    description: 'Test agent that completes and returns a summary.',
+    description: 'Completes immediately with summary.',
     toolGroups: [],
     defaultProfile: 'fast',
-    async *run(task, _context) {
-      yield { kind: 'done', summary: `Completed subtask: ${task.title}` } as AgentOutput
+    async *run(task) {
+      yield { kind: 'done', summary: `Completed: ${task.title}` } as AgentOutput
     }
   }
 
-  /** An agent that immediately fails. */
   const failingAgent: Agent = {
     id: 'agent_failer',
     displayName: 'Failer',
-    description: 'Test agent that fails intentionally.',
+    description: 'Fails immediately.',
     toolGroups: [],
     defaultProfile: 'fast',
-    async *run(_task, _context) {
+    async *run() {
       yield { kind: 'failed', reason: 'Intentional failure' } as AgentOutput
     }
   }
 
+  const slowAgent: Agent = {
+    id: 'agent_slow',
+    displayName: 'Slow',
+    description: 'Never terminates unless canceled.',
+    toolGroups: [],
+    defaultProfile: 'fast',
+    async *run() {
+      await new Promise(() => {})
+    }
+  }
+
   async function createIntegrationEnv(agents: Agent[]) {
-    const dir = mkdtempSync(join(tmpdir(), 'seed-subtask-'))
+    const dir = mkdtempSync(join(tmpdir(), 'seed-agent-group-'))
     const store = new JsonlEventStore({
       eventsPath: join(dir, 'events.jsonl'),
       projectionsPath: join(dir, 'projections.jsonl')
@@ -282,6 +185,7 @@ describe('createSubtaskTool', () => {
     const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
     const taskService = new TaskService(store, DEFAULT_USER_ACTOR_ID)
     const llm = new FakeLLMClient()
+
     const conversationManager = new ConversationManager({
       conversationStore,
       auditLog,
@@ -311,351 +215,321 @@ describe('createSubtaskTool', () => {
       runtimeManager.registerAgent(agent)
     }
 
-    // Register subtask tools for all agents
-    registerSubtaskTools(toolRegistry, {
+    registerAgentGroupTools(toolRegistry, {
       store,
       taskService,
       conversationStore,
-      runtimeManager,
-      maxSubtaskDepth: 3
+      runtimeManager
     })
 
     return { dir, store, conversationStore, taskService, runtimeManager, toolRegistry }
   }
 
-  test('returns Success when child completes', async () => {
-    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent])
-
-    runtimeManager.start()
+  test('registers createSubtasks and listSubtask only (no dynamic create_subtask tools)', async () => {
+    const { dir, toolRegistry } = await createIntegrationEnv([completingAgent, failingAgent])
     try {
-      // Create parent task
-      await taskService.createTask({
-        title: 'Parent task', agentId: completingAgent.id
-      })
+      const names = toolRegistry.list().map((tool) => tool.name)
+      expect(names).toContain('createSubtasks')
+      expect(names).toContain('listSubtask')
+      expect(names.some((name) => name.startsWith('create_subtask_'))).toBe(false)
+    } finally {
+      await safeRemoveDir(dir)
+    }
+  })
 
-      // Wait for parent to complete (agent auto-completes)
+  test('createSubtasks wait=none returns created child IDs immediately', async () => {
+    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent, failingAgent])
+    runtimeManager.start()
+
+    try {
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
+      })
       await runtimeManager.waitForIdle()
 
-      // Now test the subtask tool directly
-      const tool = toolRegistry.get(`create_subtask_${completingAgent.id}`)!
-      expect(tool).toBeDefined()
-      expect(tool.name).toBe(`create_subtask_${completingAgent.id}`)
-      expect(tool.riskLevel).toBe('safe')
-
-      // Create a second parent to test the tool
-      const { taskId: parent2Id } = await taskService.createTask({
-        title: 'Parent 2', agentId: completingAgent.id
-      })
-      await runtimeManager.waitForIdle()
-
-      // Execute tool as if called by parent2
+      const tool = toolRegistry.get('createSubtasks')!
       const result = await tool.execute(
-        { title: 'My subtask', intent: 'Do something' },
         {
-          taskId: parent2Id,
+          wait: 'none',
+          tasks: [
+            { agentId: completingAgent.id, title: 'Fast child' },
+            { agentId: failingAgent.id, title: 'Failing child' }
+          ]
+        },
+        {
+          taskId: parentTaskId,
           actorId: DEFAULT_AGENT_ACTOR_ID,
           baseDir: dir,
           artifactStore: mockArtifactStore
         }
       )
-
-      // Wait for child to be processed
-      await runtimeManager.waitForIdle()
 
       expect(result.isError).toBe(false)
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.subTaskStatus).toBe('Success')
-      expect(parsed.summary).toContain('Completed subtask')
-      expect(parsed.agentId).toBe(completingAgent.id)
+      const parsed = result.output as any
+      expect(parsed.wait).toBe('none')
+      expect(parsed.tasks).toHaveLength(2)
+      expect(parsed.tasks.every((task: any) => task.status === 'Pending')).toBe(true)
+      expect(parsed.tasks.every((task: any) => typeof task.taskId === 'string')).toBe(true)
+
+      const allTasks = (await taskService.listTasks()).tasks
+      const children = allTasks.filter((task) => task.parentTaskId === parentTaskId)
+      expect(children).toHaveLength(2)
     } finally {
       runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
+      await safeRemoveDir(dir)
     }
   })
 
-  test('returns Error when child fails', async () => {
+  test('createSubtasks wait=all returns terminal outcomes for all children', async () => {
     const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent, failingAgent])
-
     runtimeManager.start()
+
     try {
-      // Create a parent task (use completingAgent)
-      const { taskId: parentId } = await taskService.createTask({
-        title: 'Parent', agentId: completingAgent.id
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
       })
       await runtimeManager.waitForIdle()
 
-      // Execute subtask tool targeting failing agent
-      const tool = toolRegistry.get(`create_subtask_${failingAgent.id}`)!
-      expect(tool).toBeDefined()
-
+      const tool = toolRegistry.get('createSubtasks')!
       const result = await tool.execute(
-        { title: 'Doomed subtask' },
         {
-          taskId: parentId,
+          tasks: [
+            { agentId: completingAgent.id, title: 'Complete me' },
+            { agentId: failingAgent.id, title: 'Fail me' }
+          ]
+        },
+        {
+          taskId: parentTaskId,
           actorId: DEFAULT_AGENT_ACTOR_ID,
           baseDir: dir,
           artifactStore: mockArtifactStore
         }
       )
 
-      await runtimeManager.waitForIdle()
+      expect(result.isError).toBe(false)
+      expect(result.toolCallId).toMatch(/^tool_/u)
 
-      expect(result.isError).toBe(true)
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.subTaskStatus).toBe('Error')
-      expect(parsed.failureReason).toBe('Intentional failure')
+      const parsed = result.output as any
+      expect(parsed.wait).toBe('all')
+      expect(parsed.tasks).toHaveLength(2)
+      expect(parsed.summary.total).toBe(2)
+      expect(parsed.summary.success).toBe(1)
+      expect(parsed.summary.error).toBe(1)
+      expect(parsed.summary.cancel).toBe(0)
+
+      const statuses = parsed.tasks.map((task: any) => task.status).sort()
+      expect(statuses).toEqual(['Error', 'Success'])
     } finally {
       runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
+      await safeRemoveDir(dir)
     }
   })
 
-  test('rejects when max depth exceeded', async () => {
-    const { dir, store, conversationStore, taskService, runtimeManager } = await createIntegrationEnv([completingAgent])
-
-    // Override with max depth 0 to test limit
-    // Create a custom tool with maxSubtaskDepth=0
-    const shallowTool = createSubtaskTool(completingAgent.id, completingAgent.displayName, completingAgent.description, {
-      store,
-      taskService,
-      conversationStore,
-      runtimeManager,
-      maxSubtaskDepth: 0  // Effectively disallows any subtasks
-    })
-
-    runtimeManager.start()
-    try {
-      const { taskId: parentId } = await taskService.createTask({
-        title: 'Parent', agentId: completingAgent.id
-      })
-      await runtimeManager.waitForIdle()
-
-      const result = await shallowTool.execute(
-        { title: 'Too deep' },
-        {
-          taskId: parentId,
-          actorId: DEFAULT_AGENT_ACTOR_ID,
-          baseDir: dir,
-          artifactStore: mockArtifactStore
-        }
-      )
-
-      expect(result.isError).toBe(true)
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.error).toContain('Maximum subtask nesting depth')
-    } finally {
-      runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('cascade cancel via AbortSignal', async () => {
-    /** Agent that takes forever (blocked subtask). */
-    const slowAgent: Agent = {
-      id: 'agent_slow',
-      displayName: 'Slow',
-      description: 'Test agent that blocks indefinitely.',
-      toolGroups: [],
-      defaultProfile: 'fast',
-      async *run() {
-        // Yield nothing and never complete — simulate a long-running task
-        await new Promise(() => {})
-      }
-    }
-
-    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent, slowAgent])
-
-    runtimeManager.start()
-    try {
-      const { taskId: parentId } = await taskService.createTask({
-        title: 'Parent', agentId: completingAgent.id
-      })
-      await runtimeManager.waitForIdle()
-
-      const tool = toolRegistry.get(`create_subtask_${slowAgent.id}`)!
-      const controller = new AbortController()
-
-      // Start execution in background
-      const resultPromise = tool.execute(
-        { title: 'Slow subtask' },
-        {
-          taskId: parentId,
-          actorId: DEFAULT_AGENT_ACTOR_ID,
-          baseDir: dir,
-          artifactStore: mockArtifactStore,
-          signal: controller.signal
-        }
-      )
-
-      // Give it a tick to create the child task
-      await new Promise(resolve => setTimeout(resolve, 50))
-
-      // Abort (simulates parent cancel)
-      controller.abort()
-
-      const result = await resultPromise
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.subTaskStatus).toBe('Cancel')
-      expect(parsed.failureReason).toContain('canceled or paused')
-    } finally {
-      runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('tool has correct parameter schema', async () => {
-    const { dir, toolRegistry } = await createIntegrationEnv([completingAgent])
-    try {
-      const tool = toolRegistry.get(`create_subtask_${completingAgent.id}`)!
-      expect(tool.parameters.type).toBe('object')
-      expect(tool.parameters.required).toEqual(['title'])
-      expect(tool.parameters.properties).toHaveProperty('title')
-      expect(tool.parameters.properties).toHaveProperty('intent')
-      expect(tool.parameters.properties).toHaveProperty('priority')
-      expect(tool.parameters.properties.priority?.enum).toEqual(['foreground', 'normal', 'background'])
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('returns Cancel when child is externally canceled', async () => {
-    /** An agent that never completes — blocks forever. */
-    const blockingAgent: Agent = {
-      id: 'agent_blocker',
-      displayName: 'Blocker',
-      description: 'Test agent that never completes.',
-      toolGroups: [],
-      defaultProfile: 'fast',
-      async *run() {
-        await new Promise(() => {}) // never resolves
-      }
-    }
-
-    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent, blockingAgent])
-
-    runtimeManager.start()
-    try {
-      // Create parent task that completes immediately
-      const { taskId: parentId } = await taskService.createTask({
-        title: 'Parent', agentId: completingAgent.id
-      })
-      await runtimeManager.waitForIdle()
-
-      const tool = toolRegistry.get(`create_subtask_${blockingAgent.id}`)!
-
-      // Start subtask in background
-      const resultPromise = tool.execute(
-        { title: 'Will be canceled' },
-        {
-          taskId: parentId,
-          actorId: DEFAULT_AGENT_ACTOR_ID,
-          baseDir: dir,
-          artifactStore: mockArtifactStore
-        }
-      )
-
-      // Wait for child task to be created
-      await new Promise(resolve => setTimeout(resolve, 50))
-
-      // Find the child task and cancel it externally
-      const state = await taskService.listTasks()
-      const childTask = state.tasks.find(t => t.parentTaskId === parentId && t.title === 'Will be canceled')
-      expect(childTask).toBeDefined()
-
-      // Cancel child (emit TaskCanceled)
-      await taskService.cancelTask(childTask!.taskId, 'External cancel')
-
-      const result = await resultPromise
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.subTaskStatus).toBe('Cancel')
-      expect(parsed.failureReason).toContain('External cancel')
-    } finally {
-      runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('returns Cancel immediately when signal already aborted', async () => {
+  test('createSubtasks requires RuntimeManager to be running', async () => {
     const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent])
-
-    runtimeManager.start()
-    try {
-      const { taskId: parentId } = await taskService.createTask({
-        title: 'Parent', agentId: completingAgent.id
-      })
-      await runtimeManager.waitForIdle()
-
-      const tool = toolRegistry.get(`create_subtask_${completingAgent.id}`)!
-
-      // Pre-aborted controller
-      const controller = new AbortController()
-      controller.abort()
-
-      const result = await tool.execute(
-        { title: 'Should not start' },
-        {
-          taskId: parentId,
-          actorId: DEFAULT_AGENT_ACTOR_ID,
-          baseDir: dir,
-          artifactStore: mockArtifactStore,
-          signal: controller.signal
-        }
-      )
-
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.subTaskStatus).toBe('Cancel')
-      expect(parsed.failureReason).toContain('canceled or paused')
-      // No child task should have been created
-      const state = await taskService.listTasks()
-      const children = state.tasks.filter(t => t.parentTaskId === parentId)
-      expect(children.length).toBe(0)
-    } finally {
-      runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('auto-starts RuntimeManager when not running', async () => {
-    const { dir, store, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent])
-
-    // Do NOT call runtimeManager.start()
     expect(runtimeManager.isRunning).toBe(false)
 
     try {
-      // Create parent manually (no runtime → it won't auto-execute)
-      await store.append('manual-parent', [{
-        type: 'TaskCreated',
-        payload: {
-          taskId: 'manual-parent',
-          title: 'Manual parent',
-          intent: '',
-          priority: 'foreground' as const,
-          agentId: completingAgent.id,
-          authorActorId: DEFAULT_USER_ACTOR_ID
-        }
-      }])
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
+      })
 
-      const tool = toolRegistry.get(`create_subtask_${completingAgent.id}`)!
-
-      // Execute: should return error since RuntimeManager not running (auto-start removed per RD-004)
+      const tool = toolRegistry.get('createSubtasks')!
       const result = await tool.execute(
-        { title: 'Auto-start child' },
         {
-          taskId: 'manual-parent',
+          tasks: [{ agentId: completingAgent.id, title: 'Child' }]
+        },
+        {
+          taskId: parentTaskId,
           actorId: DEFAULT_AGENT_ACTOR_ID,
           baseDir: dir,
           artifactStore: mockArtifactStore
         }
       )
 
-      // RuntimeManager should NOT be running (auto-start was removed)
-      expect(runtimeManager.isRunning).toBe(false)
-
-      const parsed = JSON.parse(result.output as string)
-      expect(parsed.error).toBeDefined()
+      expect(result.isError).toBe(true)
+      expect((result.output as any).error).toContain('RuntimeManager must be started')
     } finally {
       runtimeManager.stop()
-      rmSync(dir, { recursive: true, force: true })
+      await safeRemoveDir(dir)
+    }
+  })
+
+  test('createSubtasks is top-level only', async () => {
+    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent])
+    runtimeManager.start()
+
+    try {
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
+      })
+      const { taskId: childTaskId } = await taskService.createTask({
+        title: 'Child',
+        agentId: completingAgent.id,
+        parentTaskId
+      })
+
+      const tool = toolRegistry.get('createSubtasks')!
+      const result = await tool.execute(
+        {
+          tasks: [{ agentId: completingAgent.id, title: 'Grandchild' }]
+        },
+        {
+          taskId: childTaskId,
+          actorId: DEFAULT_AGENT_ACTOR_ID,
+          baseDir: dir,
+          artifactStore: mockArtifactStore
+        }
+      )
+
+      expect(result.isError).toBe(true)
+      expect((result.output as any).error).toContain('top-level tasks')
+    } finally {
+      runtimeManager.stop()
+      await safeRemoveDir(dir)
+    }
+  })
+
+  test('createSubtasks abort cascades cancellation to unfinished children', async () => {
+    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent, slowAgent])
+    runtimeManager.start()
+
+    try {
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
+      })
+      await runtimeManager.waitForIdle()
+
+      const controller = new AbortController()
+      const tool = toolRegistry.get('createSubtasks')!
+      const resultPromise = tool.execute(
+        {
+          tasks: [{ agentId: slowAgent.id, title: 'Slow child' }]
+        },
+        {
+          taskId: parentTaskId,
+          actorId: DEFAULT_AGENT_ACTOR_ID,
+          baseDir: dir,
+          artifactStore: mockArtifactStore,
+          signal: controller.signal
+        }
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      controller.abort()
+
+      const result = await resultPromise
+      expect(result.isError).toBe(false)
+      const parsed = result.output as any
+      expect(parsed.tasks).toHaveLength(1)
+      expect(parsed.tasks[0].status).toBe('Cancel')
+
+      const childTaskId = parsed.tasks[0].taskId as string
+      const childTask = await taskService.getTask(childTaskId)
+      expect(childTask?.status).toBe('canceled')
+    } finally {
+      runtimeManager.stop()
+      await safeRemoveDir(dir)
+    }
+  })
+
+  test('listSubtask returns all descendants with status counts', async () => {
+    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent, failingAgent])
+    runtimeManager.start()
+
+    try {
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
+      })
+      await runtimeManager.waitForIdle()
+
+      const createTool = toolRegistry.get('createSubtasks')!
+      const createResult = await createTool.execute(
+        {
+          wait: 'none',
+          tasks: [
+            { agentId: completingAgent.id, title: 'Done child' },
+            { agentId: failingAgent.id, title: 'Failed child' }
+          ]
+        },
+        {
+          taskId: parentTaskId,
+          actorId: DEFAULT_AGENT_ACTOR_ID,
+          baseDir: dir,
+          artifactStore: mockArtifactStore
+        }
+      )
+      const createdTasks = (createResult.output as any).tasks as Array<{ taskId: string }>
+      await runtimeManager.waitForIdle()
+
+      await taskService.createTask({
+        title: 'Grandchild',
+        agentId: completingAgent.id,
+        parentTaskId: createdTasks[0]!.taskId,
+        authorActorId: DEFAULT_AGENT_ACTOR_ID
+      })
+      await runtimeManager.waitForIdle()
+
+      const listTool = toolRegistry.get('listSubtask')!
+      const listResult = await listTool.execute(
+        {},
+        {
+          taskId: parentTaskId,
+          actorId: DEFAULT_AGENT_ACTOR_ID,
+          baseDir: dir,
+          artifactStore: mockArtifactStore
+        }
+      )
+
+      expect(listResult.isError).toBe(false)
+      const parsed = listResult.output as any
+      expect(parsed.total).toBe(3)
+      expect(parsed.statusCounts.done).toBeGreaterThanOrEqual(2)
+      expect(parsed.statusCounts.failed).toBeGreaterThanOrEqual(1)
+      expect(parsed.tasks.every((task: any) => typeof task.parentTaskId === 'string')).toBe(true)
+    } finally {
+      runtimeManager.stop()
+      await safeRemoveDir(dir)
+    }
+  })
+
+  test('listSubtask is top-level only', async () => {
+    const { dir, taskService, runtimeManager, toolRegistry } = await createIntegrationEnv([completingAgent])
+    runtimeManager.start()
+
+    try {
+      const { taskId: parentTaskId } = await taskService.createTask({
+        title: 'Parent',
+        agentId: completingAgent.id
+      })
+      const { taskId: childTaskId } = await taskService.createTask({
+        title: 'Child',
+        agentId: completingAgent.id,
+        parentTaskId
+      })
+
+      const listTool = toolRegistry.get('listSubtask')!
+      const result = await listTool.execute(
+        {},
+        {
+          taskId: childTaskId,
+          actorId: DEFAULT_AGENT_ACTOR_ID,
+          baseDir: dir,
+          artifactStore: mockArtifactStore
+        }
+      )
+
+      expect(result.isError).toBe(true)
+      expect((result.output as any).error).toContain('top-level tasks')
+    } finally {
+      runtimeManager.stop()
+      await safeRemoveDir(dir)
     }
   })
 })

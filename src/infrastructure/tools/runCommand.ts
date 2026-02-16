@@ -10,8 +10,10 @@
  */
 
 import { exec, spawn, type ChildProcess } from 'node:child_process'
+import { mkdir } from 'node:fs/promises'
 import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
 import { nanoid } from 'nanoid'
+import { resolveToolPath } from '../workspace/toolWorkspace.js'
 
 const DEFAULT_MAX_OUTPUT_LENGTH = 10000
 const DEFAULT_TIMEOUT = 30000
@@ -82,7 +84,7 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
 
   return {
     name: 'runCommand',
-    description: 'Execute a shell command in the workspace directory. Returns stdout and stderr. Use with caution.',
+    description: 'Execute a shell command in a scoped workspace directory. By default runs in private:/ for the current task. Supports cwd with private:/, shared:/, public:/ prefixes.',
     parameters: {
       type: 'object',
       properties: {
@@ -93,6 +95,10 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
         timeout: {
           type: 'number',
           description: `Optional: Timeout in milliseconds (default: ${defaultTimeout})`
+        },
+        cwd: {
+          type: 'string',
+          description: 'Optional: Working directory path. Supports private:/, shared:/, public:/ prefixes. Default: private:/'
         },
         isBackground: {
           type: 'boolean',
@@ -108,7 +114,10 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
       const toolCallId = `tool_${nanoid(12)}`
       const command = args.command as string
       const timeout = (args.timeout as number) ?? defaultTimeout
+      const cwdArg = args.cwd as string | undefined
       const isBackground = (args.isBackground as boolean) ?? false
+      const defaultCwd = ctx.workspaceResolver ? 'private:/' : '.'
+      let resolvedCwdLogical = cwdArg ?? defaultCwd
 
       // Early abort check (PR-001)
       if (ctx.signal?.aborted) {
@@ -120,13 +129,20 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
       }
 
       try {
+        const resolvedCwd = await resolveToolPath(ctx, cwdArg ?? defaultCwd, { defaultScope: 'private' })
+        resolvedCwdLogical = resolvedCwd.logicalPath
+        // Private/shared workspaces are created lazily when first used.
+        if (resolvedCwd.scope !== 'public') {
+          await mkdir(resolvedCwd.absolutePath, { recursive: true })
+        }
+
         if (isBackground) {
           // Run in background using spawn — tracked for cleanup
           const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
           const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command]
           
           const child = spawn(shell, shellArgs, {
-            cwd: ctx.baseDir,
+            cwd: resolvedCwd.absolutePath,
             detached: true,
             stdio: 'ignore',
           })
@@ -150,6 +166,7 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
             output: {
               pid: child.pid,
               command,
+              cwd: resolvedCwd.logicalPath,
               message: 'Command started in background'
             },
             isError: false
@@ -159,7 +176,7 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
         // Foreground execution using exec
         const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
           const child: ChildProcess = exec(command, {
-            cwd: ctx.baseDir,
+            cwd: resolvedCwd.absolutePath,
             timeout,
             encoding: 'utf8',
             maxBuffer: 1024 * 1024,
@@ -202,7 +219,8 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
             stdout: truncatedStdout,
             stderr: truncatedStderr,
             exitCode: 0,
-            command 
+            command,
+            cwd: resolvedCwd.logicalPath
           },
           isError: false
         }
@@ -226,7 +244,8 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
               stdout,
               stderr,
               exitCode: execError.code ?? 1,
-              command 
+              command,
+              cwd: resolvedCwdLogical
             },
             isError: true
           }
@@ -242,4 +261,3 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
 }
 
 export const runCommandTool = createRunCommandTool()
-

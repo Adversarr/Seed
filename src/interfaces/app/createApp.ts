@@ -14,8 +14,9 @@ import { JsonlAuditLog } from '../../infrastructure/persistence/jsonlAuditLog.js
 import { JsonlConversationStore } from '../../infrastructure/persistence/jsonlConversationStore.js'
 import { DefaultToolRegistry } from '../../infrastructure/tools/toolRegistry.js'
 import { registerBuiltinTools } from '../../infrastructure/tools/index.js'
-import { registerSubtaskTools } from '../../infrastructure/tools/createSubtaskTool.js'
+import { registerAgentGroupTools } from '../../infrastructure/tools/agentGroupTools.js'
 import { DefaultToolExecutor } from '../../infrastructure/tools/toolExecutor.js'
+import { DefaultWorkspacePathResolver } from '../../infrastructure/workspace/workspacePathResolver.js'
 import { createUiBus } from '../../infrastructure/subjectUiBus.js'
 import { TaskService, EventService, InteractionService, AuditService } from '../../application/index.js'
 import { ContextBuilder } from '../../application/context/contextBuilder.js'
@@ -169,6 +170,10 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   // === Application Layer ===
   
   const taskService = new TaskService(store, currentActorId, config.task.defaultPriority)
+  const workspaceResolver = new DefaultWorkspacePathResolver({
+    baseDir,
+    taskService
+  })
   const eventService = new EventService(store)
   const interactionService = new InteractionService(store, currentActorId, config.timeouts.interaction)
   const auditService = new AuditService(auditLog, config.resources.auditLogLimit)
@@ -200,6 +205,7 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     toolRegistry,
     toolExecutor,
     artifactStore,
+    workspaceResolver,
     telemetry
   })
 
@@ -207,6 +213,7 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     toolExecutor,
     toolRegistry,
     artifactStore,
+    workspaceResolver,
     uiBus,
     conversationManager,
     telemetry
@@ -225,13 +232,12 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   runtimeManager.registerAgent(searchAgent)
   runtimeManager.registerAgent(minimalAgent)
 
-  // Register subtask tools (one per agent) — must happen AFTER agent registration
-  registerSubtaskTools(toolRegistry, {
+  // Register top-level agent-group management tools.
+  registerAgentGroupTools(toolRegistry, {
     store,
     taskService,
     conversationStore,
-    runtimeManager,
-    maxSubtaskDepth: config.maxSubtaskDepth ?? 3
+    runtimeManager
   })
 
   return {

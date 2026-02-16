@@ -39,8 +39,7 @@ function detectToolError(content: string, isError?: boolean): boolean {
   }
 }
 
-/** Check if a tool call is a subtask creation call. */
-function isSubtaskToolCall(toolName: string): boolean {
+function isLegacySubtaskToolCall(toolName: string): boolean {
   return toolName.startsWith('create_subtask_')
 }
 
@@ -81,7 +80,7 @@ function ToolCallPart({ toolName, arguments: args, result }: {
   )
 }
 
-function SubtaskToolCallPart({ toolName, arguments: args, result }: {
+function LegacySubtaskToolCallPart({ toolName, arguments: args, result }: {
   toolName: string
   arguments: Record<string, unknown>
   result?: { content: string; isError?: boolean }
@@ -154,6 +153,131 @@ function SubtaskToolCallPart({ toolName, arguments: args, result }: {
   )
 }
 
+type GroupSubtaskItem = {
+  taskId?: string
+  agentId: string
+  title: string
+  status?: string
+  summary?: string
+  failureReason?: string
+}
+
+function CreateSubtasksToolCallPart({ arguments: args, result }: {
+  arguments: Record<string, unknown>
+  result?: { content: string; isError?: boolean }
+}) {
+  const plannedTasks = Array.isArray(args.tasks) ? args.tasks : []
+  const waitMode = typeof args.wait === 'string' ? args.wait : 'all'
+
+  const resultItems: GroupSubtaskItem[] = []
+  let summaryText: string | undefined
+  if (result) {
+    try {
+      const parsed = JSON.parse(result.content)
+      const parsedTasks = Array.isArray(parsed?.tasks) ? parsed.tasks : []
+      for (const task of parsedTasks) {
+        if (!task || typeof task !== 'object') continue
+        resultItems.push({
+          taskId: typeof task.taskId === 'string' ? task.taskId : undefined,
+          agentId: typeof task.agentId === 'string' ? task.agentId : 'unknown',
+          title: typeof task.title === 'string' ? task.title : 'Untitled subtask',
+          status: typeof task.status === 'string' ? task.status : undefined,
+          summary: typeof task.summary === 'string' ? task.summary : undefined,
+          failureReason: typeof task.failureReason === 'string' ? task.failureReason : undefined
+        })
+      }
+      if (parsed?.summary) {
+        const success = Number(parsed.summary.success ?? 0)
+        const error = Number(parsed.summary.error ?? 0)
+        const canceled = Number(parsed.summary.cancel ?? 0)
+        summaryText = `${success} success, ${error} error, ${canceled} canceled`
+      }
+    } catch {
+      // Ignore parse errors and render planned tasks only.
+    }
+  }
+
+  const mergedTasks = useMemo(() => {
+    const merged = new Map<string, GroupSubtaskItem>()
+    for (const task of plannedTasks) {
+      if (!task || typeof task !== 'object') continue
+      const agentId = typeof (task as any).agentId === 'string' ? (task as any).agentId : 'unknown'
+      const title = typeof (task as any).title === 'string' ? (task as any).title : 'Untitled subtask'
+      const key = `${agentId}::${title}`
+      merged.set(key, { agentId, title })
+    }
+    for (const task of resultItems) {
+      const key = `${task.agentId}::${task.title}`
+      const existing = merged.get(key)
+      merged.set(key, {
+        ...(existing ?? { agentId: task.agentId, title: task.title }),
+        ...task
+      })
+    }
+    return [...merged.values()]
+  }, [plannedTasks, resultItems])
+
+  const allTasks = useTaskStore(s => s.tasks)
+  const tasksById = useMemo(() => {
+    const map = new Map<string, (typeof allTasks)[number]>()
+    for (const task of allTasks) {
+      map.set(task.taskId, task)
+    }
+    return map
+  }, [allTasks])
+
+  const title = `Create ${mergedTasks.length} subtasks`
+
+  return (
+    <Task>
+      <TaskTrigger title={title}>
+        <div className="flex w-full cursor-pointer items-center gap-2 text-sm transition-colors hover:text-foreground">
+          <GitBranch className="h-4 w-4 text-violet-400 shrink-0" />
+          <span className="flex-1 truncate">{title}</span>
+          {summaryText && <span className="text-xs text-zinc-500">{summaryText}</span>}
+          {!result && <span className="text-xs text-zinc-500">pending result</span>}
+        </div>
+      </TaskTrigger>
+      <TaskContent>
+        <TaskItem>
+          <span className="text-xs text-zinc-500">wait mode: {waitMode}</span>
+        </TaskItem>
+        {mergedTasks.map((task, index) => {
+          const liveTask = task.taskId ? tasksById.get(task.taskId) : undefined
+          return (
+            <TaskItem key={`${task.agentId}:${task.title}:${index}`}>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 text-xs">
+                  <Bot size={12} />
+                  <span>{task.agentId}</span>
+                  <span className="text-zinc-400 truncate">{task.title}</span>
+                  {liveTask?.status && <StatusBadge status={liveTask.status} />}
+                  {!liveTask?.status && task.status && (
+                    <span className="text-zinc-500">{task.status}</span>
+                  )}
+                </div>
+                {(liveTask?.summary || task.summary || task.failureReason) && (
+                  <div className="text-xs text-zinc-400 whitespace-pre-wrap">
+                    {liveTask?.summary || task.summary || task.failureReason}
+                  </div>
+                )}
+                {task.taskId && (
+                  <Link
+                    to={`/tasks/${task.taskId}`}
+                    className="text-xs text-violet-400 hover:text-violet-300 inline-flex items-center gap-1"
+                  >
+                    View full details →
+                  </Link>
+                )}
+              </div>
+            </TaskItem>
+          )
+        })}
+      </TaskContent>
+    </Task>
+  )
+}
+
 function ToolResultPart({ toolName, content, isError }: { toolName?: string; content: string; isError?: boolean }) {
   const errorDetected = detectToolError(content, isError)
   const state = errorDetected ? 'output-error' : 'output-available'
@@ -185,9 +309,19 @@ function AssistantPartsRenderer({ parts, followingToolResults }: {
               ? { content: result.content, isError: undefined }
               : undefined
 
-            if (isSubtaskToolCall(part.toolName)) {
+            if (part.toolName === 'createSubtasks') {
               return (
-                <SubtaskToolCallPart
+                <CreateSubtasksToolCallPart
+                  key={idx}
+                  arguments={part.arguments}
+                  result={resultData}
+                />
+              )
+            }
+
+            if (isLegacySubtaskToolCall(part.toolName)) {
+              return (
+                <LegacySubtaskToolCallPart
                   key={idx}
                   toolName={part.toolName}
                   arguments={part.arguments}

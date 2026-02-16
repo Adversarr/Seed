@@ -8,16 +8,17 @@
 import { dirname } from 'node:path'
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
+import { resolveToolPath } from '../workspace/toolWorkspace.js'
 
 export const editFileTool: Tool = {
   name: 'editFile',
-  description: `Edit a file by replacing oldString with newString. For new files, use oldString="" and newString with the full content. The replacement must match exactly (including whitespace) unless regex is used.`,
+  description: `Edit a file by replacing oldString with newString. Path supports private:/, shared:/, public:/ prefixes and unscoped paths default to private:/. For new files, use oldString="" and newString with full content. The replacement must match exactly unless regex is used.`,
   parameters: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'Relative path to the file from workspace root'
+        description: 'Path to file. Supports private:/, shared:/, public:/. Unscoped paths default to private:/.'
       },
       oldString: {
         type: 'string',
@@ -43,24 +44,25 @@ export const editFileTool: Tool = {
 
   async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
     const toolCallId = `tool_${nanoid(12)}`
-    const path = args.path as string
     const oldString = args.oldString as string
     const newString = args.newString as string
     const isRegex = (args.regex as boolean) ?? false
 
     try {
-      const { currentContent } = await validateRequest(args, ctx)
+      const { currentContent, resolvedPath } = await validateRequest(args, ctx)
+      const storePath = resolvedPath.storePath
+      const logicalPath = resolvedPath.logicalPath
 
       // Handle new file creation
       if (oldString === '') {
         // Ensure parent directory exists
-        await ctx.artifactStore.mkdir(dirname(path))
-        await ctx.artifactStore.writeFile(path, newString)
+        await ctx.artifactStore.mkdir(dirname(storePath))
+        await ctx.artifactStore.writeFile(storePath, newString)
         return {
           toolCallId,
           output: { 
             success: true, 
-            path, 
+            path: logicalPath, 
             action: 'created'
           },
           isError: false
@@ -70,13 +72,13 @@ export const editFileTool: Tool = {
       // Apply the replacement
       const { newContent, strategy } = calculateReplacement(currentContent!, oldString, newString, isRegex)
       
-      await ctx.artifactStore.writeFile(path, newContent)
+      await ctx.artifactStore.writeFile(storePath, newContent)
 
       return {
         toolCallId,
         output: { 
           success: true, 
-          path, 
+          path: logicalPath, 
           action: 'edited',
           strategy
         },
@@ -95,37 +97,40 @@ export const editFileTool: Tool = {
 async function validateRequest(
   args: Record<string, unknown>, 
   ctx: ToolContext
-): Promise<{ currentContent?: string }> {
+): Promise<{ currentContent?: string; resolvedPath: Awaited<ReturnType<typeof resolveToolPath>> }> {
   const path = args.path as string
   const oldString = args.oldString as string
   const isRegex = (args.regex as boolean) ?? false
+  const resolvedPath = await resolveToolPath(ctx, path, { defaultScope: 'private' })
+  const storePath = resolvedPath.storePath
+  const logicalPath = resolvedPath.logicalPath
   
   // Use ArtifactStore to check existence
-  const exists = await ctx.artifactStore.exists(path)
+  const exists = await ctx.artifactStore.exists(storePath)
 
   // Handle new file creation check
   if (oldString === '') {
     if (exists) {
-      throw new Error(`File already exists: ${path}. Use non-empty oldString to edit.`)
+      throw new Error(`File already exists: ${logicalPath}. Use non-empty oldString to edit.`)
     }
-    return {}
+    return { resolvedPath }
   }
 
   // Handle existing file check
   if (!exists) {
-    throw new Error(`File not found: ${path}`)
+    throw new Error(`File not found: ${logicalPath}`)
   }
 
-  const currentContent = await ctx.artifactStore.readFile(path)
+  const currentContent = await ctx.artifactStore.readFile(storePath)
   
   // Validate that replacement is possible
   try {
     calculateReplacement(currentContent, oldString, 'placeholder', isRegex)
   } catch (e) {
-    throw new Error(`Replacement validation failed for ${path}: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`Replacement validation failed for ${logicalPath}: ${e instanceof Error ? e.message : String(e)}`)
   }
 
-  return { currentContent }
+  return { currentContent, resolvedPath }
 }
 
 function calculateReplacement(

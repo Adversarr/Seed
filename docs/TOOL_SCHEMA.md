@@ -30,8 +30,9 @@ Built-in registration (`registerBuiltinTools`) includes:
 - `glob`
 - `grep`
 
-Subtask tools are generated per agent after agent registration:
-- `create_subtask_<agentId>`
+Agent-group tools are registered after runtime/agent wiring:
+- `createSubtasks`
+- `listSubtask`
 
 ## Risk Model
 
@@ -45,6 +46,7 @@ Risk boundary is enforced in orchestration/execution path, not by UI alone.
 Tool execution receives `ToolContext`:
 - `taskId`, `actorId`, `baseDir`
 - `artifactStore`
+- optional `workspaceResolver` (scoped path resolution)
 - optional `confirmedInteractionId` for approved risky actions
 - optional `signal` for cooperative cancel/pause
 
@@ -85,4 +87,4 @@ After execution, tool results are persisted to conversation history if missing.
 
 - `editFile` is `risky`, supports exact/regex/flexible replacement and creation when `oldString=""`.
 - `runCommand` is `risky`, supports timeout, output truncation, optional background mode, and AbortSignal cancellation.
-- subtask tools are `safe` but bounded by max depth and wait timeout.
+- task-group tools are `safe`; `createSubtasks(wait='all')` uses bounded child waits.

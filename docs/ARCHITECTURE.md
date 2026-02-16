@@ -61,7 +61,8 @@ When a healthy master exists:
 
 ## Concurrency Model
 
-`RuntimeManager` is the only subscriber to `EventStore.events$` and serializes task operations with per-task `AsyncMutex`.
+`RuntimeManager` is the primary scheduler subscriber to `EventStore.events$` and serializes task operations with per-task `AsyncMutex`.
+The `createSubtasks` wait path also uses scoped event subscriptions for child-terminal waits.
 
 Implications:
 - No overlapping handlers for the same `taskId`.
@@ -81,11 +82,30 @@ Implementations are append-oriented, async, and cache-backed (`JsonlEventStore`,
 ## Agent Catalog
 
 Current built-in agents registered at app startup:
-- `agent_seed_coordinator` (`DefaultSeedAgent`) — default execution and subtask delegation
+- `agent_seed_coordinator` (`DefaultSeedAgent`) — default execution and task-group delegation
 - `agent_seed_research` (`SearchAgent`) — read-only workspace research
 - `agent_seed_chat` (`MinimalAgent`) — chat-only advisory agent
 
 `RuntimeManager` exposes global/default profile override and global streaming toggle.
+
+## Task Group + Workspace Scopes
+
+Task groups are derived from hierarchy:
+- each root task defines one group,
+- descendants belong to that group.
+
+Group-management tools:
+- `createSubtasks`
+- `listSubtask`
+
+These tools are exposed only to top-level task runtimes (`parentTaskId` absent). Child runtimes do not receive `subtask` tool-group capabilities.
+
+Tool paths use scoped workspace prefixes:
+- `private:/...` maps to `.seed/workspaces/private/<taskId>/...`
+- `shared:/...` maps to `.seed/workspaces/shared/<rootTaskId>/...`
+- `public:/...` maps to workspace root
+
+Unscoped paths default to `private:/...` in runtime tool execution.
 
 ## Interfaces
 

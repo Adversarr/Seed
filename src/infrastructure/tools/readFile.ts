@@ -7,16 +7,17 @@
 
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
+import { resolveToolPath } from '../workspace/toolWorkspace.js'
 
 export const readFileTool: Tool = {
   name: 'readFile',
-  description: 'Read the content of a file. Returns the file content as text. Supports paging via offset and limit.',
+  description: 'Read the content of a file. Path supports private:/, shared:/, public:/ prefixes. Unscoped paths default to private:/. Supports paging via offset and limit.',
   parameters: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'Relative path to the file from workspace root'
+        description: 'Path to file. Supports private:/, shared:/, public:/. Unscoped paths default to private:/.'
       },
       offset: {
         type: 'number',
@@ -39,8 +40,10 @@ export const readFileTool: Tool = {
     const limit = args.limit as number | undefined
 
     try {
+      const resolvedPath = await resolveToolPath(ctx, path, { defaultScope: 'private' })
+
       // Read full file to get total count
-      const content = await ctx.artifactStore.readFile(path)
+      const content = await ctx.artifactStore.readFile(resolvedPath.storePath)
       const lines = content.split('\n')
       const totalLines = lines.length
 
@@ -79,7 +82,7 @@ export const readFileTool: Tool = {
         toolCallId,
         output: { 
           content: finalOutput, 
-          path, 
+          path: resolvedPath.logicalPath,
           lineCount: totalLines,
           linesShown: slice.length,
           offset

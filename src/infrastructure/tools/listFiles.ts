@@ -10,16 +10,17 @@ import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
 import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 import { minimatch } from 'minimatch'
+import { resolveToolPath } from '../workspace/toolWorkspace.js'
 
 export const listFilesTool: Tool = {
   name: 'listFiles',
-  description: 'List files and directories in a given path. Returns names with [DIR] prefix for directories, size, and modification time.',
+  description: 'List files and directories in a path. Path supports private:/, shared:/, public:/ prefixes. Unscoped paths default to private:/. Returns names with [DIR] prefix, size, and modification time.',
   parameters: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'Relative path to the directory from workspace root. Use "." for root.'
+        description: 'Directory path. Supports private:/, shared:/, public:/. Unscoped paths default to private:/. Use "." for scope root.'
       },
       ignore: {
         type: 'array',
@@ -38,16 +39,19 @@ export const listFilesTool: Tool = {
     const ignore = (args.ignore as string[]) ?? []
 
     try {
+      const resolvedPath = await resolveToolPath(ctx, path, { defaultScope: 'private' })
+      const storePath = resolvedPath.storePath
+
       // Validate path exists and is directory
-      const stat = await ctx.artifactStore.stat(path)
+      const stat = await ctx.artifactStore.stat(storePath)
       if (!stat) {
-        throw new Error(`Directory not found: ${path}`)
+        throw new Error(`Directory not found: ${resolvedPath.logicalPath}`)
       }
       if (!stat.isDirectory) {
-        throw new Error(`Path is not a directory: ${path}`)
+        throw new Error(`Path is not a directory: ${resolvedPath.logicalPath}`)
       }
 
-      const items = await ctx.artifactStore.listDir(path)
+      const items = await ctx.artifactStore.listDir(storePath)
       
       const entries: string[] = []
       let ignoredCount = 0
@@ -61,7 +65,7 @@ export const listFilesTool: Tool = {
           continue
         }
 
-        const itemPath = join(path, item)
+        const itemPath = join(storePath, item)
         try {
           const itemStat = await ctx.artifactStore.stat(itemPath)
           if (itemStat) {
@@ -86,14 +90,19 @@ export const listFilesTool: Tool = {
       })
 
       const content = entries.join('\n')
-      let output = `Directory listing for ${path}:\n${content}`
+      let output = `Directory listing for ${resolvedPath.logicalPath}:\n${content}`
       if (ignoredCount > 0) {
         output += `\n\n(${ignoredCount} ignored)`
       }
 
       return {
         toolCallId,
-        output: { content: output, count: entries.length, ignored: ignoredCount },
+        output: {
+          content: output,
+          path: resolvedPath.logicalPath,
+          count: entries.length,
+          ignored: ignoredCount
+        },
         isError: false
       }
     } catch (error) {

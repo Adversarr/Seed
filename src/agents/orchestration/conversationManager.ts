@@ -1,6 +1,11 @@
 import type { ConversationStore } from '../../core/ports/conversationStore.js'
 import type { AuditLog } from '../../core/ports/auditLog.js'
-import type { ToolRegistry, ToolExecutor, ToolCallRequest } from '../../core/ports/tool.js'
+import type {
+  ToolRegistry,
+  ToolExecutor,
+  ToolCallRequest,
+  WorkspacePathResolver
+} from '../../core/ports/tool.js'
 import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 import type { TelemetrySink } from '../../core/ports/telemetry.js'
 import type { LLMMessage } from '../../core/ports/llmClient.js'
@@ -26,6 +31,7 @@ export class ConversationManager {
   readonly #toolRegistry: ToolRegistry
   readonly #toolExecutor: ToolExecutor
   readonly #artifactStore: ArtifactStore
+  readonly #workspaceResolver: WorkspacePathResolver | undefined
   readonly #telemetry: TelemetrySink
 
   constructor(opts: {
@@ -34,6 +40,7 @@ export class ConversationManager {
     toolRegistry: ToolRegistry
     toolExecutor: ToolExecutor
     artifactStore: ArtifactStore
+    workspaceResolver?: WorkspacePathResolver
     telemetry?: TelemetrySink
   }) {
     this.#conversationStore = opts.conversationStore
@@ -41,6 +48,7 @@ export class ConversationManager {
     this.#toolRegistry = opts.toolRegistry
     this.#toolExecutor = opts.toolExecutor
     this.#artifactStore = opts.artifactStore
+    this.#workspaceResolver = opts.workspaceResolver
     this.#telemetry = opts.telemetry ?? { emit: () => {} }
   }
 
@@ -331,6 +339,7 @@ export class ConversationManager {
           actorId: agentId,
           baseDir,
           artifactStore: this.#artifactStore,
+          workspaceResolver: this.#workspaceResolver,
         }
       )
 

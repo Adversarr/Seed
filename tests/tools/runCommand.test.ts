@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { runCommandTool } from '../../src/infrastructure/tools/runCommand.js'
 import { EventEmitter } from 'node:events'
+import { TaskService } from '../../src/application/services/taskService.js'
+import { DefaultWorkspacePathResolver } from '../../src/infrastructure/workspace/workspacePathResolver.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../../src/core/entities/actor.js'
+import { InMemoryEventStore } from '../helpers/inMemoryEventStore.js'
 
 // Helper: create a minimal mock ChildProcess (EventEmitter with .kill())
 function mockChildProcess() {
@@ -14,10 +18,15 @@ function mockChildProcess() {
 // Mock child_process
 const mockExec = vi.fn()
 const mockSpawn = vi.fn()
+const mockMkdir = vi.fn()
 
 vi.mock('node:child_process', () => ({
   exec: (...args: any[]) => mockExec(...args),
   spawn: (...args: any[]) => mockSpawn(...args)
+}))
+
+vi.mock('node:fs/promises', () => ({
+  mkdir: (...args: any[]) => mockMkdir(...args)
 }))
 
 describe('runCommandTool', () => {
@@ -25,6 +34,7 @@ describe('runCommandTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockMkdir.mockResolvedValue(undefined)
     // Default mock behavior for exec: success
     mockExec.mockImplementation((cmd: string, options: any, cb: any) => {
       const cp = mockChildProcess()
@@ -132,5 +142,56 @@ describe('runCommandTool', () => {
     expect(result.isError).toBe(true)
     expect((result.output as any).error).toContain('aborted')
     expect(mockExec).not.toHaveBeenCalled()
+  })
+
+  it('uses private scoped cwd by default when workspaceResolver is provided', async () => {
+    const eventStore = new InMemoryEventStore()
+    const taskService = new TaskService(eventStore, DEFAULT_USER_ACTOR_ID)
+    const workspaceResolver = new DefaultWorkspacePathResolver({ baseDir, taskService })
+    const { taskId } = await taskService.createTask({
+      title: 'Root task',
+      agentId: DEFAULT_AGENT_ACTOR_ID
+    })
+
+    const result = await runCommandTool.execute(
+      { command: 'echo scoped' },
+      { baseDir, taskId, actorId: 'a1', workspaceResolver }
+    )
+
+    expect(result.isError).toBe(false)
+    expect((result.output as any).cwd).toBe('private:/')
+    expect(mockExec).toHaveBeenCalledWith(
+      'echo scoped',
+      expect.objectContaining({ cwd: `${baseDir}/.seed/workspaces/private/${taskId}` }),
+      expect.any(Function)
+    )
+    expect(mockMkdir).toHaveBeenCalledWith(
+      `${baseDir}/.seed/workspaces/private/${taskId}`,
+      { recursive: true }
+    )
+  })
+
+  it('resolves explicit public cwd when workspaceResolver is provided', async () => {
+    const eventStore = new InMemoryEventStore()
+    const taskService = new TaskService(eventStore, DEFAULT_USER_ACTOR_ID)
+    const workspaceResolver = new DefaultWorkspacePathResolver({ baseDir, taskService })
+    const { taskId } = await taskService.createTask({
+      title: 'Root task',
+      agentId: DEFAULT_AGENT_ACTOR_ID
+    })
+
+    const result = await runCommandTool.execute(
+      { command: 'echo public', cwd: 'public:/docs' },
+      { baseDir, taskId, actorId: 'a1', workspaceResolver }
+    )
+
+    expect(result.isError).toBe(false)
+    expect((result.output as any).cwd).toBe('public:/docs')
+    expect(mockExec).toHaveBeenCalledWith(
+      'echo public',
+      expect.objectContaining({ cwd: `${baseDir}/docs` }),
+      expect.any(Function)
+    )
+    expect(mockMkdir).not.toHaveBeenCalled()
   })
 })

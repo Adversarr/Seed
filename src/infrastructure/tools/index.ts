@@ -18,8 +18,12 @@ export { listFilesTool } from './listFiles.js'
 export { runCommandTool, createRunCommandTool } from './runCommand.js'
 export { globTool } from './globTool.js'
 export { grepTool } from './grepTool.js'
-export { createSubtaskTool, registerSubtaskTools } from './createSubtaskTool.js'
-export type { SubtaskToolDeps, SubtaskToolResult } from './createSubtaskTool.js'
+export {
+  createSubtasksTool,
+  listSubtaskTool,
+  registerAgentGroupTools
+} from './agentGroupTools.js'
+export type { AgentGroupToolDeps } from './agentGroupTools.js'
 
 /**
  * Register all built-in tools in the given registry.

@@ -1,6 +1,6 @@
 import type { EventStore } from '../../core/ports/eventStore.js'
 import type { LLMClient, LLMMessage, LLMProfile } from '../../core/ports/llmClient.js'
-import type { ToolRegistry, ToolCallRequest } from '../../core/ports/tool.js'
+import type { ToolRegistry, ToolCallRequest, ToolGroup } from '../../core/ports/tool.js'
 import type { DomainEvent, UserInteractionRespondedPayload } from '../../core/events/events.js'
 import type { TaskService, TaskView } from '../../application/services/taskService.js'
 import type { Agent, AgentContext } from './agent.js'
@@ -58,7 +58,7 @@ export class AgentRuntime {
   /**
    * Controller for aborting blocked tool calls on cancel AND pause.
    * Both pause and cancel now abort via this controller so that
-   * long-running tools (e.g. create_subtask) unblock promptly (RD-002).
+   * long-running tools (e.g. createSubtasks wait='all') unblock promptly (RD-002).
    */
   #abortController: AbortController | null = null
   /** Optional LLM profile override from RuntimeManager. */
@@ -121,7 +121,7 @@ export class AgentRuntime {
   /**
    * Signal that the task should pause at the next safe point.
    *
-   * Also aborts in-flight blocking tool calls (e.g. create_subtask waits)
+   * Also aborts in-flight blocking tool calls (e.g. createSubtasks waits)
    * so that pause takes effect promptly even when tools are blocked (RD-002).
    * The AbortError is caught by the agent loop / tool and treated as a
    * cooperative exit rather than a fatal error.
@@ -341,7 +341,7 @@ export class AgentRuntime {
     const persistMessage = this.#conversationManager.createPersistCallback(taskId, conversationHistory)
 
     // Create a fresh AbortController for this loop invocation.
-    // Aborted on cancel so blocking tools (e.g. create_subtask) unblock.
+    // Aborted on cancel so blocking tools (e.g. createSubtasks waits) unblock.
     this.#abortController = new AbortController()
 
     const outputCtx: OutputContext = {
@@ -363,8 +363,12 @@ export class AgentRuntime {
     }
 
     // Build a per-agent filtered view of the tool registry
-    const agentTools: ToolRegistry = this.#agent.toolGroups.length > 0
-      ? new FilteredToolRegistry(this.#toolRegistry, this.#agent.toolGroups)
+    const allowedToolGroups: readonly ToolGroup[] = task.parentTaskId
+      ? this.#agent.toolGroups.filter((group) => group !== 'subtask')
+      : this.#agent.toolGroups
+
+    const agentTools: ToolRegistry = allowedToolGroups.length > 0
+      ? new FilteredToolRegistry(this.#toolRegistry, allowedToolGroups)
       : { register() { throw new Error('read-only') }, get: () => undefined, list: () => [], listByGroups: () => [], toOpenAIFormat: () => [], toOpenAIFormatByGroups: () => [] }
 
     const streamHandler = this.#streamingEnabled

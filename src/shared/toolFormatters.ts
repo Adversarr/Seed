@@ -91,6 +91,24 @@ export const toolFormatters: Record<string, (output: any) => string | null> = {
       return `${action} ${output.path}${strategy}`
     }
     return null
+  },
+  createSubtasks: (output: any) => {
+    if (!output || !Array.isArray(output.tasks)) return null
+    const total = output.tasks.length
+    if (output.wait === 'none') {
+      return `Created ${total} subtasks (async)`
+    }
+    const summary = output.summary
+    if (summary && typeof summary.success === 'number' && typeof summary.error === 'number' && typeof summary.cancel === 'number') {
+      return `Subtasks: ${summary.success} success, ${summary.error} error, ${summary.cancel} canceled`
+    }
+    return `Created ${total} subtasks`
+  },
+  listSubtask: (output: any) => {
+    if (output && typeof output.total === 'number') {
+      return `List ${output.total} subtasks`
+    }
+    return null
   }
 }
 
@@ -155,6 +173,15 @@ export const toolInputFormatters: Record<string, (input: any) => string | null> 
       return `Grep "${input.pattern}"${path}${include}`
     }
     return null
+  },
+  createSubtasks: (input: any) => {
+    if (!input || !Array.isArray(input.tasks)) return null
+    const total = input.tasks.length
+    const wait = input.wait ? ` (wait: ${input.wait})` : ''
+    return `Create ${total} subtasks${wait}`
+  },
+  listSubtask: () => {
+    return 'List subtasks'
   }
 }
 
@@ -166,7 +193,7 @@ export function formatToolInput(toolName: string, input: any): string {
     if (formatted) return formatted
   }
 
-  // 2. Check subtask special case
+  // 2. Legacy subtask special case (pre-createSubtasks history)
   if (toolName.startsWith('create_subtask_')) {
     const agentId = toolName.replace('create_subtask_', '')
     if (input && typeof input.title === 'string') {

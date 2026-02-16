@@ -151,6 +151,32 @@ describe('toolFormatters.runCommand', () => {
   })
 })
 
+describe('toolFormatters.createSubtasks', () => {
+  it('formats wait=none output', () => {
+    const output = {
+      wait: 'none',
+      tasks: [{ taskId: 't1', status: 'Pending' }]
+    }
+    expect(toolFormatters.createSubtasks(output)).toBe('Created 1 subtasks (async)')
+  })
+
+  it('formats wait=all summary output', () => {
+    const output = {
+      wait: 'all',
+      summary: { success: 2, error: 1, cancel: 0 },
+      tasks: [{}, {}, {}]
+    }
+    expect(toolFormatters.createSubtasks(output)).toBe('Subtasks: 2 success, 1 error, 0 canceled')
+  })
+})
+
+describe('toolFormatters.listSubtask', () => {
+  it('formats listSubtask output', () => {
+    const output = { total: 4 }
+    expect(toolFormatters.listSubtask(output)).toBe('List 4 subtasks')
+  })
+})
+
 describe('formatToolInput', () => {
   it('formats readFile input', () => {
     expect(formatToolInput('readFile', { path: 'src/index.ts' }))
@@ -198,7 +224,19 @@ describe('formatToolInput', () => {
       .toBe('Grep "TODO" (include: *.ts)')
   })
 
-  it('formats create_subtask_* input', () => {
+  it('formats createSubtasks input', () => {
+    expect(formatToolInput('createSubtasks', { tasks: [{ agentId: 'coder', title: 'Implement feature' }] }))
+      .toBe('Create 1 subtasks')
+    expect(formatToolInput('createSubtasks', { wait: 'none', tasks: [{ agentId: 'coder', title: 'Implement feature' }, { agentId: 'reviewer', title: 'Review code' }] }))
+      .toBe('Create 2 subtasks (wait: none)')
+  })
+
+  it('formats listSubtask input', () => {
+    expect(formatToolInput('listSubtask', {}))
+      .toBe('List subtasks')
+  })
+
+  it('formats legacy create_subtask_* input for historical messages', () => {
     expect(formatToolInput('create_subtask_coder', { title: 'Implement feature' }))
       .toBe('Subtask (coder): Implement feature')
     expect(formatToolInput('create_subtask_reviewer', { title: 'Review code', priority: 'high' }))

@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { vol } from 'memfs'
 import { grepTool } from '../../src/infrastructure/tools/grepTool.js'
 import { MemFsArtifactStore } from '../../src/infrastructure/filesystem/memFsArtifactStore.js'
+import { TaskService } from '../../src/application/services/taskService.js'
+import { DefaultWorkspacePathResolver } from '../../src/infrastructure/workspace/workspacePathResolver.js'
+import { DEFAULT_AGENT_ACTOR_ID, DEFAULT_USER_ACTOR_ID } from '../../src/core/entities/actor.js'
+import { InMemoryEventStore } from '../helpers/inMemoryEventStore.js'
 
 // Mock execFile (B2: switched from exec to execFile for safety)
 const mockExecFile = vi.fn()
@@ -115,5 +119,33 @@ describe('grepTool', () => {
 
     expect(result.isError).toBe(true)
     expect((result.output as any).error).toContain('null bytes')
+  })
+
+  it('remaps grep output paths to scoped logical paths when resolver is present', async () => {
+    const eventStore = new InMemoryEventStore()
+    const taskService = new TaskService(eventStore, DEFAULT_USER_ACTOR_ID)
+    const workspaceResolver = new DefaultWorkspacePathResolver({ baseDir, taskService })
+    const { taskId } = await taskService.createTask({
+      title: 'Root',
+      agentId: DEFAULT_AGENT_ACTOR_ID
+    })
+
+    mockExecFile.mockImplementation((file: string, args: string[], _options: any, cb: any) => {
+      if (args.includes('rev-parse')) {
+        cb(null, 'true', '')
+      } else if (file === 'git' && args[0] === 'grep') {
+        cb(null, `.seed/workspaces/private/${taskId}/file1.ts:1:match found`, '')
+      } else {
+        cb(new Error('unknown command'), '', '')
+      }
+    })
+
+    const result = await grepTool.execute(
+      { pattern: 'match' },
+      { baseDir, taskId, actorId: 'a1', artifactStore: store, workspaceResolver }
+    )
+
+    expect(result.isError).toBe(false)
+    expect((result.output as any).content).toContain('private:/file1.ts:1:match found')
   })
 })

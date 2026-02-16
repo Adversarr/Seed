@@ -88,12 +88,37 @@ These are intent/context pointers, not direct state transitions.
 
 Subtasks are normal tasks with `parentTaskId` set.
 
-`create_subtask_<agentId>` tools:
-- create child task,
-- wait for child terminal state,
-- return structured status (`Success | Error | Cancel`).
+Agent-group management tools:
+- `createSubtasks` creates one or more child tasks under the current top-level task.
+- `listSubtask` lists all descendants in the current top-level task group.
 
-Nesting is bounded by config (`SEED_MAX_SUBTASK_DEPTH`, default `3`).
+Group model:
+- one group per root task,
+- group id = root task id,
+- descendants are group members,
+- root is treated as group-enabled after at least one child exists.
+
+`createSubtasks` can wait for terminal outcomes (`wait='all'`) or return immediately (`wait='none'`).
+
+## Scoped Workspace Semantics
+
+Tool paths use explicit scope prefixes:
+- `private:/...` task-private workspace
+- `shared:/...` shared workspace for a task group
+- `public:/...` repository/workspace root
+
+Unscoped paths (`foo`, `/foo`) resolve to `private:/...`.
+
+Disk mapping (no symlinks):
+- private: `.seed/workspaces/private/<taskId>/...`
+- shared: `.seed/workspaces/shared/<rootTaskId>/...`
+- public: workspace root
+
+Access rules:
+- standalone root task cannot use `shared:/...`,
+- descendants can use `shared:/...`,
+- root can use `shared:/...` after child creation,
+- `public:/...` is blocked from `.seed/workspaces/private/**` and `.seed/workspaces/shared/**`.
 
 ## Domain vs Audit Boundary
 
