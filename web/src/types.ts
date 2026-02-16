@@ -98,6 +98,16 @@ export type WsServerMessage =
 // ── API Responses ──────────────────────────────────────────────────────
 
 export interface CreateTaskResponse { taskId: string }
+export interface CreateTaskGroupTaskInput {
+  agentId: string
+  title: string
+  intent?: string
+  priority?: TaskPriority
+}
+export interface CreateTaskGroupResponse {
+  groupId: string
+  tasks: Array<{ taskId: string; agentId: string; title: string }>
+}
 export interface HealthResponse { status: string; uptime: number }
 
 // ── LLM Conversation ───────────────────────────────────────────────────

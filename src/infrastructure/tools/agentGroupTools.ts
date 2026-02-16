@@ -5,6 +5,14 @@ import type { TaskService, TaskView } from '../../application/services/taskServi
 import type { ConversationStore } from '../../core/ports/conversationStore.js'
 import type { RuntimeManager } from '../../agents/orchestration/runtimeManager.js'
 import { nanoid } from 'nanoid'
+import {
+  createTaskGroupMembers,
+  listViableTaskGroupAgents,
+  requireTopLevelCallerTask,
+  TaskGroupCreationError,
+  type CreatedTaskGroupMember,
+  type TaskGroupTaskInput
+} from '../task-groups/taskGroupCreation.js'
 
 export type AgentGroupToolDeps = {
   store: EventStore
@@ -16,19 +24,6 @@ export type AgentGroupToolDeps = {
    * Default: 300_000 ms.
    */
   subtaskTimeoutMs?: number
-}
-
-type CreateSubtasksTaskInput = {
-  agentId: string
-  title: string
-  intent?: string
-  priority?: 'foreground' | 'normal' | 'background'
-}
-
-type CreatedTaskInfo = {
-  taskId: string
-  agentId: string
-  title: string
 }
 
 type ChildOutcome = {
@@ -78,73 +73,33 @@ export function createSubtasksTool(deps: AgentGroupToolDeps): Tool {
 
     async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
       const toolCallId = `tool_${nanoid(12)}`
-      const inputs = (args.tasks as CreateSubtasksTaskInput[] | undefined) ?? []
+      const inputs = (args.tasks as TaskGroupTaskInput[] | undefined) ?? []
 
       // Keep legacy compatibility explicit: clients must stop sending `wait`.
       if (Object.prototype.hasOwnProperty.call(args, 'wait')) {
         return errorResult(toolCallId, "createSubtasks no longer accepts 'wait'; it always waits for all subtasks to finish")
       }
 
-      if (!Array.isArray(inputs) || inputs.length === 0) {
-        return errorResult(toolCallId, 'tasks must be a non-empty array')
-      }
-
-      const callerTask = await deps.taskService.getTask(ctx.taskId)
-      if (!callerTask) {
-        return errorResult(toolCallId, `Caller task not found: ${ctx.taskId}`)
-      }
-      if (callerTask.parentTaskId) {
-        return errorResult(toolCallId, 'createSubtasks is only available to top-level tasks')
-      }
-      if (!deps.runtimeManager.isRunning) {
-        return errorResult(
-          toolCallId,
-          'RuntimeManager must be started before creating subtasks. Ensure runtimeManager.start() is called at application initialization.'
-        )
-      }
-
-      for (const input of inputs) {
-        if (!input || typeof input !== 'object') {
-          return errorResult(toolCallId, 'Each task must be an object')
-        }
-        if (!input.agentId || typeof input.agentId !== 'string') {
-          return errorResult(toolCallId, 'Each task requires both agentId and title')
-        }
-        if (!input.title || typeof input.title !== 'string') {
-          return errorResult(toolCallId, 'Each task requires both agentId and title')
-        }
-      }
-
-      const viableSubAgents = listViableSubAgents(deps.runtimeManager, callerTask.agentId)
-      const viableAgentIds = new Set(viableSubAgents.map((agent) => agent.agentId))
-      const invalidAgentIds = [...new Set(
-        inputs
-          .map((input) => input.agentId)
-          .filter((agentId) => !viableAgentIds.has(agentId))
-      )]
-      if (invalidAgentIds.length > 0) {
-        return errorResult(
-          toolCallId,
-          `Unknown or unavailable agentId(s): ${invalidAgentIds.join(', ')}. Use listSubtask to discover viable sub-agents.`
-        )
-      }
-
-      const createdTasks: CreatedTaskInfo[] = []
-      for (const input of inputs) {
-        const created = await deps.taskService.createTask({
-          title: input.title,
-          intent: input.intent ?? '',
-          priority: input.priority ?? 'normal',
-          agentId: input.agentId,
-          parentTaskId: ctx.taskId,
-          authorActorId: ctx.actorId
+      let createdTasks: CreatedTaskGroupMember[] = []
+      try {
+        const callerTask = await requireTopLevelCallerTask(deps.taskService, ctx.taskId, {
+          notTopLevelMessage: 'createSubtasks is only available to top-level tasks'
         })
 
-        createdTasks.push({
-          taskId: created.taskId,
-          agentId: input.agentId,
-          title: input.title
+        const createdGroup = await createTaskGroupMembers({
+          taskService: deps.taskService,
+          runtimeManager: deps.runtimeManager,
+          rootTaskId: ctx.taskId,
+          callerAgentId: callerTask.agentId,
+          authorActorId: ctx.actorId,
+          tasks: inputs
         })
+        createdTasks = createdGroup.tasks
+      } catch (error) {
+        if (error instanceof TaskGroupCreationError) {
+          return errorResult(toolCallId, error.message)
+        }
+        return errorResult(toolCallId, error instanceof Error ? error.message : String(error))
       }
 
       const outcomes = await Promise.all(
@@ -189,21 +144,23 @@ export function listSubtaskTool(deps: AgentGroupToolDeps): Tool {
 
     async execute(_args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
       const toolCallId = `tool_${nanoid(12)}`
-      const callerTask = await deps.taskService.getTask(ctx.taskId)
-      if (!callerTask) {
-        return errorResult(toolCallId, `Caller task not found: ${ctx.taskId}`)
-      }
-      if (callerTask.parentTaskId) {
-        return errorResult(toolCallId, 'listSubtask is only available to top-level tasks')
-      }
+      try {
+        const callerTask = await requireTopLevelCallerTask(deps.taskService, ctx.taskId, {
+          notTopLevelMessage: 'listSubtask is only available to top-level tasks'
+        })
+        const agents = listViableTaskGroupAgents(deps.runtimeManager, callerTask.agentId)
 
-      const agents = listViableSubAgents(deps.runtimeManager, callerTask.agentId)
-
-      return okResult(toolCallId, {
-        groupId: ctx.taskId,
-        total: agents.length,
-        agents
-      })
+        return okResult(toolCallId, {
+          groupId: ctx.taskId,
+          total: agents.length,
+          agents
+        })
+      } catch (error) {
+        if (error instanceof TaskGroupCreationError) {
+          return errorResult(toolCallId, error.message)
+        }
+        return errorResult(toolCallId, error instanceof Error ? error.message : String(error))
+      }
     }
   }
 }
@@ -214,7 +171,7 @@ export function registerAgentGroupTools(toolRegistry: ToolRegistry, deps: AgentG
 }
 
 async function waitForChildOutcome(opts: {
-  child: CreatedTaskInfo
+  child: CreatedTaskGroupMember
   deps: AgentGroupToolDeps
   timeoutMs: number
   signal?: AbortSignal
@@ -320,30 +277,6 @@ function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status)
 }
 
-function listViableSubAgents(runtimeManager: RuntimeManager, currentAgentId: string) {
-  const defaultAgentId = getDefaultAgentId(runtimeManager)
-
-  return [...runtimeManager.agents.values()]
-    .map((agent) => ({
-      agentId: agent.id,
-      displayName: agent.displayName,
-      description: agent.description,
-      toolGroups: [...agent.toolGroups],
-      defaultProfile: agent.defaultProfile,
-      isDefault: agent.id === defaultAgentId,
-      isCurrent: agent.id === currentAgentId
-    }))
-    .sort((a, b) => a.agentId.localeCompare(b.agentId))
-}
-
-function getDefaultAgentId(runtimeManager: RuntimeManager): string | undefined {
-  try {
-    return runtimeManager.defaultAgentId
-  } catch {
-    return undefined
-  }
-}
-
 async function cascadeCancelChild(taskService: TaskService, childTaskId: string): Promise<void> {
   try {
     const task = await taskService.getTask(childTaskId)
@@ -357,7 +290,7 @@ async function cascadeCancelChild(taskService: TaskService, childTaskId: string)
 
 async function buildChildOutcomeFromTask(
   task: TaskView,
-  child: CreatedTaskInfo,
+  child: CreatedTaskGroupMember,
   conversationStore: ConversationStore
 ): Promise<ChildOutcome> {
   if (task.status === 'done') {

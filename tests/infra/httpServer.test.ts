@@ -227,6 +227,58 @@ describe('HTTP API', () => {
       expect(res.status).toBe(500) // Zod validation error caught by onError
     })
 
+    it('creates task group members from a top-level task', async () => {
+      const { taskId } = await taskService.createTask({ title: 'Group Root', agentId: 'agent-default' })
+
+      const res = await request(app, 'POST', `/api/tasks/${taskId}/group`, {
+        tasks: [{ agentId: 'agent-default', title: 'Child A', intent: 'Do child work', priority: 'normal' }],
+      })
+
+      expect(res.status).toBe(201)
+      const body = await res.json() as { groupId: string; tasks: Array<{ taskId: string; agentId: string; title: string }> }
+      expect(body.groupId).toBe(taskId)
+      expect(body.tasks).toHaveLength(1)
+      expect(body.tasks[0]?.title).toBe('Child A')
+
+      const allTasks = (await taskService.listTasks()).tasks
+      const createdChild = allTasks.find((task) => task.taskId === body.tasks[0]?.taskId)
+      expect(createdChild?.parentTaskId).toBe(taskId)
+    })
+
+    it('returns 400 for invalid task group body', async () => {
+      const { taskId } = await taskService.createTask({ title: 'Group Root', agentId: 'agent-default' })
+
+      const res = await request(app, 'POST', `/api/tasks/${taskId}/group`, { tasks: [] })
+      expect(res.status).toBe(400)
+    })
+
+    it('returns 400 when creating group from non-root task', async () => {
+      const { taskId: rootTaskId } = await taskService.createTask({ title: 'Root', agentId: 'agent-default' })
+      const { taskId: childTaskId } = await taskService.createTask({
+        title: 'Child',
+        agentId: 'agent-default',
+        parentTaskId: rootTaskId
+      })
+
+      const res = await request(app, 'POST', `/api/tasks/${childTaskId}/group`, {
+        tasks: [{ agentId: 'agent-default', title: 'Nested Child' }],
+      })
+      expect(res.status).toBe(400)
+      const body = await res.json() as { error: string }
+      expect(body.error).toContain('top-level')
+    })
+
+    it('returns 400 for unknown group member agent', async () => {
+      const { taskId } = await taskService.createTask({ title: 'Group Root', agentId: 'agent-default' })
+
+      const res = await request(app, 'POST', `/api/tasks/${taskId}/group`, {
+        tasks: [{ agentId: 'missing-agent', title: 'Child' }],
+      })
+      expect(res.status).toBe(400)
+      const body = await res.json() as { error: string }
+      expect(body.error).toContain('Unknown or unavailable agentId')
+    })
+
     it('pauses an in-progress task', async () => {
       const { taskId } = await taskService.createTask({ title: 'Pause Me', agentId: 'a' })
       await store.append(taskId, [{ type: 'TaskStarted', payload: { taskId, agentId: 'a', authorActorId: 'user' } }])

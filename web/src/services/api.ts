@@ -3,7 +3,16 @@
  * All methods throw on non-ok responses.
  */
 
-import type { TaskView, StoredEvent, CreateTaskResponse, PendingInteraction, HealthResponse, LLMMessage } from '@/types'
+import type {
+  TaskView,
+  StoredEvent,
+  CreateTaskResponse,
+  CreateTaskGroupResponse,
+  CreateTaskGroupTaskInput,
+  PendingInteraction,
+  HealthResponse,
+  LLMMessage
+} from '@/types'
 
 const BASE = '' // same origin (Vite proxy in dev, served directly in prod)
 
@@ -47,6 +56,8 @@ export const api = {
   getTask: (id: string, opts?: { signal?: AbortSignal }) => get<TaskView>(`/api/tasks/${id}`, opts),
   createTask: (body: { title: string; intent?: string; priority?: string; agentId?: string }) =>
     post<CreateTaskResponse>('/api/tasks', body),
+  createTaskGroup: (taskId: string, body: { tasks: CreateTaskGroupTaskInput[] }) =>
+    post<CreateTaskGroupResponse>(`/api/tasks/${taskId}/group`, body),
   cancelTask: (id: string, reason?: string) => post<void>(`/api/tasks/${id}/cancel`, { reason }),
   pauseTask: (id: string) => post<void>(`/api/tasks/${id}/pause`),
   resumeTask: (id: string) => post<void>(`/api/tasks/${id}/resume`),

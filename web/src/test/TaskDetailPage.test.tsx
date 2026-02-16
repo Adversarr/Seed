@@ -10,25 +10,33 @@ import type { ReactNode } from 'react'
 
 const mockNavigate = vi.fn()
 const mockFetchTask = vi.fn()
+const mockFetchTasks = vi.fn()
 const mockGetPendingInteraction = vi.fn()
+const mockCreateTaskGroup = vi.fn()
 
 let mockTasks: TaskView[] = []
+let mockRouteTaskId = 'task-1'
 
 vi.mock('react-router-dom', () => ({
   Link: ({ children, ...props }: { children: ReactNode }) => <a {...props}>{children}</a>,
   useNavigate: () => mockNavigate,
-  useParams: () => ({ taskId: 'task-1' }),
+  useParams: () => ({ taskId: mockRouteTaskId }),
 }))
 
 vi.mock('@/stores', () => ({
-  useTaskStore: vi.fn((selector: (state: { tasks: TaskView[]; fetchTask: typeof mockFetchTask }) => unknown) =>
-    selector({ tasks: mockTasks, fetchTask: mockFetchTask }),
+  useTaskStore: vi.fn((selector: (state: {
+    tasks: TaskView[]
+    fetchTask: typeof mockFetchTask
+    fetchTasks: typeof mockFetchTasks
+  }) => unknown) =>
+    selector({ tasks: mockTasks, fetchTask: mockFetchTask, fetchTasks: mockFetchTasks }),
   ),
 }))
 
 vi.mock('@/services/api', () => ({
   api: {
     getPendingInteraction: (...args: unknown[]) => mockGetPendingInteraction(...args),
+    createTaskGroup: (...args: unknown[]) => mockCreateTaskGroup(...args),
     pauseTask: vi.fn(),
     resumeTask: vi.fn(),
     cancelTask: vi.fn(),
@@ -123,6 +131,35 @@ vi.mock('@/components/panels/EventTimeline', () => ({
   EventTimeline: () => <div data-testid="event-timeline">Event Timeline</div>,
 }))
 
+vi.mock('@/components/dialogs/CreateTaskGroupDialog', () => ({
+  CreateTaskGroupDialog: ({
+    open,
+    onCreate,
+  }: {
+    open: boolean
+    onCreate: (tasks: Array<{ agentId: string; title: string; intent?: string; priority?: string }>) => Promise<void>
+  }) => (
+    open ? (
+      <button
+        type="button"
+        data-testid="create-group-submit"
+        onClick={() => {
+          void onCreate([
+            {
+              agentId: 'agent-2',
+              title: 'Subtask from dialog',
+              intent: 'Investigate group behavior',
+              priority: 'normal'
+            }
+          ])
+        }}
+      >
+        Submit Group
+      </button>
+    ) : null
+  ),
+}))
+
 vi.mock('@/components/panels/InteractionPanel', () => ({
   InteractionPanel: () => <div data-testid="interaction-panel">Interaction Panel</div>,
 }))
@@ -153,7 +190,10 @@ function makeTask(overrides: Partial<TaskView> = {}): TaskView {
 describe('TaskDetailPage replay-only tabs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRouteTaskId = 'task-1'
     mockGetPendingInteraction.mockResolvedValue(null)
+    mockFetchTasks.mockResolvedValue(undefined)
+    mockCreateTaskGroup.mockResolvedValue({ groupId: 'task-1', tasks: [{ taskId: 'task-2', agentId: 'agent-2', title: 'Subtask from dialog' }] })
     mockTasks = [makeTask({ summary: 'Final summary from agent output.' })]
   })
 
@@ -231,5 +271,58 @@ describe('TaskDetailPage replay-only tabs', () => {
     render(<TaskDetailPage />)
 
     expect(await screen.findAllByTestId('conversation-view')).toHaveLength(1)
+  })
+
+  it('renders agent group section for root tasks and allows creating group members', async () => {
+    mockTasks = [
+      makeTask({ taskId: 'task-1', title: 'Root Task' }),
+      makeTask({
+        taskId: 'task-2',
+        title: 'Child Task',
+        parentTaskId: 'task-1',
+        status: 'open',
+      }),
+    ]
+
+    render(<TaskDetailPage />)
+
+    expect(screen.getByText('Agent Group')).toBeInTheDocument()
+    expect(screen.getByText('Root task:')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Create Group Members/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Create Group Members/i }))
+    fireEvent.click(screen.getByTestId('create-group-submit'))
+
+    await waitFor(() => {
+      expect(mockCreateTaskGroup).toHaveBeenCalledWith('task-1', {
+        tasks: [
+          {
+            agentId: 'agent-2',
+            title: 'Subtask from dialog',
+            intent: 'Investigate group behavior',
+            priority: 'normal'
+          }
+        ]
+      })
+    })
+    expect(mockFetchTasks).toHaveBeenCalled()
+  })
+
+  it('shows group context for child tasks but hides root-only create action', async () => {
+    mockTasks = [
+      makeTask({ taskId: 'task-1', title: 'Root Task' }),
+      makeTask({
+        taskId: 'task-2',
+        title: 'Child Task',
+        parentTaskId: 'task-1',
+      }),
+    ]
+
+    mockRouteTaskId = 'task-2'
+
+    render(<TaskDetailPage />)
+
+    expect(screen.getByText('Agent Group')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Create Group Members/i })).not.toBeInTheDocument()
   })
 })

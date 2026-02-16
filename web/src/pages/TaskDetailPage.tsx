@@ -8,7 +8,7 @@
  * 4. Summary — final task summary (when available)
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Pause, Play, X, Bot, Clock, MessageSquare, Terminal, List, GitBranch, FileText } from 'lucide-react'
 import { formatTime, timeAgo } from '@/lib/utils'
@@ -24,7 +24,60 @@ import { PromptBar } from '@/components/panels/PromptBar'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import type { PendingInteraction } from '@/types'
+import { CreateTaskGroupDialog } from '@/components/dialogs/CreateTaskGroupDialog'
+import type { CreateTaskGroupTaskInput, PendingInteraction, TaskView } from '@/types'
+
+type GroupContext = {
+  rootTask: TaskView
+  members: TaskView[]
+}
+
+function shouldHydrateHierarchy(task: TaskView, allTasks: TaskView[]): boolean {
+  const tasksById = new Map(allTasks.map((item) => [item.taskId, item]))
+  if (task.parentTaskId && !tasksById.has(task.parentTaskId)) {
+    return true
+  }
+  return (task.childTaskIds ?? []).some((childId) => !tasksById.has(childId))
+}
+
+function deriveGroupContext(task: TaskView, allTasks: TaskView[]): GroupContext {
+  const tasksById = new Map<string, TaskView>(allTasks.map((item) => [item.taskId, item]))
+  tasksById.set(task.taskId, task)
+
+  // Walk to the highest available ancestor. In complete state this is the root task.
+  let rootTask = task
+  const visited = new Set<string>([task.taskId])
+  while (rootTask.parentTaskId) {
+    const parent = tasksById.get(rootTask.parentTaskId)
+    if (!parent) break
+    if (visited.has(parent.taskId)) break
+    visited.add(parent.taskId)
+    rootTask = parent
+  }
+
+  const belongsToRoot = (candidate: TaskView): boolean => {
+    if (candidate.taskId === rootTask.taskId) return true
+    const seen = new Set<string>()
+    let current: TaskView | undefined = candidate
+    while (current?.parentTaskId) {
+      if (seen.has(current.taskId)) return false
+      seen.add(current.taskId)
+      if (current.parentTaskId === rootTask.taskId) return true
+      current = tasksById.get(current.parentTaskId)
+    }
+    return false
+  }
+
+  const members = [...tasksById.values()]
+    .filter((candidate) => belongsToRoot(candidate))
+    .sort((a, b) => {
+      if (a.taskId === rootTask.taskId) return -1
+      if (b.taskId === rootTask.taskId) return 1
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
+
+  return { rootTask, members }
+}
 
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
@@ -32,10 +85,12 @@ export function TaskDetailPage() {
   const task = useTaskStore(s => s.tasks.find(t => t.taskId === taskId))
   const allTasks = useTaskStore(s => s.tasks) // Must be above early returns (Rules of Hooks)
   const fetchTask = useTaskStore(s => s.fetchTask)
+  const fetchTasks = useTaskStore(s => s.fetchTasks)
   const [interaction, setInteraction] = useState<PendingInteraction | null>(null)
   const [tab, setTab] = useState<'conversation' | 'output' | 'events' | 'summary'>('conversation')
   const [taskLoading, setTaskLoading] = useState(false)
   const [taskNotFound, setTaskNotFound] = useState(false)
+  const [showCreateGroupDialog, setShowCreateGroupDialog] = useState(false)
   const lastFetchIdRef = useRef<string | null>(null)
   const fetchInFlightRef = useRef(false)
 
@@ -92,6 +147,27 @@ export function TaskDetailPage() {
     return () => controller.abort()
   }, [taskId, task?.pendingInteractionId])
 
+  // Hydrate task hierarchy so TaskDetail can derive complete group context.
+  useEffect(() => {
+    if (!taskId || !task) return
+    if (allTasks.length > 1 && !shouldHydrateHierarchy(task, allTasks)) return
+
+    const controller = new AbortController()
+    fetchTasks({ signal: controller.signal })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          console.error('[TaskDetailPage] Failed to fetch task hierarchy:', err)
+        }
+      })
+
+    return () => controller.abort()
+  }, [taskId, task, allTasks, fetchTasks])
+
+  const groupContext = useMemo(
+    () => (task ? deriveGroupContext(task, allTasks) : null),
+    [task, allTasks]
+  )
+
   if (taskLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
@@ -117,8 +193,18 @@ export function TaskDetailPage() {
   const canResume = task.status === 'paused'
   const canCancel = (isActive && task.status !== 'done') || task.status === 'paused'
 
-  // Resolve child tasks from the store
-  const childTasks = allTasks.filter(t => t.parentTaskId === task.taskId)
+  const isRootTask = !task.parentTaskId
+  const groupRootTaskId = groupContext?.rootTask.taskId ?? task.taskId
+  const groupRootTaskTitle = groupContext?.rootTask.title ?? task.title
+  const hasGroupMembers = groupContext?.members.some((member) => member.taskId !== groupRootTaskId) ?? false
+
+  const handleCreateGroup = async (tasks: CreateTaskGroupTaskInput[]) => {
+    if (!isRootTask) {
+      throw new Error('Only top-level tasks can create group members')
+    }
+    await api.createTaskGroup(task.taskId, { tasks })
+    await fetchTasks()
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -183,25 +269,55 @@ export function TaskDetailPage() {
         )}
       </div>
 
-      {/* ── Child tasks ── */}
-      {childTasks.length > 0 && (
-        <div className="shrink-0 py-2">
-          <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1"><GitBranch size={12} /> Subtasks</p>
+      {/* ── Agent Group ── */}
+      <div className="shrink-0 py-2 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-zinc-500 flex items-center gap-1">
+            <GitBranch size={12} /> Agent Group
+          </p>
+          {isRootTask && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowCreateGroupDialog(true)}
+            >
+              Create Group Members
+            </Button>
+          )}
+        </div>
+
+        <p className="text-xs text-zinc-600">
+          Root task:{' '}
+          <Link to={`/tasks/${groupRootTaskId}`} className="text-violet-400 hover:text-violet-300">
+            {groupRootTaskTitle}
+          </Link>
+        </p>
+
+        {hasGroupMembers ? (
           <div className="space-y-1">
-            {childTasks.map(ct => (
+            {groupContext?.members.map((member) => (
               <Link
-                key={ct.taskId}
-                to={`/tasks/${ct.taskId}`}
+                key={member.taskId}
+                to={`/tasks/${member.taskId}`}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-900/40 hover:bg-accent/40 transition-colors"
               >
-                <StatusBadge status={ct.status} />
-                <span className="text-sm text-zinc-300 truncate flex-1">{ct.title}</span>
-                <span className="text-[10px] text-zinc-600">{timeAgo(ct.updatedAt)}</span>
+                <StatusBadge status={member.status} />
+                <span className="text-sm text-zinc-300 truncate flex-1">
+                  {member.title}
+                </span>
+                {member.taskId === groupRootTaskId ? (
+                  <span className="text-[10px] text-zinc-500 border border-zinc-700 rounded px-1">root</span>
+                ) : (
+                  <span className="text-[10px] text-zinc-500 border border-zinc-700 rounded px-1">member</span>
+                )}
+                <span className="text-[10px] text-zinc-600">{timeAgo(member.updatedAt)}</span>
               </Link>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-zinc-500 italic">No group members yet.</p>
+        )}
+      </div>
 
       {/* ── Interaction banner ── */}
       {interaction && (
@@ -261,6 +377,12 @@ export function TaskDetailPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <CreateTaskGroupDialog
+        open={showCreateGroupDialog}
+        onClose={() => setShowCreateGroupDialog(false)}
+        onCreate={handleCreateGroup}
+      />
     </div>
   )
 }

@@ -21,6 +21,11 @@ import type { RuntimeManager } from '../../../agents/orchestration/runtimeManage
 import type { ArtifactStore } from '../../../core/ports/artifactStore.js'
 import type { ConversationStore } from '../../../core/ports/conversationStore.js'
 import { TaskPrioritySchema } from '../../../core/entities/task.js'
+import {
+  createTaskGroupMembers,
+  requireTopLevelCallerTask,
+  TaskGroupCreationError
+} from '../../task-groups/taskGroupCreation.js'
 
 // ============================================================================
 // Request Schemas
@@ -32,6 +37,15 @@ const CreateTaskBodySchema = z.object({
   priority: TaskPrioritySchema.optional(),
   agentId: z.string().optional(),
   parentTaskId: z.string().optional(),
+})
+
+const CreateTaskGroupBodySchema = z.object({
+  tasks: z.array(z.object({
+    agentId: z.string().min(1),
+    title: z.string().min(1),
+    intent: z.string().optional(),
+    priority: TaskPrioritySchema.optional()
+  })).min(1)
 })
 
 const CancelTaskBodySchema = z.object({
@@ -167,6 +181,35 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
     const agentId = body.agentId ?? deps.runtimeManager.defaultAgentId
     const result = await deps.taskService.createTask({ title: body.title, intent: body.intent, priority: body.priority, agentId, parentTaskId: body.parentTaskId })
     return c.json(result, 201)
+  })
+
+  app.post('/api/tasks/:id/group', async (c) => {
+    const rawBody = await c.req.json().catch(() => ({}))
+    const parsedBody = CreateTaskGroupBodySchema.safeParse(rawBody)
+    if (!parsedBody.success) {
+      return c.json({ error: 'Invalid request body for task group creation' }, 400)
+    }
+
+    try {
+      const callerTask = await requireTopLevelCallerTask(deps.taskService, c.req.param('id'), {
+        notTopLevelMessage: 'Task group creation is only available to top-level tasks'
+      })
+
+      const result = await createTaskGroupMembers({
+        taskService: deps.taskService,
+        runtimeManager: deps.runtimeManager,
+        rootTaskId: callerTask.taskId,
+        callerAgentId: callerTask.agentId,
+        tasks: parsedBody.data.tasks
+      })
+
+      return c.json(result, 201)
+    } catch (error) {
+      if (error instanceof TaskGroupCreationError) {
+        return c.json({ error: error.message }, 400)
+      }
+      throw error
+    }
   })
 
   app.post('/api/tasks/:id/cancel', async (c) => {

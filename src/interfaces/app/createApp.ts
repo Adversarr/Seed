@@ -17,6 +17,7 @@ import { registerBuiltinTools } from '../../infrastructure/tools/index.js'
 import { registerAgentGroupTools } from '../../infrastructure/tools/agentGroupTools.js'
 import { DefaultToolExecutor } from '../../infrastructure/tools/toolExecutor.js'
 import { DefaultWorkspacePathResolver } from '../../infrastructure/workspace/workspacePathResolver.js'
+import { WorkspaceDirectoryProvisioner } from '../../infrastructure/workspace/workspaceDirectoryProvisioner.js'
 import { createUiBus } from '../../infrastructure/subjectUiBus.js'
 import { TaskService, EventService, InteractionService, AuditService } from '../../application/index.js'
 import { ContextBuilder } from '../../application/context/contextBuilder.js'
@@ -174,6 +175,12 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     baseDir,
     taskService
   })
+  // Auto-provision scoped workspace roots as tasks/groups become active.
+  const workspaceDirectoryProvisioner = new WorkspaceDirectoryProvisioner({
+    store,
+    workspaceResolver
+  })
+  workspaceDirectoryProvisioner.start()
   const eventService = new EventService(store)
   const interactionService = new InteractionService(store, currentActorId, config.timeouts.interaction)
   const auditService = new AuditService(auditLog, config.resources.auditLogLimit)
