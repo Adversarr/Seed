@@ -6,6 +6,26 @@ import type { IO } from './io.js'
 import { discoverMaster } from '../../infrastructure/master/discovery.js'
 import { lockFilePath, writeLockFile, readLockFile, removeLockFile, isProcessAlive } from '../../infrastructure/master/lockFile.js'
 import { SeedServer } from '../../infrastructure/servers/server.js'
+import { loadAppConfig } from '../../config/appConfig.js'
+import { createLLMClient } from '../../infrastructure/llm/createLLMClient.js'
+import type { LLMClient, LLMMessage } from '../../core/ports/llmClient.js'
+import type { ToolDefinition } from '../../core/ports/tool.js'
+import { executeWebSearchSubagent, hasProfile } from '../../infrastructure/tools/webSubagentClient.js'
+
+const CONNECT_TEST_TOOL: ToolDefinition = {
+  name: 'diagnostic_echo',
+  description: 'Echo diagnostic payload back to the caller.',
+  parameters: {
+    type: 'object',
+    properties: {
+      text: {
+        type: 'string',
+        description: 'Diagnostic text',
+      },
+    },
+    required: ['text'],
+  },
+}
 
 /**
  * CLI adapter: parse commands → call application services
@@ -89,6 +109,7 @@ export async function runCli(opts: {
     .option('workspace', { alias: 'w', type: 'string', default: workspace })
     .strict()
     .help()
+  let commandExitCode = 0
 
   const runTui = async (): Promise<void> => {
     const app = await getApp()
@@ -177,10 +198,37 @@ export async function runCli(opts: {
     },
   )
 
+  parser.command(
+    'llm test <kind>',
+    'Run LLM diagnostics (connect | websearch)',
+    (y) =>
+      y
+        .positional('kind', {
+          type: 'string',
+          choices: ['connect', 'websearch'],
+        })
+        .option('query', { type: 'string', default: 'latest AI model updates' }),
+    async (args) => {
+      if (args.kind === 'connect') {
+        commandExitCode = await runLLMConnectivityDiagnostics({
+          workspace,
+          io,
+        })
+        return
+      }
+
+      commandExitCode = await runLLMWebSearchDiagnostics({
+        workspace,
+        io,
+        query: typeof args.query === 'string' ? args.query : 'latest AI model updates',
+      })
+    },
+  )
+
   try {
     await parser.parseAsync()
     cleanup?.()
-    return 0
+    return commandExitCode
   } catch (err) {
     cleanup?.()
     io.stderr(`${err instanceof Error ? err.message : String(err)}\n`)
@@ -211,5 +259,150 @@ function resolveWorkspaceFromArgv(argv: string[], defaultWorkspace: string): str
 }
 
 function isRemovedCommand(cmd: string): boolean {
-  return cmd === 'task' || cmd === 'agent' || cmd === 'interact' || cmd === 'log' || cmd === 'audit' || cmd === 'llm'
+  return cmd === 'task' || cmd === 'agent' || cmd === 'interact' || cmd === 'log' || cmd === 'audit'
+}
+
+function previewText(value: string, maxLength = 240): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}...`
+}
+
+async function runLLMConnectivityDiagnostics(input: {
+  workspace: string
+  io: IO
+}): Promise<number> {
+  const config = loadAppConfig(process.env, { workspaceDir: input.workspace })
+  const llm = createLLMClient(config)
+
+  input.io.stdout(`Provider: ${llm.provider}\n`)
+
+  const profiles: string[] = ['fast', 'reasoning']
+  for (const profile of profiles) {
+    try {
+      const result = await probeToolCapableReply({
+        llm,
+        profile,
+      })
+      const toolState = result.usedTool ? 'tool-call path verified' : 'no tool-call emitted'
+      input.io.stdout(`[ok] ${profile}: ${toolState}; response=\"${previewText(result.content, 120)}\"\n`)
+    } catch (error) {
+      input.io.stderr(`[fail] ${profile}: ${error instanceof Error ? error.message : String(error)}\n`)
+      return 1
+    }
+  }
+
+  input.io.stdout('LLM connectivity diagnostics passed.\n')
+  return 0
+}
+
+async function probeToolCapableReply(input: {
+  llm: LLMClient
+  profile: string
+}): Promise<{ usedTool: boolean; content: string }> {
+  const messages: LLMMessage[] = [
+    {
+      role: 'system',
+      content: 'You are a diagnostics assistant.',
+    },
+    {
+      role: 'user',
+      content:
+        'First call diagnostic_echo with {"text":"seed-connectivity"} and then provide a short final confirmation sentence.',
+    },
+  ]
+
+  let usedTool = false
+  const maxTurns = 4
+
+  for (let turn = 0; turn < maxTurns; turn++) {
+    const response = await input.llm.complete({
+      profile: input.profile,
+      messages,
+      tools: [CONNECT_TEST_TOOL],
+      maxTokens: 512,
+    })
+
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      usedTool = true
+      messages.push({
+        role: 'assistant',
+        content: response.content,
+        reasoning: response.reasoning,
+        toolCalls: response.toolCalls,
+      })
+      for (const call of response.toolCalls) {
+        const toolPayload = {
+          ok: call.toolName === CONNECT_TEST_TOOL.name,
+          toolName: call.toolName,
+          input: call.arguments,
+        }
+        messages.push({
+          role: 'tool',
+          toolCallId: call.toolCallId,
+          toolName: call.toolName,
+          content: JSON.stringify(toolPayload),
+        })
+      }
+      continue
+    }
+
+    const finalText = response.content?.trim() ?? ''
+    if (!finalText) {
+      throw new Error('empty model response')
+    }
+
+    if (input.llm.provider !== 'fake' && !usedTool) {
+      throw new Error('model returned text but did not exercise tool-call path')
+    }
+
+    return { usedTool, content: finalText }
+  }
+
+  throw new Error(`model did not produce a final response after ${maxTurns} turns`)
+}
+
+async function runLLMWebSearchDiagnostics(input: {
+  workspace: string
+  io: IO
+  query: string
+}): Promise<number> {
+  const config = loadAppConfig(process.env, { workspaceDir: input.workspace })
+  if (config.llm.provider === 'openai' || config.llm.provider === 'fake') {
+    input.io.stdout(`web_search is not supported for provider \"${config.llm.provider}\"\n`)
+    return 0
+  }
+
+  const llm = createLLMClient(config)
+  const profile = 'research_web'
+
+  if (!hasProfile(llm, profile)) {
+    input.io.stderr(
+      `Missing profile \"${profile}\" in SEED_LLM_PROFILES_JSON; web search diagnostics cannot run.\n`,
+    )
+    return 1
+  }
+
+  const result = await executeWebSearchSubagent({
+    llm,
+    profile,
+    prompt: input.query,
+  })
+
+  if (result.status === 'unsupported') {
+    input.io.stdout(`${result.message}\n`)
+    return 0
+  }
+
+  if (result.status === 'error') {
+    input.io.stderr(
+      `${result.message}${typeof result.statusCode === 'number' ? ` (status=${result.statusCode})` : ''}\n`,
+    )
+    return 1
+  }
+
+  input.io.stdout(`Provider: ${result.provider}\n`)
+  input.io.stdout(`Query: ${input.query}\n`)
+  input.io.stdout(`Result: ${previewText(result.content, 400)}\n`)
+  return 0
 }

@@ -25,6 +25,9 @@ export * from './tools/toolRegistry.js'
 // LLM
 export * from './llm/openaiLLMClient.js'
 export * from './llm/fakeLLMClient.js'
+export * from './llm/bailianLLMClient.js'
+export * from './llm/volcengineLLMClient.js'
+export * from './llm/createLLMClient.js'
 
 // Remote
 export * from './remote/httpClient.js'

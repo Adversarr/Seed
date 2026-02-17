@@ -67,6 +67,28 @@ export const toolFormatters: Record<string, (output: any) => string | null> = {
     }
     return null
   },
+  web_search: (output: any) => {
+    if (
+      output
+      && typeof output.provider === 'string'
+      && typeof output.query === 'string'
+      && typeof output.content === 'string'
+    ) {
+      return `Web search (${output.provider}): ${output.query}`
+    }
+    return null
+  },
+  web_fetch: (output: any) => {
+    if (
+      output
+      && typeof output.provider === 'string'
+      && Array.isArray(output.urls)
+      && typeof output.content === 'string'
+    ) {
+      return `Web fetch (${output.provider}): ${output.urls.length} URL(s)`
+    }
+    return null
+  },
   search: (output: any) => {
     // Alias for grepTool - Tool returns { content: string, count: number, strategy: string }
     if (output && typeof output.count === 'number') {
@@ -177,6 +199,18 @@ export const toolInputFormatters: Record<string, (input: any) => string | null> 
       const path = input.path ? ` in ${input.path}` : ''
       const include = input.include ? ` (include: ${input.include})` : ''
       return `Grep "${input.pattern}"${path}${include}`
+    }
+    return null
+  },
+  web_search: (input: any) => {
+    if (input && typeof input.query === 'string') {
+      return `Web search "${input.query}"`
+    }
+    return null
+  },
+  web_fetch: (input: any) => {
+    if (input && typeof input.prompt === 'string') {
+      return 'Web fetch prompt'
     }
     return null
   },

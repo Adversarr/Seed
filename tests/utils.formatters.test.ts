@@ -179,6 +179,24 @@ describe('toolFormatters.TodoUpdate', () => {
   })
 })
 
+describe('toolFormatters web tools', () => {
+  it('formats web_search output', () => {
+    expect(toolFormatters.web_search({
+      provider: 'bailian',
+      query: 'latest ai chips',
+      content: 'summary',
+    })).toBe('Web search (bailian): latest ai chips')
+  })
+
+  it('formats web_fetch output', () => {
+    expect(toolFormatters.web_fetch({
+      provider: 'bailian',
+      urls: ['https://example.com'],
+      content: 'summary',
+    })).toBe('Web fetch (bailian): 1 URL(s)')
+  })
+})
+
 describe('formatToolInput', () => {
   it('formats readFile input', () => {
     expect(formatToolInput('readFile', { path: 'src/index.ts' }))
@@ -224,6 +242,13 @@ describe('formatToolInput', () => {
       .toBe('Grep "TODO" in src')
     expect(formatToolInput('grepTool', { pattern: 'TODO', include: '*.ts' }))
       .toBe('Grep "TODO" (include: *.ts)')
+  })
+
+  it('formats web_search and web_fetch input', () => {
+    expect(formatToolInput('web_search', { query: 'latest ai chips' }))
+      .toBe('Web search "latest ai chips"')
+    expect(formatToolInput('web_fetch', { prompt: 'Summarize https://example.com' }))
+      .toBe('Web fetch prompt')
   })
 
   it('formats createSubtasks input', () => {

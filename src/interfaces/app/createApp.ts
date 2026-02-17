@@ -27,11 +27,9 @@ import { OutputHandler } from '../../agents/orchestration/outputHandler.js'
 import { DefaultSeedAgent } from '../../agents/implementations/defaultAgent.js'
 import { SearchAgent } from '../../agents/implementations/searchAgent.js'
 import { MinimalAgent } from '../../agents/implementations/minimalAgent.js'
-import { FakeLLMClient } from '../../infrastructure/llm/fakeLLMClient.js'
-import { OpenAILLMClient } from '../../infrastructure/llm/openaiLLMClient.js'
+import { createLLMClient } from '../../infrastructure/llm/createLLMClient.js'
 import { DEFAULT_USER_ACTOR_ID } from '../../core/entities/actor.js'
 import { loadAppConfig, type AppConfig } from '../../config/appConfig.js'
-import { toRuntimeProfileCatalog } from '../../config/llmProfileCatalog.js'
 import { ConsoleTelemetrySink, NoopTelemetrySink, type TelemetrySink } from '../../core/ports/telemetry.js'
 
 // ============================================================================
@@ -113,6 +111,7 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   const baseDir = resolve(opts.baseDir)
   const currentActorId = opts.currentActorId ?? DEFAULT_USER_ACTOR_ID
   const config = opts.config ?? loadAppConfig(process.env, { workspaceDir: baseDir })
+  const llm = opts.llm ?? createLLMClient(config)
 
   // === Infrastructure Layer ===
   
@@ -143,7 +142,11 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
       runCommand: {
         maxOutputLength: config.resources.maxOutputLength,
         defaultTimeout: config.timeouts.exec
-      }
+      },
+      web: {
+        llm,
+        profile: 'research_web',
+      },
     })
   }
 
@@ -157,24 +160,6 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
 
   const telemetry: TelemetrySink =
     config.telemetry.sink === 'console' ? new ConsoleTelemetrySink() : new NoopTelemetrySink()
-
-  // LLM Client
-  const llm =
-    opts.llm ??
-    (() => {
-      if (config.llm.provider === 'fake') {
-        return new FakeLLMClient({
-          profileCatalog: toRuntimeProfileCatalog(config.llm.profiles),
-        })
-      }
-      return new OpenAILLMClient({
-        provider: config.llm.provider,
-        apiKey: config.llm.apiKey,
-        baseURL: config.llm.baseURL,
-        profileCatalog: config.llm.profiles,
-        toolSchemaStrategy: config.toolSchema.strategy,
-      })
-    })()
 
   // === Application Layer ===
   
