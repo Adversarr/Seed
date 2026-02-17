@@ -105,20 +105,20 @@ Group model:
 Tool paths use explicit scope prefixes:
 - `private:/...` task-private workspace
 - `shared:/...` shared workspace for a task group
-- `public:/...` repository/workspace root
+- `public:/...` shared public workspace under `WORKDIR/public`
 
 Unscoped paths (`foo`, `/foo`) resolve to `private:/...`.
 
 Disk mapping (no symlinks):
-- private: `.seed/workspaces/private/<taskId>/...`
-- shared: `.seed/workspaces/shared/<rootTaskId>/...`
-- public: workspace root
+- private: `private/<taskId>/...`
+- shared: `shared/<rootTaskId>/...`
+- public: `public/...`
 
 Access rules:
 - standalone root task cannot use `shared:/...`,
 - descendants can use `shared:/...`,
 - root can use `shared:/...` after child creation,
-- `public:/...` is blocked from `.seed/workspaces/private/**` and `.seed/workspaces/shared/**`.
+- `public:/...` cannot escape `public/` scope root.
 
 ## Domain vs Audit Boundary
 

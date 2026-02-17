@@ -1,6 +1,9 @@
 node_modules
 dist
 .seed
+/state
+/private
+/shared
 .coauthor
 demo/.coauthor
 .DS_Store

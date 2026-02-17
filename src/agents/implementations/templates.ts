@@ -42,7 +42,7 @@ IMPORTANT: User can work concurrently with you. After tool use failures (e.g. ed
 Tools use scoped workspace paths:
 - private:/... is task-private workspace.
 - shared:/... is shared within the current task group.
-- public:/... is the repository/workspace root.
+- public:/... is the shared public workspace under WORKDIR/public.
 - Unscoped paths like foo.txt or /foo.txt default to private:/....
 
 ## Subtasks

@@ -116,7 +116,7 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   // === Infrastructure Layer ===
   
   // Event Store (User ↔ Agent decisions)
-  const eventsPath = opts.eventsPath ?? join(baseDir, '.seed', 'events.jsonl')
+  const eventsPath = opts.eventsPath ?? join(baseDir, 'state', 'events.jsonl')
   const store = new JsonlEventStore({ eventsPath, projectionsPath: opts.projectionsPath })
   await store.ensureSchema()
 
@@ -124,12 +124,12 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   const artifactStore = new FsArtifactStore(baseDir)
 
   // Audit Log (Agent ↔ Tools/Files)
-  const auditLogPath = opts.auditLogPath ?? join(baseDir, '.seed', 'audit.jsonl')
+  const auditLogPath = opts.auditLogPath ?? join(baseDir, 'state', 'audit.jsonl')
   const auditLog = new JsonlAuditLog({ auditPath: auditLogPath })
   await auditLog.ensureSchema()
 
   // Conversation Store (Agent ↔ LLM context persistence)
-  const conversationsPath = opts.conversationsPath ?? join(baseDir, '.seed', 'conversations.jsonl')
+  const conversationsPath = opts.conversationsPath ?? join(baseDir, 'state', 'conversations.jsonl')
   const conversationStore = opts.conversationStore ?? new JsonlConversationStore({ conversationsPath })
   if (!opts.conversationStore) {
     await conversationStore.ensureSchema()

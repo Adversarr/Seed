@@ -25,7 +25,7 @@ export function createWebFetchTool(opts: {
   profile: LLMProfile
 }): Tool {
   return {
-    name: 'WebFetch',
+    name: 'web_fetch',
     description: 'Fetch and summarize specific web pages using provider-native web capabilities. Prompt must include at least one http/https URL.',
     parameters: {
       type: 'object',

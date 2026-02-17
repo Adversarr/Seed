@@ -25,6 +25,10 @@ Provider default base URLs:
 Use one env var as source of truth:
 - `SEED_LLM_PROFILES_JSON`
 
+Default behavior when `SEED_LLM_PROFILES_JSON` is unset:
+- load `WORKDIR/profiles.json` if present,
+- otherwise fall back to generated provider defaults.
+
 `SEED_LLM_PROFILES_JSON` supports two forms:
 - Inline JSON object string.
 - File path to JSON config:
@@ -59,6 +63,10 @@ Custom profile IDs are allowed.
 - `}`
 
 Provider-specific policy knobs are validated against the active provider and rejected when mismatched.
+
+Provider-specific example catalogs:
+- `docs/examples/profiles-bailian.json`
+- `docs/examples/profiles-volcengine.json`
 
 ## Example Profile Catalog
 

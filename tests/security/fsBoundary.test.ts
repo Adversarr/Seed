@@ -93,14 +93,19 @@ describe('Security: FsArtifactStore Boundary Enforement', () => {
       .rejects.toThrow('protected internal path')
   })
 
-  it('should block writeFile to internal .seed state path', async () => {
-    await expect(store.writeFile('.seed/events.jsonl', '[]'))
+  it('should block writeFile to internal state path', async () => {
+    await expect(store.writeFile('state/events.jsonl', '[]'))
       .rejects.toThrow('protected internal path')
   })
 
-  it('should still allow writes under .seed/workspaces', async () => {
-    await store.mkdir('.seed/workspaces/private/t-1')
-    await expect(store.writeFile('.seed/workspaces/private/t-1/note.txt', 'ok'))
+  it('should block writeFile to legacy .seed paths', async () => {
+    await expect(store.writeFile('.seed/workspaces/private/t-1/note.txt', 'legacy'))
+      .rejects.toThrow('protected internal path')
+  })
+
+  it('should still allow writes under private workspace roots', async () => {
+    await store.mkdir('private/t-1')
+    await expect(store.writeFile('private/t-1/note.txt', 'ok'))
       .resolves.toBeUndefined()
   })
 })

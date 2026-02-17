@@ -112,21 +112,25 @@ export function createDefaultLLMProfileCatalogConfig(provider: LLMProvider): LLM
   }
 }
 
-function validateSemanticConstraints(config: LLMProfileCatalogConfig, provider: LLMProvider): void {
+function validateSemanticConstraints(
+  config: LLMProfileCatalogConfig,
+  provider: LLMProvider,
+  sourceName: string,
+): void {
   for (const profileId of BUILTIN_LLM_PROFILE_IDS) {
     if (!config.profiles[profileId]) {
-      throw new Error(`SEED_LLM_PROFILES_JSON is missing required builtin profile "${profileId}"`)
+      throw new Error(`${sourceName} is missing required builtin profile "${profileId}"`)
     }
   }
 
   if (!config.profiles[config.defaultProfile]) {
-    throw new Error(`SEED_LLM_PROFILES_JSON defaultProfile "${config.defaultProfile}" does not exist in profiles`)
+    throw new Error(`${sourceName} defaultProfile "${config.defaultProfile}" does not exist in profiles`)
   }
 
   for (const [profileId, profile] of Object.entries(config.profiles)) {
     if (!config.clientPolicies[profile.clientPolicy]) {
       throw new Error(
-        `SEED_LLM_PROFILES_JSON profile "${profileId}" references unknown client policy "${profile.clientPolicy}"`,
+        `${sourceName} profile "${profileId}" references unknown client policy "${profile.clientPolicy}"`,
       )
     }
   }
@@ -143,25 +147,61 @@ function validateSemanticConstraints(config: LLMProfileCatalogConfig, provider: 
 
     if (provider === 'openai' || provider === 'fake') {
       throw new Error(
-        `SEED_LLM_PROFILES_JSON policy "${policyName}" contains provider-specific options (${configuredProviderKeys.join(', ')}) but active provider is "${provider}"`,
+        `${sourceName} policy "${policyName}" contains provider-specific options (${configuredProviderKeys.join(', ')}) but active provider is "${provider}"`,
       )
     }
 
     const unsupported = configuredProviderKeys.filter((key) => key !== provider)
     if (unsupported.length > 0) {
       throw new Error(
-        `SEED_LLM_PROFILES_JSON policy "${policyName}" contains unsupported provider-specific options (${unsupported.join(', ')}) for active provider "${provider}"`,
+        `${sourceName} policy "${policyName}" contains unsupported provider-specific options (${unsupported.join(', ')}) for active provider "${provider}"`,
       )
     }
   }
 }
 
-function parseConfigInput(raw: string): unknown {
+function parseConfigInput(raw: string, sourceName: string): unknown {
   try {
     return JSON.parse(raw) as unknown
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    throw new Error(`SEED_LLM_PROFILES_JSON is not valid JSON: ${reason}`)
+    throw new Error(`${sourceName} is not valid JSON: ${reason}`)
+  }
+}
+
+function readProfileCatalogFromPath(configPath: string, sourceName: string): unknown {
+  let fileContent = ''
+  try {
+    fileContent = readFileSync(configPath, 'utf8')
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`${sourceName} path is unreadable: ${configPath} (${reason})`)
+  }
+  return parseConfigInput(fileContent, `${sourceName} file (${configPath})`)
+}
+
+function readDefaultWorkspaceProfileCatalog(
+  provider: LLMProvider,
+  workspaceDir: string,
+): { input: unknown; sourceName: string } {
+  const defaultPath = resolve(workspaceDir, 'profiles.json')
+  let raw = ''
+  try {
+    raw = readFileSync(defaultPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return {
+        input: createDefaultLLMProfileCatalogConfig(provider),
+        sourceName: 'generated default profile catalog',
+      }
+    }
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`default workspace profiles file path is unreadable: ${defaultPath} (${reason})`)
+  }
+
+  return {
+    input: parseConfigInput(raw, `default workspace profiles file (${defaultPath})`),
+    sourceName: `default workspace profiles file (${defaultPath})`,
   }
 }
 
@@ -171,24 +211,21 @@ export function parseLLMProfileCatalogConfig(opts: {
   workspaceDir?: string
 }): LLMProfileCatalogConfig {
   let input: unknown
+  let sourceName = 'SEED_LLM_PROFILES_JSON'
   if (!opts.raw) {
-    input = createDefaultLLMProfileCatalogConfig(opts.provider)
+    const workspaceDir = opts.workspaceDir ?? process.cwd()
+    const defaultCatalog = readDefaultWorkspaceProfileCatalog(opts.provider, workspaceDir)
+    input = defaultCatalog.input
+    sourceName = defaultCatalog.sourceName
   } else {
     const trimmed = opts.raw.trim()
     const looksLikeInlineJson = trimmed.startsWith('{') || trimmed.startsWith('[')
     if (looksLikeInlineJson) {
-      input = parseConfigInput(trimmed)
+      input = parseConfigInput(trimmed, sourceName)
     } else {
       const baseDir = opts.workspaceDir ?? process.cwd()
       const configPath = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed)
-      let fileContent = ''
-      try {
-        fileContent = readFileSync(configPath, 'utf8')
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        throw new Error(`SEED_LLM_PROFILES_JSON path is unreadable: ${configPath} (${reason})`)
-      }
-      input = parseConfigInput(fileContent)
+      input = readProfileCatalogFromPath(configPath, sourceName)
     }
   }
 
@@ -197,10 +234,10 @@ export function parseLLMProfileCatalogConfig(opts: {
     const message = result.error.issues
       .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
       .join('; ')
-    throw new Error(`SEED_LLM_PROFILES_JSON validation failed: ${message}`)
+    throw new Error(`${sourceName} validation failed: ${message}`)
   }
 
-  validateSemanticConstraints(result.data, opts.provider)
+  validateSemanticConstraints(result.data, opts.provider, sourceName)
   return result.data
 }
 

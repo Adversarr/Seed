@@ -263,4 +263,93 @@ describe('loadAppConfig profile catalog parsing', () => {
       SEED_LLM_PROFILES_JSON: 'missing-profiles.json',
     }, { workspaceDir })).toThrow(/path is unreadable/)
   })
+
+  it('auto-loads WORKDIR/profiles.json when SEED_LLM_PROFILES_JSON is unset', () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), 'seed-config-'))
+    writeFileSync(join(workspaceDir, 'profiles.json'), toJson({
+      defaultProfile: 'fast',
+      clientPolicies: {
+        default: {
+          openaiCompat: {
+            enableThinking: true,
+          },
+        },
+      },
+      profiles: {
+        fast: { model: 'm-default-file-fast', clientPolicy: 'default' },
+        writer: { model: 'm-default-file-writer', clientPolicy: 'default' },
+        reasoning: { model: 'm-default-file-reasoning', clientPolicy: 'default' },
+      },
+    }))
+
+    const config = loadAppConfig({
+      SEED_LLM_PROVIDER: 'openai',
+      SEED_LLM_API_KEY: 'ok',
+    }, { workspaceDir })
+
+    expect(config.llm.profiles.profiles.fast.model).toBe('m-default-file-fast')
+  })
+
+  it('falls back to generated defaults when WORKDIR/profiles.json is missing', () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), 'seed-config-'))
+    const config = loadAppConfig({
+      SEED_LLM_PROVIDER: 'openai',
+      SEED_LLM_API_KEY: 'ok',
+    }, { workspaceDir })
+
+    expect(config.llm.profiles.defaultProfile).toBe('fast')
+    expect(config.llm.profiles.profiles.fast.model).toBe('gpt-4o-mini')
+  })
+
+  it('prefers SEED_LLM_PROFILES_JSON over WORKDIR/profiles.json when both are present', () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), 'seed-config-'))
+    writeFileSync(join(workspaceDir, 'profiles.json'), toJson({
+      defaultProfile: 'fast',
+      clientPolicies: {
+        default: {
+          openaiCompat: {
+            enableThinking: true,
+          },
+        },
+      },
+      profiles: {
+        fast: { model: 'm-from-default-file', clientPolicy: 'default' },
+        writer: { model: 'm-from-default-file', clientPolicy: 'default' },
+        reasoning: { model: 'm-from-default-file', clientPolicy: 'default' },
+      },
+    }))
+    writeFileSync(join(workspaceDir, 'profiles-env.json'), toJson({
+      defaultProfile: 'fast',
+      clientPolicies: {
+        default: {
+          openaiCompat: {
+            enableThinking: true,
+          },
+        },
+      },
+      profiles: {
+        fast: { model: 'm-from-env-path', clientPolicy: 'default' },
+        writer: { model: 'm-from-env-path', clientPolicy: 'default' },
+        reasoning: { model: 'm-from-env-path', clientPolicy: 'default' },
+      },
+    }))
+
+    const config = loadAppConfig({
+      SEED_LLM_PROVIDER: 'openai',
+      SEED_LLM_API_KEY: 'ok',
+      SEED_LLM_PROFILES_JSON: 'profiles-env.json',
+    }, { workspaceDir })
+
+    expect(config.llm.profiles.profiles.fast.model).toBe('m-from-env-path')
+  })
+
+  it('fails fast when WORKDIR/profiles.json exists but is invalid', () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), 'seed-config-'))
+    writeFileSync(join(workspaceDir, 'profiles.json'), '{not json')
+
+    expect(() => loadAppConfig({
+      SEED_LLM_PROVIDER: 'openai',
+      SEED_LLM_API_KEY: 'ok',
+    }, { workspaceDir })).toThrow(/default workspace profiles file/)
+  })
 })

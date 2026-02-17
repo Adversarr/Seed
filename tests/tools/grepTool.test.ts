@@ -134,7 +134,7 @@ describe('grepTool', () => {
       if (args.includes('rev-parse')) {
         cb(null, 'true', '')
       } else if (file === 'git' && args[0] === 'grep') {
-        cb(null, `.seed/workspaces/private/${taskId}/file1.ts:1:match found`, '')
+        cb(null, `private/${taskId}/file1.ts:1:match found`, '')
       } else {
         cb(new Error('unknown command'), '', '')
       }

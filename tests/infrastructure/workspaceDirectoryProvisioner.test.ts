@@ -43,7 +43,7 @@ describe('WorkspaceDirectoryProvisioner', () => {
         payload: { taskId, agentId: DEFAULT_AGENT_ACTOR_ID, authorActorId: DEFAULT_AGENT_ACTOR_ID }
       }])
 
-      await waitForPath(join(baseDir, '.seed', 'workspaces', 'private', taskId))
+      await waitForPath(join(baseDir, 'private', taskId))
     } finally {
       provisioner.stop()
       await rm(baseDir, { recursive: true, force: true })
@@ -69,7 +69,7 @@ describe('WorkspaceDirectoryProvisioner', () => {
         parentTaskId: rootTaskId
       })
 
-      await waitForPath(join(baseDir, '.seed', 'workspaces', 'shared', rootTaskId))
+      await waitForPath(join(baseDir, 'shared', rootTaskId))
     } finally {
       provisioner.stop()
       await rm(baseDir, { recursive: true, force: true })
@@ -109,8 +109,8 @@ describe('WorkspaceDirectoryProvisioner', () => {
         parentTaskId: rootTaskId
       })
 
-      await waitForPath(join(baseDir, '.seed', 'workspaces', 'private', rootTaskId))
-      await waitForPath(join(baseDir, '.seed', 'workspaces', 'shared', rootTaskId))
+      await waitForPath(join(baseDir, 'private', rootTaskId))
+      await waitForPath(join(baseDir, 'shared', rootTaskId))
     } finally {
       provisioner.stop()
       await rm(baseDir, { recursive: true, force: true })

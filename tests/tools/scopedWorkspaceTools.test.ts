@@ -15,7 +15,7 @@ describe('Scoped workspace tool behavior', () => {
     const baseDir = '/workspace'
     vol.reset()
     vol.mkdirSync(baseDir, { recursive: true })
-    vol.fromJSON({ 'README.md': 'public-readme' }, baseDir)
+    vol.fromJSON({ 'public/README.md': 'public-readme' }, baseDir)
 
     const artifactStore = new MemFsArtifactStore(baseDir)
     const eventStore = new InMemoryEventStore()
@@ -26,8 +26,8 @@ describe('Scoped workspace tool behavior', () => {
       agentId: DEFAULT_AGENT_ACTOR_ID
     })
 
-    await artifactStore.mkdir(`.seed/workspaces/private/${taskId}`)
-    await artifactStore.writeFile(`.seed/workspaces/private/${taskId}/local.txt`, 'private-content')
+    await artifactStore.mkdir(`private/${taskId}`)
+    await artifactStore.writeFile(`private/${taskId}/local.txt`, 'private-content')
 
     const listResult = await listFilesTool.execute(
       { path: '.' },
@@ -137,23 +137,23 @@ describe('Scoped workspace tool behavior', () => {
       agentId: DEFAULT_AGENT_ACTOR_ID
     })
 
-    await artifactStore.mkdir(`.seed/workspaces/private/${taskId}`)
-    await artifactStore.writeFile(`.seed/workspaces/private/${taskId}/secret.txt`, 'secret')
+    await artifactStore.mkdir(`private/${taskId}`)
+    await artifactStore.writeFile(`private/${taskId}/secret.txt`, 'secret')
 
     const result = await readFileTool.execute(
-      { path: `public:/.seed/workspaces/private/${taskId}/secret.txt` },
+      { path: `public:/../private/${taskId}/secret.txt` },
       { taskId, actorId: DEFAULT_AGENT_ACTOR_ID, baseDir, artifactStore, workspaceResolver }
     )
 
     expect(result.isError).toBe(true)
-    expect((result.output as any).error).toContain('public:/ cannot access protected workspace path')
+    expect((result.output as any).error).toContain('Path must not escape scope root')
   })
 
   test('globTool follows private-default and explicit public scope', async () => {
     const baseDir = '/workspace'
     vol.reset()
     vol.mkdirSync(baseDir, { recursive: true })
-    vol.fromJSON({ 'README.md': 'public-readme' }, baseDir)
+    vol.fromJSON({ 'public/README.md': 'public-readme' }, baseDir)
 
     const artifactStore = new MemFsArtifactStore(baseDir)
     const eventStore = new InMemoryEventStore()
@@ -164,8 +164,8 @@ describe('Scoped workspace tool behavior', () => {
       agentId: DEFAULT_AGENT_ACTOR_ID
     })
 
-    await artifactStore.mkdir(`.seed/workspaces/private/${taskId}`)
-    await artifactStore.writeFile(`.seed/workspaces/private/${taskId}/private.md`, 'private-file')
+    await artifactStore.mkdir(`private/${taskId}`)
+    await artifactStore.writeFile(`private/${taskId}/private.md`, 'private-file')
 
     const privateGlob = await globTool.execute(
       { pattern: '*.md' },

@@ -8,7 +8,7 @@ export type TodoUpdateToolDeps = {
 
 export function createTodoUpdateTool(deps: TodoUpdateToolDeps): Tool {
   return {
-    name: 'TodoUpdate',
+    name: 'todoUpdate',
     description: 'Replace the current task todo list with the provided full list and return the next pending todo item. If all items are complete, returns "All todo complete".',
     parameters: {
       type: 'object',

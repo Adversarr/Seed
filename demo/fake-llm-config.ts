@@ -21,7 +21,7 @@ export const demoResponseSequence: LLMResponse[] = [
         toolCallId: 'call_1',
         toolName: 'listFiles',
         arguments: {
-          path: 'demo/data',
+          path: 'public:/data',
         },
       },
     ],
@@ -34,7 +34,7 @@ export const demoResponseSequence: LLMResponse[] = [
         toolCallId: 'call_2',
         toolName: 'readFile',
         arguments: {
-          path: 'demo/data/sample.txt',
+          path: 'public:/data/sample.txt',
         },
       },
     ],
@@ -47,7 +47,7 @@ export const demoResponseSequence: LLMResponse[] = [
         toolCallId: 'call_3',
         toolName: 'editFile',
         arguments: {
-          path: 'demo/data/sample.txt',
+          path: 'public:/data/sample.txt',
           oldString: 'Line 2: Sample data point B',
           newString: 'Line 2: Priority action item - validate onboarding flow',
         },

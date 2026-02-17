@@ -6,7 +6,7 @@ Demonstrate Seed as a personal AI assistant team for general workspace execution
 
 ## Scenario
 
-A user asks Seed to improve clarity in `demo/data/sample.txt`.
+A user asks Seed to improve clarity in `public:/data/sample.txt`.
 
 Expected execution pattern:
 1. Inspect relevant files.
@@ -24,4 +24,4 @@ This validates the core Seed promises:
 
 ## Optional Domain Extension
 
-`demo/paper/` remains as an optional writing-domain sample; it is not the primary Seed positioning.
+`demo/public/paper/` remains as an optional writing-domain sample; it is not the primary Seed positioning.

@@ -71,11 +71,11 @@ Implications:
 
 ## Persistence Model
 
-Workspace-local data under `.seed/`:
-- `events.jsonl` — domain events (task lifecycle + UIP)
-- `projections.jsonl` — materialized projection cursor/state
-- `audit.jsonl` — tool call request/completion trace
-- `conversations.jsonl` — LLM conversation history
+Workspace-local data under `state/`:
+- `state/events.jsonl` — domain events (task lifecycle + UIP)
+- `state/projections.jsonl` — materialized projection cursor/state
+- `state/audit.jsonl` — tool call request/completion trace
+- `state/conversations.jsonl` — LLM conversation history
 
 Implementations are append-oriented, async, and cache-backed (`JsonlEventStore`, `JsonlAuditLog`, `JsonlConversationStore`).
 
@@ -101,9 +101,9 @@ Group-management tools:
 These tools are exposed only to top-level task runtimes (`parentTaskId` absent). Child runtimes do not receive `subtask` tool-group capabilities.
 
 Tool paths use scoped workspace prefixes:
-- `private:/...` maps to `.seed/workspaces/private/<taskId>/...`
-- `shared:/...` maps to `.seed/workspaces/shared/<rootTaskId>/...`
-- `public:/...` maps to workspace root
+- `private:/...` maps to `private/<taskId>/...`
+- `shared:/...` maps to `shared/<rootTaskId>/...`
+- `public:/...` maps to `public/...`
 
 Unscoped paths default to `private:/...` in runtime tool execution.
 

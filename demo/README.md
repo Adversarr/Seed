@@ -16,9 +16,14 @@ demo/
 ├── fake-llm-config.ts        # Deterministic response sequence used for scripted demos/tests
 ├── brief.md                  # Project brief for context
 ├── outline.md                # Goal and execution outline
-├── data/
-│   └── sample.txt            # Primary file edited in this demo
-└── paper/                    # Optional writing-domain sample assets
+├── profiles.json             # Workspace profile catalog (auto-loaded by default)
+├── state/                    # Runtime state (events/audit/conversations/lock)
+├── private/                  # Task-private workspace roots
+├── shared/                   # Task-group shared workspace roots
+└── public/
+    ├── data/
+    │   └── sample.txt        # Primary file edited in this demo
+    └── paper/                # Optional writing-domain sample assets
 ```
 
 ## Recommended Walkthrough (TUI)
@@ -26,13 +31,13 @@ demo/
 1. Start Seed:
 
 ```bash
-npm run dev
+npm run dev -- --workspace demo
 ```
 
 2. In TUI, create and run a task:
 
 ```text
-/new Improve task clarity in demo/data/sample.txt
+/new Improve task clarity in public:/data/sample.txt
 /continue Read the file, propose a single focused improvement, and apply only after confirmation.
 ```
 
@@ -44,14 +49,14 @@ npm run dev
 4. Verify the file change:
 
 ```bash
-cat demo/data/sample.txt
+cat demo/public/data/sample.txt
 ```
 
 ## What This Verifies
 
 - Tool loop execution with deterministic state transitions.
 - UIP safety guard for risky operations.
-- Event + audit separation in `.seed/`.
+- Event + audit separation in `state/`.
 - End-to-end behavior for a non-writing workspace task.
 
 ## Optional: Scripted Fake Sequence
@@ -60,4 +65,4 @@ cat demo/data/sample.txt
 
 ## Optional Writing Domain Sample
 
-The `demo/paper/` directory is retained as a writing-domain example only. Seed core behavior is domain-agnostic.
+The `demo/public/paper/` directory is retained as a writing-domain example only. Seed core behavior is domain-agnostic.

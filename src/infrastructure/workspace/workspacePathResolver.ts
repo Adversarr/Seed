@@ -7,9 +7,9 @@ import type {
   WorkspaceScope
 } from '../../core/ports/tool.js'
 
-const PRIVATE_SCOPE_ROOT = '.seed/workspaces/private'
-const SHARED_SCOPE_ROOT = '.seed/workspaces/shared'
-const PUBLIC_PROTECTED_PREFIXES = [PRIVATE_SCOPE_ROOT, SHARED_SCOPE_ROOT]
+const PRIVATE_SCOPE_ROOT = 'private'
+const SHARED_SCOPE_ROOT = 'shared'
+const PUBLIC_SCOPE_ROOT = 'public'
 
 type ParsedScopedValue = {
   scope: WorkspaceScope
@@ -21,7 +21,7 @@ type ParsedScopedValue = {
  *
  * Key guarantees:
  * - Unscoped paths default to private scope.
- * - public:/ cannot access internal private/shared workspace trees.
+ * - public:/ resolves under WORKDIR/public.
  * - shared:/ is only available to group members:
  *   - any descendant task
  *   - root task only after it has at least one child task
@@ -43,10 +43,6 @@ export class DefaultWorkspacePathResolver implements WorkspacePathResolverPort {
     const parsed = this.#parseScopedValue(rawPath, options.defaultScope ?? 'private', false)
     const scopeRootStorePath = await this.#resolveScopeRoot(taskId, parsed.scope)
 
-    if (parsed.scope === 'public') {
-      this.#assertPublicAccess(parsed.pathInScope)
-    }
-
     const storePath = joinStorePath(scopeRootStorePath, parsed.pathInScope)
 
     return {
@@ -67,10 +63,6 @@ export class DefaultWorkspacePathResolver implements WorkspacePathResolverPort {
     const parsed = this.#parseScopedValue(rawPattern, options.defaultScope ?? 'private', true)
     const scopeRootStorePath = await this.#resolveScopeRoot(taskId, parsed.scope)
     const patternInScope = parsed.pathInScope === '' ? '**/*' : parsed.pathInScope
-
-    if (parsed.scope === 'public') {
-      this.#assertPublicAccess(patternInScope)
-    }
 
     return {
       scope: parsed.scope,
@@ -117,7 +109,7 @@ export class DefaultWorkspacePathResolver implements WorkspacePathResolverPort {
 
   async #resolveScopeRoot(taskId: string, scope: WorkspaceScope): Promise<string> {
     if (scope === 'public') {
-      return ''
+      return PUBLIC_SCOPE_ROOT
     }
 
     if (scope === 'private') {
@@ -168,14 +160,6 @@ export class DefaultWorkspacePathResolver implements WorkspacePathResolverPort {
     return task
   }
 
-  #assertPublicAccess(pathInScope: string): void {
-    if (pathInScope === '') return
-    for (const prefix of PUBLIC_PROTECTED_PREFIXES) {
-      if (pathInScope === prefix || pathInScope.startsWith(`${prefix}/`)) {
-        throw new Error(`public:/ cannot access protected workspace path: ${pathInScope}`)
-      }
-    }
-  }
 }
 
 function normalizePathInScope(pathInScope: string): string {

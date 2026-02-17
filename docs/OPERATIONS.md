@@ -38,11 +38,11 @@ In client mode:
 ## Persistence Layout
 
 Workspace state directory:
-- `.seed/events.jsonl`
-- `.seed/projections.jsonl`
-- `.seed/audit.jsonl`
-- `.seed/conversations.jsonl`
-- lock file for server ownership metadata
+- `state/events.jsonl`
+- `state/projections.jsonl`
+- `state/audit.jsonl`
+- `state/conversations.jsonl`
+- `state/server.lock` for server ownership metadata
 
 ## Health and Diagnostics
 

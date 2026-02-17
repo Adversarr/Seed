@@ -89,13 +89,13 @@ export type WorkspacePathResolution = {
   /** Scope-prefixed logical path (e.g. private:/foo/bar). */
   logicalPath: string
   /**
-   * Scope root relative to workspace root (empty for public).
-   * Example: .seed/workspaces/private/<taskId>
+   * Scope root relative to workspace root.
+   * Example: private/<taskId> or public
    */
   scopeRootStorePath: string
   /**
    * Path relative to workspace root for ArtifactStore operations.
-   * Example: .seed/workspaces/private/<taskId>/foo/bar
+   * Example: private/<taskId>/foo/bar
    */
   storePath: string
   /** Absolute filesystem path for process cwd operations. */

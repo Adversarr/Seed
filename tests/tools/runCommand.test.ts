@@ -162,11 +162,11 @@ describe('runCommandTool', () => {
     expect((result.output as any).cwd).toBe('private:/')
     expect(mockExec).toHaveBeenCalledWith(
       'echo scoped',
-      expect.objectContaining({ cwd: `${baseDir}/.seed/workspaces/private/${taskId}` }),
+      expect.objectContaining({ cwd: `${baseDir}/private/${taskId}` }),
       expect.any(Function)
     )
     expect(mockMkdir).toHaveBeenCalledWith(
-      `${baseDir}/.seed/workspaces/private/${taskId}`,
+      `${baseDir}/private/${taskId}`,
       { recursive: true }
     )
   })
@@ -189,7 +189,7 @@ describe('runCommandTool', () => {
     expect((result.output as any).cwd).toBe('public:/docs')
     expect(mockExec).toHaveBeenCalledWith(
       'echo public',
-      expect.objectContaining({ cwd: `${baseDir}/docs` }),
+      expect.objectContaining({ cwd: `${baseDir}/public/docs` }),
       expect.any(Function)
     )
     expect(mockMkdir).not.toHaveBeenCalled()

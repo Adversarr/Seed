@@ -34,11 +34,11 @@ describe('Lock File', () => {
   }
 
   it('lockFilePath returns correct path', () => {
-    expect(lockFilePath('/home/user/project')).toBe('/home/user/project/.seed/server.lock')
+    expect(lockFilePath('/home/user/project')).toBe('/home/user/project/state/server.lock')
   })
 
   it('writes and reads lock file', () => {
-    const path = join(tmpDir, '.seed', 'server.lock')
+    const path = join(tmpDir, 'state', 'server.lock')
     writeLockFile(path, sampleData)
     expect(existsSync(path)).toBe(true)
 

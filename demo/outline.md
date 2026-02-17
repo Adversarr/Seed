@@ -1,7 +1,7 @@
 # Seed Demo Outline
 
 ## 1. User Goal
-Improve clarity and actionability in `demo/data/sample.txt`.
+Improve clarity and actionability in `public:/data/sample.txt`.
 
 ## 2. Execution Steps
 1. List and inspect target files.

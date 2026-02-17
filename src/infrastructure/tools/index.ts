@@ -65,7 +65,7 @@ export function registerBuiltinTools(registry: ToolRegistry, config?: {
       const warn = config.web.onSkip ?? ((message: string) => console.warn(message))
       warn(
         `[tools] web tools disabled: profile "${webProfile}" is missing. ` +
-        `Add it to SEED_LLM_PROFILES_JSON to enable web_search/web_fetch.`,
+        `Add it to SEED_LLM_PROFILES_JSON or WORKDIR/profiles.json to enable web_search/web_fetch.`,
       )
     } else if (provider === 'bailian') {
       registry.register(createWebSearchTool({ llm: config.web.llm, profile: webProfile }))

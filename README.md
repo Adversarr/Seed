@@ -38,9 +38,9 @@ A user goal is decomposed into tasks and subtasks. Each task has a lifecycle:
 Risky operations (for example file edits or command execution) trigger a UIP request with context. Nothing is applied silently.
 
 ### Event sourcing + audit separation
-- Domain lifecycle: `.seed/events.jsonl`
-- Tool execution trace: `.seed/audit.jsonl`
-- LLM conversation durability: `.seed/conversations.jsonl`
+- Domain lifecycle: `state/events.jsonl`
+- Tool execution trace: `state/audit.jsonl`
+- LLM conversation durability: `state/conversations.jsonl`
 
 ### Agent team
 - `Coordinator Agent` (`agent_seed_coordinator`): default execution + delegation
@@ -52,7 +52,7 @@ Risky operations (for example file edits or command execution) trigger a UIP req
 ## CLI Reference
 
 ```bash
-# Workspace selection (where .seed/ lives). Defaults to current directory.
+# Workspace selection (where state/private/shared/public live). Defaults to current directory.
 seed --workspace <path> status
 seed -w <path> status
 

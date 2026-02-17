@@ -7,13 +7,14 @@ import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 const PROTECTED_FILES = new Set([
   'AGENTS.md',
   'CLAUDE.md',
-  '.seed/events.jsonl',
-  '.seed/audit.jsonl',
-  '.seed/conversations.jsonl',
-  '.seed/server.lock'
+  'state/events.jsonl',
+  'state/audit.jsonl',
+  'state/conversations.jsonl',
+  'state/projections.jsonl',
+  'state/server.lock'
 ])
 
-const PROTECTED_DIR_PREFIXES = ['.git', '.agents', '.codex']
+const PROTECTED_DIR_PREFIXES = ['.git', '.agents', '.codex', '.seed', 'state']
 
 export class FsArtifactStore implements ArtifactStore {
   readonly #baseDir: string
@@ -55,12 +56,6 @@ export class FsArtifactStore implements ArtifactStore {
       }
     }
 
-    if (relativePath === '.seed' || relativePath.startsWith('.seed/')) {
-      // Keep task workspaces writable; block all other internal .seed paths.
-      if (relativePath !== '.seed/workspaces' && !relativePath.startsWith('.seed/workspaces/')) {
-        throw new Error(`Access denied: Path '${originalPath}' targets protected internal path`)
-      }
-    }
   }
 
   /** Additional symlink-aware check after resolving real path (B29). */
