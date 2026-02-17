@@ -4,6 +4,9 @@ dist
 /state
 /private
 /shared
+demo/state
+demo/private
+demo/shared
 .coauthor
 demo/.coauthor
 .DS_Store

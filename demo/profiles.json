@@ -1,28 +1,45 @@
 {
   "defaultProfile": "fast",
   "clientPolicies": {
-    "default": {
+    "volc_default": {
       "openaiCompat": {
         "enableThinking": true
+      },
+      "provider": {
+        "volcengine": {
+          "thinkingType": "enabled",
+          "reasoningEffort": "medium"
+        }
+      }
+    },
+    "volc_web": {
+      "openaiCompat": {
+        "enableThinking": true
+      },
+      "provider": {
+        "volcengine": {
+          "thinkingType": "enabled",
+          "reasoningEffort": "high"
+        }
       }
     }
   },
   "profiles": {
     "fast": {
-      "model": "gpt-4o-mini",
-      "clientPolicy": "default"
+      "model": "doubao-seed-2-0-pro-260215",
+      "clientPolicy": "volc_web"
     },
     "writer": {
-      "model": "gpt-4o",
-      "clientPolicy": "default"
+      "model": "doubao-seed-2-0-pro-260215",
+      "clientPolicy": "volc_web"
     },
     "reasoning": {
-      "model": "gpt-4o",
-      "clientPolicy": "default"
+      "model": "doubao-seed-2-0-pro-260215",
+      "clientPolicy": "volc_web"
     },
     "research_web": {
-      "model": "gpt-4o",
-      "clientPolicy": "default"
+      "model": "doubao-seed-2-0-pro-260215",
+      "clientPolicy": "volc_web"
     }
   }
 }
