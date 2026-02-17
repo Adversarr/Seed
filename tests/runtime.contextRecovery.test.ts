@@ -181,7 +181,7 @@ describe('AgentRuntime - context recovery', () => {
       description: 'echo',
       parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       execute: async (args) => ({
         toolCallId: 'ignored_by_executor',
         output: { echoed: args.value },

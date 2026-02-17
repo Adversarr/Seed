@@ -78,6 +78,10 @@ const StreamingBodySchema = z.object({
   enabled: z.boolean(),
 })
 
+const RiskModeBodySchema = z.object({
+  mode: z.string().min(1),
+})
+
 const FileReadQuerySchema = z.object({
   path: z.string().min(1),
 })
@@ -313,6 +317,8 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
     return c.json({
       defaultAgentId: deps.runtimeManager.defaultAgentId,
       streamingEnabled: deps.runtimeManager.streamingEnabled,
+      toolRiskMode: deps.runtimeManager.toolRiskMode,
+      availableToolRiskModes: deps.runtimeManager.availableToolRiskModes,
       agents,
       llm: {
         provider: deps.runtimeManager.llmProvider,
@@ -344,6 +350,23 @@ export function createHttpApp(deps: HttpAppDeps): Hono {
   app.post('/api/runtime/streaming', async (c) => {
     const body = StreamingBodySchema.parse(await c.req.json())
     deps.runtimeManager.streamingEnabled = body.enabled
+    return c.json({ ok: true })
+  })
+
+  app.post('/api/runtime/risk-mode', async (c) => {
+    const parsed = RiskModeBodySchema.safeParse(await c.req.json().catch(() => ({})))
+    if (!parsed.success || !deps.runtimeManager.isValidToolRiskMode(parsed.data.mode)) {
+      return c.json(
+        {
+          error: `Invalid risk mode: ${
+            parsed.success ? parsed.data.mode : '(missing)'
+          }. Choose: ${deps.runtimeManager.availableToolRiskModes.join(', ')}`
+        },
+        400
+      )
+    }
+
+    deps.runtimeManager.toolRiskMode = parsed.data.mode
     return c.json({ ok: true })
   })
 

@@ -30,7 +30,7 @@ export function createTodoUpdateTool(deps: TodoUpdateToolDeps): Tool {
       },
       required: ['todos']
     },
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     group: 'edit',
 
     async execute(args: Record<string, unknown>, ctx: ToolContext) {

@@ -1,6 +1,12 @@
 import type { EventStore } from '../../core/ports/eventStore.js'
 import type { LLMClient, LLMMessage, LLMProfile } from '../../core/ports/llmClient.js'
-import type { ToolRegistry, ToolCallRequest, ToolGroup } from '../../core/ports/tool.js'
+import {
+  DEFAULT_TOOL_RISK_MODE,
+  type ToolRegistry,
+  type ToolCallRequest,
+  type ToolGroup,
+  type ToolRiskMode
+} from '../../core/ports/tool.js'
 import type { DomainEvent, UserInteractionRespondedPayload } from '../../core/events/events.js'
 import type { TaskService, TaskView } from '../../application/services/taskService.js'
 import type { Agent, AgentContext } from './agent.js'
@@ -65,6 +71,8 @@ export class AgentRuntime {
   #profileOverride: LLMProfile | undefined = undefined
   /** Whether streaming mode is enabled. */
   #streamingEnabled = false
+  /** Runtime policy for auto-running risky tools. */
+  #toolRiskMode: ToolRiskMode = DEFAULT_TOOL_RISK_MODE
 
   constructor(opts: {
     taskId: string
@@ -114,6 +122,11 @@ export class AgentRuntime {
   /** Enable or disable streaming mode. */
   set streamingEnabled(enabled: boolean) {
     this.#streamingEnabled = enabled
+  }
+
+  /** Set risky-tool auto-run policy mode. */
+  set toolRiskMode(mode: ToolRiskMode) {
+    this.#toolRiskMode = mode
   }
 
   // ======================== imperative control (called by RuntimeManager) ========================
@@ -325,7 +338,8 @@ export class AgentRuntime {
     const conversationHistory = await this.#conversationManager.loadAndRepair(
       taskId,
       this.#agent.id,
-      this.#baseDir
+      this.#baseDir,
+      this.#toolRiskMode
     )
 
     const isApproved = pendingResponse?.selectedOptionId === 'approve'
@@ -348,6 +362,7 @@ export class AgentRuntime {
       taskId,
       agentId: this.#agent.id,
       baseDir: this.#baseDir,
+      toolRiskMode: this.#toolRiskMode,
       confirmedInteractionId,
       confirmedToolCallId,
       conversationHistory,

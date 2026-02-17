@@ -57,6 +57,13 @@ export type ToolDefinition = {
 // ============================================================================
 
 export type ToolRiskLevel = 'safe' | 'risky'
+export const TOOL_RISK_MODES = ['autorun_all', 'autorun_no_public', 'autorun_none'] as const
+export type ToolRiskMode = (typeof TOOL_RISK_MODES)[number]
+export const DEFAULT_TOOL_RISK_MODE: ToolRiskMode = 'autorun_no_public'
+
+export function resolveToolRiskMode(mode?: ToolRiskMode): ToolRiskMode {
+  return mode ?? DEFAULT_TOOL_RISK_MODE
+}
 
 /** Logical grouping for controlling per-agent tool access. */
 export type ToolGroup = 'search' | 'edit' | 'exec' | 'subtask'
@@ -143,6 +150,11 @@ export type ToolContext = {
   actorId: string
   baseDir: string
   artifactStore: ArtifactStore
+  /**
+   * Runtime policy that controls auto-run behavior for risky tools.
+   * Defaults to `autorun_no_public` when omitted.
+   */
+  toolRiskMode?: ToolRiskMode
   /** Optional scoped workspace path resolver. */
   workspaceResolver?: WorkspacePathResolver
   /**
@@ -178,8 +190,8 @@ export interface Tool {
   /** JSON Schema for parameters */
   readonly parameters: ToolParametersSchema
 
-  /** Risk level - 'risky' tools require UIP confirmation */
-  readonly riskLevel: ToolRiskLevel
+  /** Dynamic risk evaluation - 'risky' tools require UIP confirmation */
+  readonly riskLevel: (args: Record<string, unknown>, ctx: ToolContext) => ToolRiskLevel
 
   /** Logical group for per-agent tool access control */
   readonly group: ToolGroup
@@ -206,6 +218,18 @@ export interface Tool {
    * @returns Tool result (output or error)
    */
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>
+}
+
+export function evaluateToolRiskLevel(
+  tool: Pick<Tool, 'riskLevel'>,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): ToolRiskLevel {
+  const mode = resolveToolRiskMode(ctx.toolRiskMode)
+  if (ctx.toolRiskMode === mode) {
+    return tool.riskLevel(args, ctx)
+  }
+  return tool.riskLevel(args, { ...ctx, toolRiskMode: mode })
 }
 
 // ============================================================================
@@ -262,7 +286,7 @@ export interface ToolRegistry {
  *
  * The executor is responsible for:
  * 1. Looking up the tool in the registry
- * 2. Checking risk level - reject risky tools without confirmation
+ * 2. Evaluating risk level - reject risky tools without confirmation
  * 3. Logging the request to AuditLog
  * 4. Executing the tool
  * 5. Logging the result to AuditLog

@@ -9,7 +9,7 @@ function makeTool(name: string, riskLevel: 'safe' | 'risky', canExecute?: Tool['
     description: `${riskLevel} tool`,
     parameters: { type: 'object', properties: {} },
     group: 'test',
-    riskLevel,
+    riskLevel: () => riskLevel,
     canExecute,
     execute: vi.fn(),
   }
@@ -246,5 +246,145 @@ describe('OutputHandler.handleToolCalls', () => {
 
     const heartbeatEvents = ui.events.filter((event) => event.type === 'tool_call_heartbeat')
     expect(heartbeatEvents.length).toBeGreaterThan(0)
+  })
+
+  it('treats editFile as safe for private and risky for public under default mode', async () => {
+    const editFileTool: Tool = {
+      name: 'editFile',
+      description: 'Policy-driven edit tool',
+      parameters: { type: 'object', properties: {} },
+      group: 'edit',
+      riskLevel: (args, toolCtx) => {
+        const mode = toolCtx.toolRiskMode ?? 'autorun_no_public'
+        if (mode === 'autorun_none') return 'risky'
+        if (mode === 'autorun_all') return 'safe'
+        const path = typeof args.path === 'string' ? args.path : ''
+        return path.startsWith('public:/') ? 'risky' : 'safe'
+      },
+      execute: vi.fn(),
+    }
+    const tools = new Map<string, Tool>([
+      ['readFile', makeTool('readFile', 'safe')],
+      ['editFile', editFileTool],
+    ])
+    const registry = makeRegistry(tools)
+    const executor = makeExecutor()
+
+    const handler = new OutputHandler({
+      toolRegistry: registry,
+      toolExecutor: executor,
+      conversationManager: mockConversationManager,
+      artifactStore: {} as any,
+    })
+
+    const result = await handler.handleToolCalls(
+      [
+        { toolCallId: 'tc-private', toolName: 'editFile', arguments: { path: 'private:/a.ts' } },
+        { toolCallId: 'tc-public', toolName: 'editFile', arguments: { path: 'public:/b.ts' } },
+      ],
+      baseCtx
+    )
+
+    expect(executor.execute).toHaveBeenCalledTimes(1)
+    expect(executor.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'tc-private' }),
+      expect.anything()
+    )
+    expect(result.pause).toBe(true)
+  })
+
+  it('auto-runs public editFile in autorun_all mode', async () => {
+    const editFileTool: Tool = {
+      name: 'editFile',
+      description: 'Policy-driven edit tool',
+      parameters: { type: 'object', properties: {} },
+      group: 'edit',
+      riskLevel: (args, toolCtx) => {
+        const mode = toolCtx.toolRiskMode ?? 'autorun_no_public'
+        if (mode === 'autorun_none') return 'risky'
+        if (mode === 'autorun_all') return 'safe'
+        const path = typeof args.path === 'string' ? args.path : ''
+        return path.startsWith('public:/') ? 'risky' : 'safe'
+      },
+      execute: vi.fn(),
+    }
+    const tools = new Map<string, Tool>([['editFile', editFileTool]])
+    const registry = makeRegistry(tools)
+    const executor = makeExecutor()
+
+    const handler = new OutputHandler({
+      toolRegistry: registry,
+      toolExecutor: executor,
+      conversationManager: mockConversationManager,
+      artifactStore: {} as any,
+    })
+
+    const result = await handler.handleToolCalls(
+      [{ toolCallId: 'tc-public', toolName: 'editFile', arguments: { path: 'public:/x.ts' } }],
+      { ...baseCtx, toolRiskMode: 'autorun_all' }
+    )
+
+    expect(result).toEqual({})
+    expect(executor.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('still requires confirmation for enforced risky runCommand in autorun_all', async () => {
+    const runCommandTool: Tool = {
+      name: 'runCommand',
+      description: 'Always risky command tool',
+      parameters: { type: 'object', properties: {} },
+      group: 'exec',
+      riskLevel: () => 'risky',
+      execute: vi.fn(),
+    }
+    const tools = new Map<string, Tool>([['runCommand', runCommandTool]])
+    const registry = makeRegistry(tools)
+    const executor = makeExecutor()
+
+    const handler = new OutputHandler({
+      toolRegistry: registry,
+      toolExecutor: executor,
+      conversationManager: mockConversationManager,
+      artifactStore: {} as any,
+    })
+
+    const result = await handler.handleToolCalls(
+      [{ toolCallId: 'tc-cmd', toolName: 'runCommand', arguments: { command: 'ls' } }],
+      { ...baseCtx, toolRiskMode: 'autorun_all' }
+    )
+
+    expect(result.pause).toBe(true)
+    expect(executor.execute).not.toHaveBeenCalled()
+  })
+
+  it('requires confirmation for enforced risky runCommand in all risk modes', async () => {
+    const runCommandTool: Tool = {
+      name: 'runCommand',
+      description: 'Always risky command tool',
+      parameters: { type: 'object', properties: {} },
+      group: 'exec',
+      riskLevel: () => 'risky',
+      execute: vi.fn(),
+    }
+    const tools = new Map<string, Tool>([['runCommand', runCommandTool]])
+    const registry = makeRegistry(tools)
+    const executor = makeExecutor()
+
+    const handler = new OutputHandler({
+      toolRegistry: registry,
+      toolExecutor: executor,
+      conversationManager: mockConversationManager,
+      artifactStore: {} as any,
+    })
+
+    for (const mode of ['autorun_all', 'autorun_no_public', 'autorun_none'] as const) {
+      const result = await handler.handleToolCalls(
+        [{ toolCallId: `tc-cmd-${mode}`, toolName: 'runCommand', arguments: { command: 'ls' } }],
+        { ...baseCtx, toolRiskMode: mode }
+      )
+      expect(result.pause).toBe(true)
+    }
+
+    expect(executor.execute).not.toHaveBeenCalled()
   })
 })

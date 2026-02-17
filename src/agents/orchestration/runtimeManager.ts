@@ -1,7 +1,12 @@
 import type { Subscription } from '../../core/ports/subscribable.js'
 import type { EventStore } from '../../core/ports/eventStore.js'
 import type { LLMClient, LLMProfile, LLMProfileCatalog } from '../../core/ports/llmClient.js'
-import type { ToolRegistry } from '../../core/ports/tool.js'
+import {
+  DEFAULT_TOOL_RISK_MODE,
+  TOOL_RISK_MODES,
+  type ToolRegistry,
+  type ToolRiskMode
+} from '../../core/ports/tool.js'
 import type { DomainEvent, StoredEvent } from '../../core/events/events.js'
 import type { TaskService } from '../../application/services/taskService.js'
 import type { Agent } from '../core/agent.js'
@@ -60,6 +65,8 @@ export class RuntimeManager {
   readonly #profileOverrides = new Map<string, LLMProfile>()
   /** Whether streaming mode is enabled globally */
   #streamingEnabled = false
+  /** Global risk mode controlling auto-run policy for risky tools. */
+  #toolRiskMode: ToolRiskMode = DEFAULT_TOOL_RISK_MODE
 
   constructor(opts: {
     store: EventStore
@@ -158,6 +165,24 @@ export class RuntimeManager {
 
   set streamingEnabled(enabled: boolean) {
     this.#streamingEnabled = enabled
+  }
+
+  // ======================== tool risk policy ========================
+
+  get toolRiskMode(): ToolRiskMode {
+    return this.#toolRiskMode
+  }
+
+  set toolRiskMode(mode: ToolRiskMode) {
+    this.#toolRiskMode = mode
+  }
+
+  get availableToolRiskModes(): readonly ToolRiskMode[] {
+    return TOOL_RISK_MODES
+  }
+
+  isValidToolRiskMode(mode: string): mode is ToolRiskMode {
+    return (TOOL_RISK_MODES as readonly string[]).includes(mode)
   }
 
   // ======================== lifecycle ========================
@@ -387,6 +412,7 @@ export class RuntimeManager {
     if (rt) {
       rt.profileOverride = this.getProfileOverride(taskId)
       rt.streamingEnabled = this.#streamingEnabled
+      rt.toolRiskMode = this.#toolRiskMode
       return rt
     }
 
@@ -408,6 +434,7 @@ export class RuntimeManager {
     })
     rt.profileOverride = this.getProfileOverride(taskId)
     rt.streamingEnabled = this.#streamingEnabled
+    rt.toolRiskMode = this.#toolRiskMode
 
     this.#runtimes.set(taskId, rt)
     return rt

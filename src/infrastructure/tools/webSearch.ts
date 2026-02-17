@@ -31,7 +31,7 @@ export function createWebSearchTool(opts: {
       },
       required: ['query'],
     },
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     group: 'search',
 
     async execute(args: Record<string, unknown>, _ctx: ToolContext): Promise<ToolResult> {

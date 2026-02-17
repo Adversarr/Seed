@@ -15,6 +15,12 @@ import type { ConversationStore } from '../../src/core/ports/conversationStore.j
 
 function createMockRuntimeManager() {
   let globalProfileOverride: string | undefined
+  let toolRiskMode: 'autorun_all' | 'autorun_no_public' | 'autorun_none' = 'autorun_no_public'
+  const availableToolRiskModes: Array<'autorun_all' | 'autorun_no_public' | 'autorun_none'> = [
+    'autorun_all',
+    'autorun_no_public',
+    'autorun_none',
+  ]
   const profiles = [
     { id: 'fast', model: 'm-fast', clientPolicy: 'default', builtin: true },
     { id: 'writer', model: 'm-writer', clientPolicy: 'default', builtin: true },
@@ -24,6 +30,14 @@ function createMockRuntimeManager() {
   return {
     defaultAgentId: 'agent-default',
     streamingEnabled: false,
+    get toolRiskMode() {
+      return toolRiskMode
+    },
+    set toolRiskMode(mode: 'autorun_all' | 'autorun_no_public' | 'autorun_none') {
+      toolRiskMode = mode
+    },
+    availableToolRiskModes,
+    isValidToolRiskMode: (mode: string) => availableToolRiskModes.includes(mode as typeof availableToolRiskModes[number]),
     llmProvider: 'openai',
     profileCatalog: {
       defaultProfile: 'fast',
@@ -412,10 +426,14 @@ describe('HTTP API', () => {
       const body = await res.json() as {
         defaultAgentId: string
         agents: unknown[]
+        toolRiskMode: string
+        availableToolRiskModes: string[]
         llm: { provider: string; defaultProfile: string; profiles: Array<{ id: string }>; globalProfileOverride: string | null }
       }
       expect(body.defaultAgentId).toBe('agent-default')
       expect(body.agents).toHaveLength(1)
+      expect(body.toolRiskMode).toBe('autorun_no_public')
+      expect(body.availableToolRiskModes).toEqual(['autorun_all', 'autorun_no_public', 'autorun_none'])
       expect(body.llm.provider).toBe('openai')
       expect(body.llm.defaultProfile).toBe('fast')
       expect(body.llm.profiles.some((profile) => profile.id === 'research_web')).toBe(true)
@@ -436,6 +454,23 @@ describe('HTTP API', () => {
     it('toggles streaming', async () => {
       const res = await request(app, 'POST', '/api/runtime/streaming', { enabled: true })
       expect(res.status).toBe(200)
+    })
+
+    it('sets risk mode', async () => {
+      const res = await request(app, 'POST', '/api/runtime/risk-mode', { mode: 'autorun_all' })
+      expect(res.status).toBe(200)
+
+      const runtimeRes = await request(app, 'GET', '/api/runtime')
+      const body = await runtimeRes.json() as { toolRiskMode: string }
+      expect(body.toolRiskMode).toBe('autorun_all')
+    })
+
+    it('rejects invalid risk mode', async () => {
+      const res = await request(app, 'POST', '/api/runtime/risk-mode', { mode: 'invalid' })
+      const body = await res.json() as { error: string }
+      expect(res.status).toBe(400)
+      expect(body.error).toContain('Invalid risk mode')
+      expect(body.error).toContain('autorun_no_public')
     })
 
     it('rejects invalid profile', async () => {

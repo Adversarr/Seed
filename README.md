@@ -6,7 +6,7 @@ Seed turns a user goal into coordinated execution across specialized agents. The
 
 Seed is event-sourced and task-oriented:
 - every task decision is replayable,
-- risky actions require explicit confirmation,
+- risky actions follow runtime auto-run policy with enforced confirmations for high-risk tools,
 - tool execution is audit logged separately from domain lifecycle.
 
 Writing support is one use case, not the primary product boundary.
@@ -35,7 +35,8 @@ A user goal is decomposed into tasks and subtasks. Each task has a lifecycle:
 `created -> started -> (awaiting_user | paused) -> completed | failed | canceled`.
 
 ### Human-in-the-loop safety
-Risky operations (for example file edits or command execution) trigger a UIP request with context. Nothing is applied silently.
+Risk evaluation is policy-driven at runtime (`autorun_all`, `autorun_no_public`, `autorun_none`).
+High-risk tools (for example command execution) still require UIP confirmation with context.
 
 ### Event sourcing + audit separation
 - Domain lifecycle: `state/events.jsonl`

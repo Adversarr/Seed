@@ -1,4 +1,5 @@
 import type {
+  ToolRiskMode,
   ToolCallRequest,
   ToolContext,
   ToolExecutor,
@@ -6,6 +7,7 @@ import type {
   ToolResult,
   WorkspacePathResolver
 } from '../../core/ports/tool.js'
+import { evaluateToolRiskLevel } from '../../core/ports/tool.js'
 import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 import type { UiBus } from '../../core/ports/uiBus.js'
 import type { TelemetrySink } from '../../core/ports/telemetry.js'
@@ -42,6 +44,7 @@ export type OutputContext = {
   taskId: string
   agentId: string
   baseDir: string
+  toolRiskMode?: ToolRiskMode
   confirmedInteractionId?: string
   /**
    * The toolCallId that the confirmed interaction is bound to (SA-001).
@@ -170,7 +173,7 @@ export class OutputHandler {
       return this.#handleSingleToolCall(calls[0]!, ctx)
     }
 
-    const { safeCount, riskyCount } = this.#countByRisk(calls)
+    const { safeCount, riskyCount } = this.#countByRisk(calls, ctx)
 
     // Emit batch start event for UI feedback
     this.#uiBus?.emit({
@@ -188,7 +191,7 @@ export class OutputHandler {
       // Execute in original order. Risky calls are barriers.
       for (let index = 0; index < calls.length;) {
         const call = calls[index]!
-        if (this.#isRiskyCall(call)) {
+        if (this.#isRiskyCall(call, ctx)) {
           const result = await this.#handleSingleToolCall(call, ctx)
           if (result.pause || result.event || result.terminal) return result
           index += 1
@@ -197,7 +200,7 @@ export class OutputHandler {
 
         // Run contiguous safe segment concurrently.
         const safeSegment: ToolCallRequest[] = []
-        while (index < calls.length && !this.#isRiskyCall(calls[index]!)) {
+        while (index < calls.length && !this.#isRiskyCall(calls[index]!, ctx)) {
           safeSegment.push(calls[index]!)
           index += 1
         }
@@ -219,6 +222,7 @@ export class OutputHandler {
       taskId: ctx.taskId,
       actorId: ctx.agentId,
       baseDir: ctx.baseDir,
+      toolRiskMode: ctx.toolRiskMode,
       confirmedInteractionId: ctx.confirmedInteractionId,
       artifactStore: this.#artifactStore,
       workspaceResolver: this.#workspaceResolver,
@@ -273,15 +277,26 @@ export class OutputHandler {
     throw new Error(`Concurrent tool segment failed for ${rejected.length} call(s): ${details}`)
   }
 
-  #isRiskyCall(call: ToolCallRequest): boolean {
-    return this.#toolRegistry.get(call.toolName)?.riskLevel === 'risky'
+  #isRiskyCall(call: ToolCallRequest, ctx: OutputContext): boolean {
+    const tool = this.#toolRegistry.get(call.toolName)
+    if (!tool) return false
+    return evaluateToolRiskLevel(tool, call.arguments, {
+      taskId: ctx.taskId,
+      actorId: ctx.agentId,
+      baseDir: ctx.baseDir,
+      toolRiskMode: ctx.toolRiskMode,
+      confirmedInteractionId: ctx.confirmedInteractionId,
+      artifactStore: this.#artifactStore,
+      workspaceResolver: this.#workspaceResolver,
+      signal: ctx.signal
+    }) === 'risky'
   }
 
-  #countByRisk(calls: ToolCallRequest[]): { safeCount: number; riskyCount: number } {
+  #countByRisk(calls: ToolCallRequest[], ctx: OutputContext): { safeCount: number; riskyCount: number } {
     let safeCount = 0
     let riskyCount = 0
     for (const call of calls) {
-      if (this.#isRiskyCall(call)) riskyCount += 1
+      if (this.#isRiskyCall(call, ctx)) riskyCount += 1
       else safeCount += 1
     }
     return { safeCount, riskyCount }
@@ -383,6 +398,7 @@ export class OutputHandler {
       taskId: ctx.taskId,
       actorId: ctx.agentId,
       baseDir: ctx.baseDir,
+      toolRiskMode: ctx.toolRiskMode,
       confirmedInteractionId: ctx.confirmedInteractionId,
       artifactStore: this.#artifactStore,
       workspaceResolver: this.#workspaceResolver,
@@ -411,7 +427,7 @@ export class OutputHandler {
       }
     }
 
-    const isRisky = tool?.riskLevel === 'risky'
+    const isRisky = !!tool && evaluateToolRiskLevel(tool, call.arguments, toolContext) === 'risky'
 
     // Risky tool: needs confirmation. Either unconfirmed, or confirmed
     // for a different tool call (SA-001 — approval must be action-bound).
@@ -464,17 +480,18 @@ export class OutputHandler {
     const rejectedCalls = pendingCalls.filter((call) => call.toolCallId === targetToolCallId)
     if (rejectedCalls.length === 0) return
 
-    const toolContext: ToolContext = {
-      taskId: ctx.taskId,
-      actorId: ctx.agentId,
-      baseDir: ctx.baseDir,
-      artifactStore: this.#artifactStore,
-      workspaceResolver: this.#workspaceResolver
-    }
-
     for (const call of rejectedCalls) {
-      const tool = this.#toolRegistry.get(call.toolName)
-      if (tool?.riskLevel !== 'risky') continue
+      // Rejections are interaction-bound (toolCallId). Once the user rejects
+      // that interaction, we must persist the rejection even if runtime policy
+      // changes before resume.
+      const toolContext: ToolContext = {
+        taskId: ctx.taskId,
+        actorId: ctx.agentId,
+        baseDir: ctx.baseDir,
+        toolRiskMode: ctx.toolRiskMode,
+        artifactStore: this.#artifactStore,
+        workspaceResolver: this.#workspaceResolver
+      }
 
       const result = this.#toolExecutor.recordRejection(call, toolContext)
       await this.#conversationManager.persistToolResultIfMissing(

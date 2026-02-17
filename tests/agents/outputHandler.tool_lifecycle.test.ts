@@ -48,7 +48,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       description: 'safe',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       canExecute: vi.fn().mockRejectedValue(new Error('Pre-check failed')),
       execute: vi.fn()
     }
@@ -73,7 +73,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       description: 'risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       canExecute: vi.fn().mockRejectedValue(new Error('Pre-check failed')),
       execute: vi.fn()
     }
@@ -96,7 +96,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       description: 'risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       canExecute: vi.fn().mockResolvedValue(undefined),
       execute: vi.fn()
     }
@@ -119,7 +119,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       description: 'safe',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       canExecute: vi.fn().mockResolvedValue(undefined),
       execute: vi.fn()
     }
@@ -157,7 +157,7 @@ describe('OutputHandler Tool Lifecycle', () => {
       description: 'risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       execute: vi.fn()
     }
     vi.mocked(mockRegistry.get).mockReturnValue(riskyTool)
@@ -211,5 +211,54 @@ describe('OutputHandler Tool Lifecycle', () => {
 
     // No rejection needed — result already exists
     expect(mockExecutor.recordRejection).not.toHaveBeenCalled()
+  })
+
+  it('persists rejection even if current risk mode would now mark call safe', async () => {
+    const persistMessage = vi.fn()
+    const rejectionCtx = {
+      taskId: 't1',
+      agentId: 'a1',
+      baseDir: '/tmp',
+      toolRiskMode: 'autorun_all' as const,
+      conversationHistory: [
+        {
+          role: 'assistant' as const,
+          toolCalls: [
+            { toolCallId: 'tc3', toolName: 'policy-edit', arguments: { path: 'public:/a.txt' } }
+          ]
+        }
+      ],
+      persistMessage
+    }
+
+    const policyTool: Tool = {
+      name: 'policy-edit',
+      description: 'policy tool',
+      parameters: { type: 'object', properties: {} },
+      group: 'edit',
+      riskLevel: (_args, toolCtx: ToolContext) => toolCtx.toolRiskMode === 'autorun_all' ? 'safe' : 'risky',
+      execute: vi.fn()
+    }
+
+    vi.mocked(mockRegistry.get).mockReturnValue(policyTool)
+    vi.mocked(mockConversationManager.getPendingToolCalls).mockReturnValue([
+      { toolCallId: 'tc3', toolName: 'policy-edit', arguments: { path: 'public:/a.txt' } }
+    ])
+
+    await handler.handleRejections(rejectionCtx, 'tc3')
+
+    expect(mockExecutor.recordRejection).toHaveBeenCalledWith(
+      { toolCallId: 'tc3', toolName: 'policy-edit', arguments: { path: 'public:/a.txt' } },
+      expect.objectContaining({ toolRiskMode: 'autorun_all' })
+    )
+    expect(mockConversationManager.persistToolResultIfMissing).toHaveBeenCalledWith(
+      't1',
+      'tc3',
+      'policy-edit',
+      { isError: true, error: 'User rejected the request' },
+      true,
+      expect.anything(),
+      persistMessage
+    )
   })
 })

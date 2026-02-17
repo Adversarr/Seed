@@ -10,7 +10,7 @@ describe('DefaultToolExecutor', () => {
     description: 'Safe tool',
     parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] },
     group: 'search',
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     execute: async () => ({ toolCallId: '1', output: { ok: true }, isError: false })
   }
 
@@ -19,8 +19,27 @@ describe('DefaultToolExecutor', () => {
     description: 'Risky tool',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: 'risky',
+    riskLevel: () => 'risky',
     execute: async () => ({ toolCallId: '2', output: { ok: true }, isError: false })
+  }
+
+  const mockPolicyEditTool: Tool = {
+    name: 'policyEditTool',
+    description: 'Edit tool with policy-based risk',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'Scoped path' } },
+      required: ['path']
+    },
+    group: 'edit',
+    riskLevel: (args, ctx) => {
+      const mode = ctx.toolRiskMode ?? 'autorun_no_public'
+      if (mode === 'autorun_none') return 'risky'
+      if (mode === 'autorun_all') return 'safe'
+      const path = typeof args.path === 'string' ? args.path.trim() : ''
+      return path.startsWith('public:/') ? 'risky' : 'safe'
+    },
+    execute: async () => ({ toolCallId: '9', output: { ok: true }, isError: false })
   }
 
   const mockRegistry: ToolRegistry = {
@@ -28,6 +47,7 @@ describe('DefaultToolExecutor', () => {
     get: vi.fn((name) => {
       if (name === 'safeTool') return mockTool
       if (name === 'riskyTool') return mockRiskyTool
+      if (name === 'policyEditTool') return mockPolicyEditTool
       return undefined
     }),
     list: vi.fn(),
@@ -90,6 +110,75 @@ describe('DefaultToolExecutor', () => {
 
     expect(result.isError).toBe(false)
     expect(mockAuditLog.append).toHaveBeenCalledTimes(2) // Request + Complete
+  })
+
+  it('should allow policyEditTool private path under default mode without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+    const result = await executor.execute({
+      toolCallId: 'policy-private',
+      toolName: 'policyEditTool',
+      arguments: { path: 'private:/a.txt' }
+    }, context)
+
+    expect(result.isError).toBe(false)
+  })
+
+  it('should allow policyEditTool shared path under default mode without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+    const result = await executor.execute({
+      toolCallId: 'policy-shared',
+      toolName: 'policyEditTool',
+      arguments: { path: 'shared:/a.txt' }
+    }, context)
+
+    expect(result.isError).toBe(false)
+  })
+
+  it('should block policyEditTool public path under default mode without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+    const result = await executor.execute({
+      toolCallId: 'policy-public-default',
+      toolName: 'policyEditTool',
+      arguments: { path: 'public:/a.txt' }
+    }, context)
+
+    expect(result.isError).toBe(true)
+    expect((result.output as any).error).toContain('requires user confirmation')
+  })
+
+  it('should allow policyEditTool public path in autorun_all without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+    const result = await executor.execute({
+      toolCallId: 'policy-public-all',
+      toolName: 'policyEditTool',
+      arguments: { path: 'public:/a.txt' }
+    }, { ...context, toolRiskMode: 'autorun_all' })
+
+    expect(result.isError).toBe(false)
+  })
+
+  it('should block policyEditTool in autorun_none without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+    const result = await executor.execute({
+      toolCallId: 'policy-none',
+      toolName: 'policyEditTool',
+      arguments: { path: 'private:/a.txt' }
+    }, { ...context, toolRiskMode: 'autorun_none' })
+
+    expect(result.isError).toBe(true)
+    expect((result.output as any).error).toContain('requires user confirmation')
+  })
+
+  it('should still block runCommand-like risky tool in autorun_all without confirmation', async () => {
+    vi.mocked(mockAuditLog.append).mockClear()
+    const result = await executor.execute({
+      toolCallId: 'risky-all',
+      toolName: 'riskyTool',
+      arguments: {}
+    }, { ...context, toolRiskMode: 'autorun_all' })
+
+    expect(result.isError).toBe(true)
+    expect((result.output as any).error).toContain('requires user confirmation')
   })
 
   it('should record rejection with audit entries', () => {

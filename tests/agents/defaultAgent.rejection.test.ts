@@ -35,7 +35,7 @@ describe('DefaultSeedAgent - Risk-Unaware Behavior', () => {
     description: 'Risky tool',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: 'risky',
+    riskLevel: () => 'risky',
     execute: async () => ({ toolCallId: '1', output: { executed: true }, isError: false })
   }
 

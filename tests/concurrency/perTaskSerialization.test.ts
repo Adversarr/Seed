@@ -59,7 +59,7 @@ async function makeInfra(dir: string) {
     description: 'No-op',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'ok' })
   })
   const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })

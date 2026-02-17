@@ -8,7 +8,7 @@ function createTool(name: string, group: ToolGroup): Tool {
     name,
     description: `Tool ${name}`,
     parameters: { type: 'object', properties: {} },
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     group,
     execute: async () => ({ toolCallId: 't1', output: { ok: true }, isError: false })
   }

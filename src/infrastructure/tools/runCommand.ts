@@ -107,7 +107,7 @@ export function createRunCommandTool(opts?: { maxOutputLength?: number; defaultT
       },
       required: ['command']
     },
-    riskLevel: 'risky',
+    riskLevel: () => 'risky',
     group: 'exec',
 
     async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {

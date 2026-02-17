@@ -273,6 +273,25 @@ export async function handleCommand(line: string, ctx: CommandContext) {
         return
       }
 
+      case 'risk': {
+        const runtimeManager = ctx.app.runtimeManager
+        const target = args[0]?.trim()
+        const availableModes = runtimeManager.availableToolRiskModes
+        if (!target) {
+          ctx.setStatus(`Risk mode: ${runtimeManager.toolRiskMode} │ Available: ${availableModes.join(', ')}`)
+          return
+        }
+
+        if (!runtimeManager.isValidToolRiskMode(target)) {
+          ctx.setStatus(`Invalid risk mode: ${target}. Choose: ${availableModes.join(', ')}`)
+          return
+        }
+
+        runtimeManager.toolRiskMode = target
+        ctx.setStatus(`Risk mode set to: ${target}`)
+        return
+      }
+
       case 'help':
       case 'h':
       case '?': {
@@ -289,6 +308,7 @@ export async function handleCommand(line: string, ctx: CommandContext) {
           { variant: 'plain', content: '── Agent & LLM ──', color: 'cyan', bold: true },
           { variant: 'plain', content: '  /agent [name]        List agents or switch default', dim: true },
           { variant: 'plain', content: '  /model [profile]     Show/set LLM profile (or reset)', dim: true },
+          { variant: 'plain', content: '  /risk [mode]         Show/set risky-tool auto-run mode', dim: true },
           { variant: 'plain', content: '', dim: true },
           { variant: 'plain', content: '── Debug ──', color: 'cyan', bold: true },
           { variant: 'plain', content: '  /replay [taskId]     Replay conversation history', dim: true },

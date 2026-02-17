@@ -8,12 +8,14 @@
 
 import type { AuditLog } from '../../core/ports/auditLog.js'
 import type {
+  ToolRiskLevel,
   ToolCallRequest,
   ToolContext,
   ToolExecutor,
   ToolRegistry,
   ToolResult
 } from '../../core/ports/tool.js'
+import { evaluateToolRiskLevel } from '../../core/ports/tool.js'
 import { validateToolArgs } from './toolSchemaValidator.js'
 
 export class DefaultToolExecutor implements ToolExecutor {
@@ -144,8 +146,10 @@ export class DefaultToolExecutor implements ToolExecutor {
       })
     }
 
+    const riskLevel: ToolRiskLevel = evaluateToolRiskLevel(tool, call.arguments as Record<string, unknown>, ctx)
+
     // Risk check: risky tools require explicit UIP confirmation
-    if (tool.riskLevel === 'risky' && !ctx.confirmedInteractionId) {
+    if (riskLevel === 'risky' && !ctx.confirmedInteractionId) {
       return await finalize({
         toolCallId: call.toolCallId,
         output: {

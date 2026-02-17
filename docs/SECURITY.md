@@ -7,7 +7,7 @@ Seed is designed primarily for local, developer-machine operation with a localho
 Primary security goals:
 - prevent unauthorized command/control access,
 - prevent workspace path escape,
-- keep risky actions user-confirmed,
+- keep high-risk actions user-confirmed,
 - preserve auditability for tool execution.
 
 ## Trust Boundaries
@@ -43,11 +43,13 @@ Protections include:
 
 ## Tool Risk Controls
 
-Tools are classified as:
-- `safe`
-- `risky`
+Tool risk is evaluated per call using runtime policy:
+- `autorun_all`
+- `autorun_no_public` (default)
+- `autorun_none`
 
-`risky` tools (e.g., file edits, command execution) require explicit confirmation flow through UIP before execution.
+Enforced risky tools (currently `runCommand`) always require explicit confirmation flow through UIP before execution.
+Policy-aware tools (for example `editFile`) can be safe or risky depending on mode and target path scope.
 
 `ToolExecutor` and orchestration enforce this boundary; rejected risky calls are still audit-recorded.
 

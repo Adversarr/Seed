@@ -8,7 +8,7 @@ Core principles:
 - **Task as unit of work**: every agent run is attached to a task stream.
 - **Event sourcing for decisions**: task lifecycle and user interactions are persisted as domain events.
 - **Audit separation for execution**: tool-call execution data is persisted separately from domain events.
-- **Human-in-the-loop for risk**: risky tool actions require explicit interaction/confirmation.
+- **Policy-aware risk control**: tool risk is evaluated per call; enforced risky actions still require explicit confirmation.
 - **Single-writer local runtime**: one master process owns local persistence; other clients attach remotely.
 
 ## Layered Design
@@ -53,7 +53,7 @@ When a healthy master exists:
 4. Agent produces outputs (`text`, `reasoning`, `tool_call(s)`, `interaction`, `done`, `failed`).
 5. `OutputHandler`:
    - emits UI events,
-   - executes safe tools directly,
+   - executes policy-safe tools directly,
    - requests UIP confirmation for risky tools,
    - appends task terminal events.
 6. Tool execution is recorded in `audit.jsonl`; domain lifecycle stays in `events.jsonl`.
@@ -86,7 +86,7 @@ Current built-in agents registered at app startup:
 - `agent_seed_research` (`SearchAgent`) — read-only workspace research
 - `agent_seed_chat` (`MinimalAgent`) — chat-only advisory agent
 
-`RuntimeManager` exposes global/default profile override and global streaming toggle.
+`RuntimeManager` exposes global/default profile override, global streaming toggle, and global tool risk mode.
 
 ## Task Group + Workspace Scopes
 
@@ -117,6 +117,6 @@ Unscoped paths default to `private:/...` in runtime tool execution.
 
 - Domain decisions are append-only and replayable.
 - Tool execution traces are auditable and separate from domain stream.
-- Risky tool calls require explicit user confirmation semantics.
+- Risky tool calls follow runtime risk policy; enforced risky calls still require explicit confirmation.
 - Client-mode adapters do not bypass master-owned state transitions.
 - Task stream processing is serialized per task.

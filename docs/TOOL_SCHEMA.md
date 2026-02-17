@@ -7,7 +7,7 @@ Tool interfaces are defined in `src/core/ports/tool.ts`.
 A tool provides:
 - `name`, `description`
 - parameter JSON schema (`type: object`, `properties`, `required`)
-- `riskLevel`: `safe | risky`
+- `riskLevel(args, ctx): safe | risky` (dynamic per-call evaluation)
 - `group`: `search | edit | exec | subtask`
 - optional `canExecute(args, ctx)` preflight
 - `execute(args, ctx)` implementation
@@ -36,8 +36,19 @@ Agent-group tools are registered after runtime/agent wiring:
 
 ## Risk Model
 
-- `safe` tools run immediately.
-- `risky` tools require user confirmation via UIP.
+Risk is evaluated per tool call using `riskLevel(args, ctx)`.
+
+Runtime risk modes:
+- `autorun_all`: auto-run all non-enforced tools.
+- `autorun_no_public` (default): auto-run except public-scope edits and enforced tools.
+- `autorun_none`: no auto-run; risky calls require confirmation.
+
+Enforced risky behavior:
+- `runCommand` is always risky regardless of mode.
+
+Path-aware behavior:
+- `editFile` evaluates risk by mode and target scope (`private:/`, `shared:/`, `public:/`).
+- Unscoped `editFile` paths are treated as `private:/`.
 
 Risk boundary is enforced in orchestration/execution path, not by UI alone.
 
@@ -46,6 +57,7 @@ Risk boundary is enforced in orchestration/execution path, not by UI alone.
 Tool execution receives `ToolContext`:
 - `taskId`, `actorId`, `baseDir`
 - `artifactStore`
+- optional `toolRiskMode` (defaults to `autorun_no_public`)
 - optional `workspaceResolver` (scoped path resolution)
 - optional `confirmedInteractionId` for approved risky actions
 - optional `signal` for cooperative cancel/pause
@@ -54,7 +66,7 @@ Tool execution receives `ToolContext`:
 
 `ToolExecutor.execute()`:
 1. resolve tool from registry,
-2. validate risk/confirmation constraints,
+2. evaluate call risk and validate confirmation constraints,
 3. append audit `ToolCallRequested`,
 4. execute tool,
 5. append audit `ToolCallCompleted`,
@@ -80,11 +92,11 @@ After execution, tool results are persisted to conversation history if missing.
 
 `ConversationManager` also repairs dangling tool calls on recovery:
 - recover from audit completion if present,
-- re-run safe tools if necessary,
+- re-run policy-safe tools if necessary,
 - leave risky dangling calls for fresh confirmation.
 
 ## Notes on Current Built-ins
 
-- `editFile` is `risky`, supports exact/regex/flexible replacement and creation when `oldString=""`.
-- `runCommand` is `risky`, supports timeout, output truncation, optional background mode, and AbortSignal cancellation.
+- `editFile` uses policy-aware risk by mode + path scope, supports exact/regex/flexible replacement and creation when `oldString=""`.
+- `runCommand` is enforced risky, supports timeout, output truncation, optional background mode, and AbortSignal cancellation.
 - task-group tools are `safe`; `createSubtasks(wait='all')` uses bounded child waits.

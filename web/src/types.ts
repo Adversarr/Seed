@@ -127,10 +127,14 @@ export interface RuntimeLLMProfile {
   builtin: boolean
 }
 
+export type ToolRiskMode = 'autorun_all' | 'autorun_no_public' | 'autorun_none'
+
 export interface RuntimeInfo {
   agents: Array<{ id: string; displayName: string; description: string }>
   defaultAgentId: string
   streamingEnabled: boolean
+  toolRiskMode: ToolRiskMode
+  availableToolRiskModes: ToolRiskMode[]
   llm: {
     provider: 'fake' | 'openai' | 'bailian' | 'volcengine'
     defaultProfile: string

@@ -1,11 +1,13 @@
 import type { ConversationStore } from '../../core/ports/conversationStore.js'
 import type { AuditLog } from '../../core/ports/auditLog.js'
 import type {
+  ToolRiskMode,
   ToolRegistry,
   ToolExecutor,
   ToolCallRequest,
   WorkspacePathResolver
 } from '../../core/ports/tool.js'
+import { evaluateToolRiskLevel } from '../../core/ports/tool.js'
 import type { ArtifactStore } from '../../core/ports/artifactStore.js'
 import type { TelemetrySink } from '../../core/ports/telemetry.js'
 import type { LLMMessage } from '../../core/ports/llmClient.js'
@@ -73,10 +75,11 @@ export class ConversationManager {
   async loadAndRepair(
     taskId: string,
     agentId: string,
-    baseDir: string
+    baseDir: string,
+    toolRiskMode?: ToolRiskMode
   ): Promise<LLMMessage[]> {
     const history: LLMMessage[] = await this.#conversationStore.getMessages(taskId)
-    await this.#repairDanglingToolCalls(taskId, agentId, baseDir, history)
+    await this.#repairDanglingToolCalls(taskId, agentId, baseDir, history, toolRiskMode)
     return history
   }
 
@@ -234,7 +237,8 @@ export class ConversationManager {
     taskId: string,
     agentId: string,
     baseDir: string,
-    history: LLMMessage[]
+    history: LLMMessage[],
+    toolRiskMode?: ToolRiskMode
   ): Promise<void> {
     // console.log('[DEBUG] repairing history for', taskId, 'length:', history.length)
 
@@ -323,7 +327,16 @@ export class ConversationManager {
       }
 
       // Strategy 4: risky tool → leave dangling for Agent to handle
-      if (tool.riskLevel !== 'safe') {
+      const toolContext = {
+        taskId,
+        actorId: agentId,
+        baseDir,
+        toolRiskMode,
+        artifactStore: this.#artifactStore,
+        workspaceResolver: this.#workspaceResolver
+      }
+      const riskLevel = evaluateToolRiskLevel(tool, toolCall.arguments, toolContext)
+      if (riskLevel !== 'safe') {
         continue
       }
 
@@ -338,6 +351,7 @@ export class ConversationManager {
           taskId,
           actorId: agentId,
           baseDir,
+          toolRiskMode,
           artifactStore: this.#artifactStore,
           workspaceResolver: this.#workspaceResolver,
         }

@@ -30,7 +30,7 @@ export const listFilesTool: Tool = {
     },
     required: ['path']
   },
-  riskLevel: 'safe',
+  riskLevel: () => 'safe',
   group: 'search',
 
   async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {

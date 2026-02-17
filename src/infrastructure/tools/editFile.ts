@@ -2,12 +2,12 @@
  * Built-in Tool: editFile
  *
  * Edits a file using string replacement (oldString -> newString).
- * Risk level: risky (requires UIP confirmation)
+ * Risk level: policy-driven based on path scope and runtime auto-run mode.
  */
 
 import { dirname } from 'node:path'
 import { nanoid } from 'nanoid'
-import type { Tool, ToolContext, ToolResult } from '../../core/ports/tool.js'
+import { resolveToolRiskMode, type Tool, type ToolContext, type ToolResult } from '../../core/ports/tool.js'
 import { resolveToolPath } from '../workspace/toolWorkspace.js'
 
 export const editFileTool: Tool = {
@@ -35,7 +35,12 @@ export const editFileTool: Tool = {
     },
     required: ['path', 'oldString', 'newString']
   },
-  riskLevel: 'risky',
+  riskLevel: (args: Record<string, unknown>, ctx: ToolContext) => {
+    const mode = resolveToolRiskMode(ctx.toolRiskMode)
+    if (mode === 'autorun_none') return 'risky'
+    if (mode === 'autorun_all') return 'safe'
+    return inferPathScope(args.path) === 'public' ? 'risky' : 'safe'
+  },
   group: 'edit',
 
   async canExecute(args: Record<string, unknown>, ctx: ToolContext): Promise<void> {
@@ -92,6 +97,15 @@ export const editFileTool: Tool = {
       }
     }
   }
+}
+
+function inferPathScope(pathValue: unknown): 'private' | 'shared' | 'public' {
+  if (typeof pathValue !== 'string') return 'public'
+
+  const trimmed = pathValue.trim()
+  const scopedMatch = /^(private|shared|public):\//u.exec(trimmed)
+  if (!scopedMatch) return 'private'
+  return scopedMatch[1] as 'private' | 'shared' | 'public'
 }
 
 async function validateRequest(

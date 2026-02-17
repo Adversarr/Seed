@@ -55,7 +55,7 @@ export const grepTool: Tool = {
     },
     required: ['pattern']
   },
-  riskLevel: 'safe',
+  riskLevel: () => 'safe',
   group: 'search',
 
   async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {

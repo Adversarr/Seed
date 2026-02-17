@@ -250,6 +250,60 @@ describe('tui/commands', () => {
     })
   })
 
+  describe('risk command', () => {
+    it('shows current risk mode when no mode is provided', async () => {
+      const runtimeManager = {
+        toolRiskMode: 'autorun_no_public',
+        availableToolRiskModes: ['autorun_all', 'autorun_no_public', 'autorun_none'],
+        isValidToolRiskMode: vi.fn().mockReturnValue(true),
+      }
+      const ctx = createContext({ runtimeManager } as unknown as App)
+
+      await handleCommand('/risk', ctx)
+
+      expect(ctx.setStatus).toHaveBeenCalledWith(
+        'Risk mode: autorun_no_public │ Available: autorun_all, autorun_no_public, autorun_none'
+      )
+    })
+
+    it('sets risk mode when input is valid', async () => {
+      let toolRiskMode: 'autorun_all' | 'autorun_no_public' | 'autorun_none' = 'autorun_no_public'
+      const runtimeManager = {
+        get toolRiskMode() {
+          return toolRiskMode
+        },
+        set toolRiskMode(mode: 'autorun_all' | 'autorun_no_public' | 'autorun_none') {
+          toolRiskMode = mode
+        },
+        availableToolRiskModes: ['autorun_all', 'autorun_no_public', 'autorun_none'],
+        isValidToolRiskMode: vi.fn((mode: string) =>
+          ['autorun_all', 'autorun_no_public', 'autorun_none'].includes(mode)
+        ),
+      }
+      const ctx = createContext({ runtimeManager } as unknown as App)
+
+      await handleCommand('/risk autorun_all', ctx)
+
+      expect(toolRiskMode).toBe('autorun_all')
+      expect(ctx.setStatus).toHaveBeenCalledWith('Risk mode set to: autorun_all')
+    })
+
+    it('rejects invalid risk mode', async () => {
+      const runtimeManager = {
+        toolRiskMode: 'autorun_no_public',
+        availableToolRiskModes: ['autorun_all', 'autorun_no_public', 'autorun_none'],
+        isValidToolRiskMode: vi.fn().mockReturnValue(false),
+      }
+      const ctx = createContext({ runtimeManager } as unknown as App)
+
+      await handleCommand('/risk invalid', ctx)
+
+      expect(ctx.setStatus).toHaveBeenCalledWith(
+        'Invalid risk mode: invalid. Choose: autorun_all, autorun_no_public, autorun_none'
+      )
+    })
+  })
+
   describe('task commands', () => {
     it('creates a task and focuses it', async () => {
       const createTask = vi.fn().mockResolvedValue({ taskId: 'task_123' })

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Kbd } from '@/components/display/Kbd'
+import type { ToolRiskMode } from '@/types'
 
 export function SettingsPage() {
   const status = useConnectionStore(s => s.status)
@@ -138,12 +139,32 @@ function RuntimeInfoCard() {
   const agents = useRuntimeStore(s => s.agents)
   const fetchRuntime = useRuntimeStore(s => s.fetchRuntime)
   const defaultAgentId = useRuntimeStore(s => s.defaultAgentId)
+  const toolRiskMode = useRuntimeStore(s => s.toolRiskMode)
+  const availableToolRiskModes = useRuntimeStore(s => s.availableToolRiskModes)
+  const setToolRiskMode = useRuntimeStore(s => s.setToolRiskMode)
+  const [isUpdatingRiskMode, setIsUpdatingRiskMode] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
     fetchRuntime({ signal: controller.signal })
     return () => controller.abort()
   }, [fetchRuntime])
+
+  const riskModeDescriptions: Record<ToolRiskMode, string> = {
+    autorun_all: 'Auto-run all tools except enforced risky tools.',
+    autorun_no_public: 'Auto-run tools except public file edits and enforced risky tools.',
+    autorun_none: 'Require confirmation for all risky tools.'
+  }
+
+  const handleRiskModeChange = async (nextMode: string) => {
+    if (!availableToolRiskModes.includes(nextMode as ToolRiskMode)) return
+    setIsUpdatingRiskMode(true)
+    try {
+      await setToolRiskMode(nextMode as ToolRiskMode)
+    } finally {
+      setIsUpdatingRiskMode(false)
+    }
+  }
 
   return (
     <Card className="max-w-md bg-zinc-950/40">
@@ -152,6 +173,26 @@ function RuntimeInfoCard() {
         <CardDescription>Connected agent information.</CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="mb-4 grid gap-2">
+          <Label htmlFor="risk-mode">Risk Mode</Label>
+          <select
+            id="risk-mode"
+            value={toolRiskMode}
+            onChange={(event) => { void handleRiskModeChange(event.target.value) }}
+            disabled={isUpdatingRiskMode || availableToolRiskModes.length === 0}
+            className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-sm text-zinc-100"
+          >
+            {availableToolRiskModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-zinc-500">
+            {riskModeDescriptions[toolRiskMode]}
+          </p>
+        </div>
+
         {agents.length === 0 ? (
           <p className="text-xs text-zinc-500 italic">No agents registered.</p>
         ) : (

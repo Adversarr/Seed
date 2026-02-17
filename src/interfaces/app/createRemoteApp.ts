@@ -13,6 +13,7 @@ import type { InteractionResponse } from '../../application/services/interaction
 import type { StoredEvent, UserInteractionRequestedPayload } from '../../core/events/events.js'
 import type { StoredAuditEntry } from '../../core/ports/auditLog.js'
 import type { LLMProfile, LLMProfileCatalog, LLMProvider } from '../../core/ports/llmClient.js'
+import type { ToolRiskMode } from '../../core/ports/tool.js'
 import { SeedWsClient } from '../../infrastructure/remote/wsClient.js'
 import { RemoteHttpClient } from '../../infrastructure/remote/httpClient.js'
 import { RemoteEventStore } from '../../infrastructure/remote/remoteEventStore.js'
@@ -146,6 +147,8 @@ class RemoteRuntimeManager {
   readonly #agents: Map<string, { id: string; displayName: string; description: string }>
   #defaultAgentId: string
   #streamingEnabled: boolean
+  #toolRiskMode: ToolRiskMode
+  readonly #availableToolRiskModes: readonly ToolRiskMode[]
   readonly #profileCatalog: LLMProfileCatalog
   readonly #llmProvider: LLMProvider
   #globalProfileOverride: LLMProfile | undefined
@@ -153,6 +156,8 @@ class RemoteRuntimeManager {
   constructor(http: RemoteHttpClient, runtime: {
     defaultAgentId: string
     streamingEnabled: boolean
+    toolRiskMode: ToolRiskMode
+    availableToolRiskModes: readonly ToolRiskMode[]
     agents: Array<{ id: string; displayName: string; description: string }>
     llm: {
       provider: LLMProvider
@@ -164,6 +169,8 @@ class RemoteRuntimeManager {
     this.#http = http
     this.#defaultAgentId = runtime.defaultAgentId
     this.#streamingEnabled = runtime.streamingEnabled
+    this.#toolRiskMode = runtime.toolRiskMode
+    this.#availableToolRiskModes = runtime.availableToolRiskModes
     this.#agents = new Map(runtime.agents.map((a) => [a.id, a]))
     this.#profileCatalog = {
       defaultProfile: runtime.llm.defaultProfile,
@@ -186,6 +193,22 @@ class RemoteRuntimeManager {
     this.#http.post('/api/runtime/streaming', { enabled: val }).catch(() => {})
   }
 
+  get toolRiskMode(): ToolRiskMode {
+    return this.#toolRiskMode
+  }
+
+  set toolRiskMode(mode: ToolRiskMode) {
+    if (!this.isValidToolRiskMode(mode)) {
+      throw new Error(`Invalid risk mode: ${mode}. Choose: ${this.#availableToolRiskModes.join(', ')}`)
+    }
+    this.#toolRiskMode = mode
+    this.#http.post('/api/runtime/risk-mode', { mode }).catch(() => {})
+  }
+
+  get availableToolRiskModes(): readonly ToolRiskMode[] {
+    return this.#availableToolRiskModes
+  }
+
   get profileCatalog(): LLMProfileCatalog {
     return this.#profileCatalog
   }
@@ -200,6 +223,10 @@ class RemoteRuntimeManager {
 
   isValidProfile(profile: LLMProfile): boolean {
     return this.availableProfiles.includes(profile)
+  }
+
+  isValidToolRiskMode(mode: string): mode is ToolRiskMode {
+    return this.#availableToolRiskModes.includes(mode as ToolRiskMode)
   }
 
   setProfileOverride(taskId: string, profile: string): void {
@@ -250,6 +277,8 @@ export async function createRemoteApp(opts: CreateRemoteAppOptions): Promise<App
   const runtime = await http.get<{
     defaultAgentId: string
     streamingEnabled: boolean
+    toolRiskMode: ToolRiskMode
+    availableToolRiskModes: readonly ToolRiskMode[]
     agents: Array<{ id: string; displayName: string; description: string }>
     llm: {
       provider: LLMProvider

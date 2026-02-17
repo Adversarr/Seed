@@ -76,7 +76,7 @@ async function createTestInfra(dir: string, opts?: { llm?: LLMClient, toolExecut
     description: 'A dummy tool',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'dummy' })
   })
 
@@ -557,7 +557,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
 
@@ -614,7 +614,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
 
@@ -666,7 +666,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
 
@@ -734,7 +734,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
 
@@ -813,7 +813,7 @@ describe('Concurrency & State Management (via RuntimeManager)', () => {
       description: 'Risky',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'risky',
+      riskLevel: () => 'risky',
       execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'done' })
     })
 

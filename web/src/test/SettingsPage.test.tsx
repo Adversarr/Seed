@@ -8,6 +8,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 
 const mockConnect = vi.fn()
 const mockDisconnect = vi.fn()
+const mockSetToolRiskMode = vi.fn()
 
 vi.mock('@/stores', () => ({
   useConnectionStore: vi.fn((selector) => {
@@ -15,7 +16,14 @@ vi.mock('@/stores', () => ({
     return selector(state)
   }),
   useRuntimeStore: vi.fn((selector) => {
-    const state = { agents: [], fetchRuntime: vi.fn(), defaultAgentId: null }
+    const state = {
+      agents: [],
+      fetchRuntime: vi.fn(),
+      defaultAgentId: null,
+      toolRiskMode: 'autorun_no_public',
+      availableToolRiskModes: ['autorun_all', 'autorun_no_public', 'autorun_none'],
+      setToolRiskMode: mockSetToolRiskMode,
+    }
     return selector(state)
   }),
 }))
@@ -145,5 +153,23 @@ describe('SettingsPage — race condition prevention (Task 5)', () => {
     })
 
     expect(screen.getByText('Token saved. Reconnecting…')).toBeInTheDocument()
+  })
+
+  it('renders risk mode selector from runtime state', () => {
+    render(<SettingsPage />)
+    const select = screen.getByLabelText('Risk Mode') as HTMLSelectElement
+    expect(select).toBeInTheDocument()
+    expect(select.value).toBe('autorun_no_public')
+  })
+
+  it('updates risk mode when selector changes', async () => {
+    render(<SettingsPage />)
+    const select = screen.getByLabelText('Risk Mode')
+
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'autorun_all' } })
+    })
+
+    expect(mockSetToolRiskMode).toHaveBeenCalledWith('autorun_all')
   })
 })

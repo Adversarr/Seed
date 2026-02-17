@@ -50,7 +50,7 @@ async function makeInfra(dir: string) {
     description: 'A dummy tool',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     execute: async () => ({ toolCallId: 'placeholder', isError: false, output: 'dummy' })
   })
 
@@ -181,6 +181,33 @@ describe('RuntimeManager — Lifecycle', () => {
 
     // After stop, isRunning should be false
     expect(manager.isRunning).toBe(false)
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('RuntimeManager — Tool Risk Mode', () => {
+  test('defaults to autorun_no_public and can be updated', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'seed-'))
+    const infra = await makeInfra(dir)
+    const manager = new RuntimeManager(infra)
+    manager.registerAgent(stubAgent(DEFAULT_AGENT_ACTOR_ID))
+
+    expect(manager.toolRiskMode).toBe('autorun_no_public')
+    manager.toolRiskMode = 'autorun_all'
+    expect(manager.toolRiskMode).toBe('autorun_all')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('validates available tool risk modes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'seed-'))
+    const infra = await makeInfra(dir)
+    const manager = new RuntimeManager(infra)
+
+    expect(manager.availableToolRiskModes).toEqual(['autorun_all', 'autorun_no_public', 'autorun_none'])
+    expect(manager.isValidToolRiskMode('autorun_none')).toBe(true)
+    expect(manager.isValidToolRiskMode('invalid')).toBe(false)
 
     rmSync(dir, { recursive: true, force: true })
   })

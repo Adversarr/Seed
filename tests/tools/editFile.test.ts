@@ -14,6 +14,54 @@ describe('editFileTool', () => {
     vol.mkdirSync(baseDir, { recursive: true })
   })
 
+  it('riskLevel is safe for private path in default mode', () => {
+    const level = editFileTool.riskLevel(
+      { path: 'private:/file.txt', oldString: 'a', newString: 'b' },
+      { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store }
+    )
+    expect(level).toBe('safe')
+  })
+
+  it('riskLevel is safe for shared path in default mode', () => {
+    const level = editFileTool.riskLevel(
+      { path: 'shared:/file.txt', oldString: 'a', newString: 'b' },
+      { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store }
+    )
+    expect(level).toBe('safe')
+  })
+
+  it('riskLevel is risky for public path in default mode', () => {
+    const level = editFileTool.riskLevel(
+      { path: 'public:/file.txt', oldString: 'a', newString: 'b' },
+      { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store }
+    )
+    expect(level).toBe('risky')
+  })
+
+  it('riskLevel is safe for unscoped path in default mode', () => {
+    const level = editFileTool.riskLevel(
+      { path: 'src/file.txt', oldString: 'a', newString: 'b' },
+      { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store }
+    )
+    expect(level).toBe('safe')
+  })
+
+  it('riskLevel is safe for public path in autorun_all mode', () => {
+    const level = editFileTool.riskLevel(
+      { path: 'public:/file.txt', oldString: 'a', newString: 'b' },
+      { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store, toolRiskMode: 'autorun_all' }
+    )
+    expect(level).toBe('safe')
+  })
+
+  it('riskLevel is risky in autorun_none mode', () => {
+    const level = editFileTool.riskLevel(
+      { path: 'private:/file.txt', oldString: 'a', newString: 'b' },
+      { baseDir, taskId: 't1', actorId: 'a1', artifactStore: store, toolRiskMode: 'autorun_none' }
+    )
+    expect(level).toBe('risky')
+  })
+
   it('should create a new file when oldString is empty', async () => {
     const result = await editFileTool.execute({
       path: 'newfile.txt',

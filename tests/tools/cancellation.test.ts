@@ -42,7 +42,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       description: 'Should not execute',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     }
     registry.register(mockTool)
@@ -76,7 +76,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       description: 'Runs fine',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     }
     registry.register(mockTool)
@@ -108,7 +108,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       description: 'Basic',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     }
     registry.register(mockTool)
@@ -137,7 +137,7 @@ describe('PR-003: DefaultToolExecutor early abort', () => {
       description: 'Audited',
       parameters: { type: 'object', properties: {} },
       group: 'search',
-      riskLevel: 'safe',
+      riskLevel: () => 'safe',
       execute: vi.fn(async () => ({ toolCallId: 'x', isError: false, output: 'ok' }))
     })
 

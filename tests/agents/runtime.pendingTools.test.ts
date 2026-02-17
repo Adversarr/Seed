@@ -59,7 +59,7 @@ async function createTestInfra(
     description: 'Tool 1',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: opts?.tool1RiskLevel ?? 'safe',
+    riskLevel: () => opts?.tool1RiskLevel ?? 'safe',
     execute: tool1
   })
 
@@ -69,7 +69,7 @@ async function createTestInfra(
     description: 'Tool 2',
     parameters: { type: 'object', properties: {} },
     group: 'search',
-    riskLevel: opts?.tool2RiskLevel ?? 'safe',
+    riskLevel: () => opts?.tool2RiskLevel ?? 'safe',
     execute: tool2
   })
 

@@ -38,7 +38,7 @@ describe('DefaultSeedAgent Diff Generation', () => {
     description: 'Edit file',
     parameters: { type: 'object', properties: {} },
     group: 'edit',
-    riskLevel: 'risky',
+    riskLevel: () => 'risky',
     execute: async () => ({ toolCallId: '1', output: {}, isError: false })
   }
 

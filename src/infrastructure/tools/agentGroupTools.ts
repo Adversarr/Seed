@@ -68,7 +68,7 @@ export function createSubtasksTool(deps: AgentGroupToolDeps): Tool {
       },
       required: ['tasks']
     },
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     group: 'subtask',
 
     async execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
@@ -139,7 +139,7 @@ export function listSubtaskTool(deps: AgentGroupToolDeps): Tool {
       type: 'object',
       properties: {}
     },
-    riskLevel: 'safe',
+    riskLevel: () => 'safe',
     group: 'subtask',
 
     async execute(_args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {

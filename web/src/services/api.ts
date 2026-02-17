@@ -13,6 +13,7 @@ import type {
   HealthResponse,
   LLMMessage,
   RuntimeInfo,
+  ToolRiskMode,
 } from '@/types'
 
 const BASE = '' // same origin (Vite proxy in dev, served directly in prod)
@@ -80,6 +81,7 @@ export const api = {
 
   // Runtime
   getRuntime: (opts?: { signal?: AbortSignal }) => get<RuntimeInfo>('/api/runtime', opts),
+  setRuntimeRiskMode: (mode: ToolRiskMode) => post<void>('/api/runtime/risk-mode', { mode }),
 
   // Audit
   getAudit: (limit = 50, taskId?: string, opts?: { signal?: AbortSignal }) => {
