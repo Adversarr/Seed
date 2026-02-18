@@ -2,6 +2,7 @@ import type { UserInteractionRespondedPayload } from '../../core/events/events.j
 import type { TaskView } from '../../application/services/taskService.js'
 import type { LLMClient, LLMMessage, LLMProfile } from '../../core/ports/llmClient.js'
 import type { ToolRegistry, ToolCallRequest, ToolGroup } from '../../core/ports/tool.js'
+import type { SkillRegistry } from '../../core/ports/skill.js'
 import type { InteractionRequest } from '../../application/services/interactionService.js'
 
 // ============================================================================
@@ -66,6 +67,9 @@ export type AgentContext = {
   
   /** Tool registry for accessing available tools (pre-filtered per agent) */
   readonly tools: ToolRegistry
+
+  /** Skill registry for metadata visibility and activation discovery. */
+  readonly skills: SkillRegistry
   
   /** Base directory of the workspace */
   readonly baseDir: string
@@ -134,6 +138,15 @@ export interface Agent {
 
   /** Tool groups this agent can access. Empty = no tools. */
   readonly toolGroups: readonly ToolGroup[]
+
+  /**
+   * Optional skill visibility allowlist.
+   * - undefined: all discovered skills visible
+   * - []: no skills visible
+   * - ['*']: all discovered skills visible (explicit)
+   * - ['name-a', 'name-b']: only listed skills visible
+   */
+  readonly skillAllowlist?: readonly string[]
 
   /** Default LLM profile this agent uses */
   readonly defaultProfile: LLMProfile

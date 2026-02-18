@@ -4,6 +4,7 @@ import type { ContextBuilder } from '../../application/context/contextBuilder.js
 import type { LLMMessage, LLMProfile } from '../../core/ports/llmClient.js'
 import type { ToolGroup } from '../../core/ports/tool.js'
 import type { ContextData } from '../../core/entities/context.js'
+import type { SkillDefinition } from '../../core/entities/skill.js'
 
 // ============================================================================
 // Base Tool Agent — Shared Tool-Loop Logic
@@ -49,7 +50,10 @@ export abstract class BaseToolAgent implements Agent {
   async *#toolLoop(task: TaskView, context: AgentContext): AsyncGenerator<AgentOutput> {
     if (context.conversationHistory.length === 0) {
       const contextData = await this.#contextBuilder.getContextData()
-      const systemContent = this.renderSystemPrompt(contextData)
+      const systemContent = this.#appendSkillCatalog(
+        this.renderSystemPrompt(contextData),
+        context.skills.list()
+      )
       await context.persistMessage({ role: 'system', content: systemContent })
 
       const taskContent = await this.#contextBuilder.buildUserTaskContent(task)
@@ -144,5 +148,25 @@ export abstract class BaseToolAgent implements Agent {
   /** Suffix appended after the user task content. Override to customize. */
   protected getUserSuffix(): string {
     return 'Please analyze this task and use the available tools to complete it. When done, provide a summary of what was accomplished.'
+  }
+
+  #appendSkillCatalog(systemPrompt: string, skills: SkillDefinition[]): string {
+    if (skills.length === 0) {
+      return systemPrompt
+    }
+
+    const lines: string[] = [
+      '',
+      '## Available Skills',
+      'You can discover reusable skills. Skill details are hidden by default.',
+      'Use the activateSkill tool with a skill name to load its full instructions and resources.',
+    ]
+
+    const sorted = [...skills].sort((left, right) => left.name.localeCompare(right.name))
+    for (const skill of sorted) {
+      lines.push(`- ${skill.name}: ${skill.description} (location: ${skill.location})`)
+    }
+
+    return `${systemPrompt}\n${lines.join('\n')}`
   }
 }

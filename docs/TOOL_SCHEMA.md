@@ -8,7 +8,7 @@ A tool provides:
 - `name`, `description`
 - parameter JSON schema (`type: object`, `properties`, `required`)
 - `riskLevel(args, ctx): safe | risky` (dynamic per-call evaluation)
-- `group`: `search | edit | exec | subtask`
+- `group`: `search | edit | exec | subtask | meta`
 - optional `canExecute(args, ctx)` preflight
 - `execute(args, ctx)` implementation
 
@@ -34,6 +34,9 @@ Agent-group tools are registered after runtime/agent wiring:
 - `createSubtasks`
 - `listSubtask`
 
+Skill activation tool is conditionally registered at app startup:
+- `activateSkill` (`group: meta`, only when workspace skills are discovered)
+
 ## Risk Model
 
 Risk is evaluated per tool call using `riskLevel(args, ctx)`.
@@ -45,6 +48,9 @@ Runtime risk modes:
 
 Enforced risky behavior:
 - `runCommand` is always risky regardless of mode.
+
+Dynamic risk behavior:
+- `activateSkill` is risky on first activation of a task-visible skill, then safe for repeat activation in the same task session.
 
 Path-aware behavior:
 - `editFile` evaluates risk by mode and target scope (`private:/`, `shared:/`, `public:/`).
@@ -100,3 +106,4 @@ After execution, tool results are persisted to conversation history if missing.
 - `editFile` uses policy-aware risk by mode + path scope, supports exact/regex/flexible replacement and creation when `oldString=""`.
 - `runCommand` is enforced risky, supports timeout, output truncation, optional background mode, and AbortSignal cancellation.
 - task-group tools are `safe`; `createSubtasks(wait='all')` uses bounded child waits.
+- `activateSkill` performs progressive disclosure (loads `SKILL.md` body only on activation) and mounts skill resources to `private:/.skills/<skillName>`.

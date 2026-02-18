@@ -19,6 +19,7 @@ export class MinimalAgent implements Agent {
   readonly displayName = 'Chat Agent'
   readonly description = 'Lightweight chat-only agent with no tool access for quick answers and guidance.'
   readonly toolGroups: readonly ToolGroup[] = []
+  readonly skillAllowlist: readonly string[] = []
   readonly defaultProfile: LLMProfile
 
   readonly #contextBuilder: ContextBuilder

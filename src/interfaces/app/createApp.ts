@@ -16,7 +16,10 @@ import { DefaultToolRegistry } from '../../infrastructure/tools/toolRegistry.js'
 import { registerBuiltinTools } from '../../infrastructure/tools/index.js'
 import { registerAgentGroupTools } from '../../infrastructure/tools/agentGroupTools.js'
 import { registerTodoUpdateTool } from '../../infrastructure/tools/todoUpdate.js'
+import { registerActivateSkillTool } from '../../infrastructure/tools/activateSkill.js'
 import { DefaultToolExecutor } from '../../infrastructure/tools/toolExecutor.js'
+import { DefaultSkillRegistry } from '../../infrastructure/skills/skillRegistry.js'
+import { SkillManager } from '../../infrastructure/skills/skillManager.js'
 import { DefaultWorkspacePathResolver } from '../../infrastructure/workspace/workspacePathResolver.js'
 import { WorkspaceDirectoryProvisioner } from '../../infrastructure/workspace/workspaceDirectoryProvisioner.js'
 import { createUiBus } from '../../infrastructure/subjectUiBus.js'
@@ -153,6 +156,20 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   // Tool Executor
   const toolExecutor = new DefaultToolExecutor({ registry: toolRegistry, auditLog })
 
+  // Skill Registry + Manager (workspace-local skills)
+  const skillRegistry = new DefaultSkillRegistry()
+  const skillManager = new SkillManager({
+    baseDir,
+    registry: skillRegistry,
+  })
+  const discoveredSkills = await skillManager.discoverWorkspaceSkills()
+  for (const warning of discoveredSkills.warnings) {
+    console.warn(warning)
+  }
+  if (discoveredSkills.loaded > 0) {
+    registerActivateSkillTool(toolRegistry, { skillManager })
+  }
+
   const uiBus = createUiBus()
   auditLog.entries$.subscribe((entry) => {
     uiBus.emit({ type: 'audit_entry', payload: entry })
@@ -224,6 +241,8 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     taskService,
     llm,
     toolRegistry,
+    skillRegistry,
+    skillManager,
     baseDir,
     conversationManager,
     outputHandler

@@ -17,6 +17,15 @@ demo/
 ├── brief.md                  # Project brief for context
 ├── outline.md                # Goal and execution outline
 ├── profiles.json             # Workspace profile catalog (auto-loaded by default)
+├── skills/                   # Workspace-local skills discovered at startup
+│   ├── repo-survey/
+│   │   ├── SKILL.md
+│   │   └── references/checklist.md
+│   ├── safe-edit/
+│   │   ├── SKILL.md
+│   │   └── scripts/preflight.sh
+│   └── test-first-fix/
+│       └── SKILL.md
 ├── state/                    # Runtime state (events/audit/conversations/lock)
 ├── private/                  # Task-private workspace roots
 ├── shared/                   # Task-group shared workspace roots
@@ -38,13 +47,17 @@ npm run dev -- --workspace demo
 
 ```text
 /new Improve task clarity in public:/data/sample.txt
-/continue Read the file, propose a single focused improvement, and apply only after confirmation.
+/continue Start with repo survey, then propose a single focused improvement, and apply only after confirmation.
 ```
 
 3. Observe expected behavior:
 - Safe reads execute directly.
 - Risky edit triggers UIP with diff preview.
 - After approval, task transitions to completion.
+- System prompt includes skill metadata (`repo-survey`, `safe-edit`, `test-first-fix`) only.
+- Model must call `activateSkill` to load full instructions/resources.
+- First activation per task requires consent; repeated activation in the same task is safe.
+- Activated skill resources are mounted under `private:/.skills/<skill-name>/...`.
 
 4. Verify the file change:
 
@@ -56,6 +69,8 @@ cat demo/public/data/sample.txt
 
 - Tool loop execution with deterministic state transitions.
 - UIP safety guard for risky operations.
+- Skill discovery from `demo/skills` and metadata-only prompt injection.
+- Progressive skill activation with task-scoped consent.
 - Event + audit separation in `state/`.
 - End-to-end behavior for a non-writing workspace task.
 

@@ -126,3 +126,22 @@ Access rules:
 - **Audit log entries** model tool execution details.
 
 This separation keeps replay/state logic stable while preserving full execution traceability.
+
+## Skill Domain Concepts
+
+Skill metadata entity (`SkillDefinition`) includes:
+- normalized `name`
+- `description`
+- workspace-relative `location`
+- absolute `skillFilePath` for lazy body loading
+
+Skill visibility is agent-scoped via `skillAllowlist` and projected into `AgentContext.skills`.
+
+Activation semantics are task-session scoped:
+- first activation of a visible skill requires risky-tool confirmation,
+- repeated activation in the same task is safe and idempotent,
+- session state is cleared when task runtime is cleaned up.
+
+Activated skill resources are materialized to task-private workspace paths:
+- logical mount: `private:/.skills/<skillName>`
+- physical mount: `private/<taskId>/.skills/<skillName>/...`

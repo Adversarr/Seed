@@ -7,12 +7,22 @@ import {
   type ToolGroup,
   type ToolRiskMode
 } from '../../core/ports/tool.js'
+import type { SkillRegistry } from '../../core/ports/skill.js'
 import type { DomainEvent, UserInteractionRespondedPayload } from '../../core/events/events.js'
 import type { TaskService, TaskView } from '../../application/services/taskService.js'
 import type { Agent, AgentContext } from './agent.js'
 import type { ConversationManager } from '../orchestration/conversationManager.js'
 import type { OutputHandler, OutputContext } from '../orchestration/outputHandler.js'
 import { FilteredToolRegistry } from '../../infrastructure/tools/filteredToolRegistry.js'
+import { FilteredSkillRegistry } from '../../infrastructure/skills/filteredSkillRegistry.js'
+import type { SkillManager } from '../../infrastructure/skills/skillManager.js'
+
+const EMPTY_SKILL_REGISTRY: SkillRegistry = {
+  registerOrReplace: () => ({ replaced: false }),
+  get: () => undefined,
+  list: () => [],
+  listByNames: () => [],
+}
 
 // ============================================================================
 // Agent Runtime — Task-Scoped Executor
@@ -48,6 +58,8 @@ export class AgentRuntime {
   readonly #agent: Agent
   readonly #llm: LLMClient
   readonly #toolRegistry: ToolRegistry
+  readonly #skillRegistry: SkillRegistry
+  readonly #skillManager?: SkillManager
   readonly #baseDir: string
   readonly #conversationManager: ConversationManager
   readonly #outputHandler: OutputHandler
@@ -81,6 +93,8 @@ export class AgentRuntime {
     agent: Agent
     llm: LLMClient
     toolRegistry: ToolRegistry
+    skillRegistry?: SkillRegistry
+    skillManager?: SkillManager
     baseDir: string
     conversationManager: ConversationManager
     outputHandler: OutputHandler
@@ -91,6 +105,8 @@ export class AgentRuntime {
     this.#agent = opts.agent
     this.#llm = opts.llm
     this.#toolRegistry = opts.toolRegistry
+    this.#skillRegistry = opts.skillRegistry ?? EMPTY_SKILL_REGISTRY
+    this.#skillManager = opts.skillManager
     this.#baseDir = opts.baseDir
     this.#conversationManager = opts.conversationManager
     this.#outputHandler = opts.outputHandler
@@ -333,6 +349,14 @@ export class AgentRuntime {
     pendingResponse?: UserInteractionRespondedPayload
   ): Promise<{ taskId: string; events: DomainEvent[] }> {
     const taskId = this.#taskId
+    const allowlist = this.#agent.skillAllowlist
+    const agentSkills: SkillRegistry = allowlist === undefined || allowlist.includes('*')
+      ? this.#skillRegistry
+      : new FilteredSkillRegistry(this.#skillRegistry, allowlist)
+
+    // Bind per-task skill visibility before conversation repair, so any
+    // replayed safe activateSkill calls cannot bypass per-agent visibility.
+    this.#skillManager?.setTaskVisibleSkills(taskId, agentSkills.list().map((skill) => skill.name))
 
     // Load & repair conversation history
     const conversationHistory = await this.#conversationManager.loadAndRepair(
@@ -395,6 +419,7 @@ export class AgentRuntime {
     const context: AgentContext = {
       llm: this.#llm,
       tools: agentTools,
+      skills: agentSkills,
       baseDir: this.#baseDir,
       conversationHistory,
       pendingInteractionResponse: pendingResponse,

@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { OutputHandler } from '../../src/agents/orchestration/outputHandler.js'
 import type { Tool, ToolContext } from '../../src/core/ports/tool.js'
 import type { ToolRegistry } from '../../src/core/ports/tool.js'
 import type { ToolExecutor } from '../../src/core/ports/tool.js'
+import { DefaultSkillRegistry } from '../../src/infrastructure/skills/skillRegistry.js'
+import { SkillManager } from '../../src/infrastructure/skills/skillManager.js'
+import { createActivateSkillTool } from '../../src/infrastructure/tools/activateSkill.js'
 
 describe('OutputHandler Tool Lifecycle', () => {
   let handler: OutputHandler
@@ -260,5 +266,123 @@ describe('OutputHandler Tool Lifecycle', () => {
       expect.anything(),
       persistMessage
     )
+  })
+
+  it('handles activateSkill consent once per task and auto-runs repeat activations', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'seed-output-handler-skill-'))
+    mkdirSync(join(dir, 'skills', 'repo-survey'), { recursive: true })
+    writeFileSync(
+      join(dir, 'skills', 'repo-survey', 'SKILL.md'),
+      [
+        '---',
+        'name: repo-survey',
+        'description: Survey the repo before implementation.',
+        '---',
+        '',
+        '# Repo Survey',
+        '',
+        'Follow the checklist.',
+      ].join('\n'),
+      'utf8'
+    )
+
+    const skillRegistry = new DefaultSkillRegistry()
+    const skillManager = new SkillManager({ baseDir: dir, registry: skillRegistry })
+    await skillManager.discoverWorkspaceSkills()
+    skillManager.setTaskVisibleSkills('t1', ['repo-survey'])
+
+    const activateSkillTool = createActivateSkillTool({ skillManager })
+    const persistToolResultIfMissing = vi.fn(async () => {})
+    const localConversationManager = {
+      getPendingToolCalls: vi.fn(),
+      persistToolResultIfMissing
+    }
+    const localRegistry: ToolRegistry = {
+      register: vi.fn(),
+      get: vi.fn((name: string) => (name === 'activateSkill' ? activateSkillTool : undefined)),
+      list: vi.fn(() => [activateSkillTool]),
+      listByGroups: vi.fn(() => [activateSkillTool]),
+      toOpenAIFormat: vi.fn(() => []),
+      toOpenAIFormatByGroups: vi.fn(() => [])
+    }
+    const localExecutor: ToolExecutor = {
+      execute: vi.fn(async (call, toolCtx) => activateSkillTool.execute(call.arguments, toolCtx)),
+      recordRejection: vi.fn((call) => ({
+        toolCallId: call.toolCallId,
+        output: { isError: true, error: 'User rejected the request' },
+        isError: true
+      }))
+    }
+
+    const localHandler = new OutputHandler({
+      toolRegistry: localRegistry,
+      toolExecutor: localExecutor,
+      conversationManager: localConversationManager as any,
+      artifactStore: {} as any
+    })
+
+    try {
+      const baseCtx = {
+        taskId: 't1',
+        agentId: 'a1',
+        baseDir: dir,
+        conversationHistory: [],
+        persistMessage: vi.fn()
+      }
+
+      const first = await localHandler.handle(
+        {
+          kind: 'tool_call',
+          call: {
+            toolCallId: 'tc-activate-1',
+            toolName: 'activateSkill',
+            arguments: { name: 'repo-survey' }
+          }
+        },
+        { ...baseCtx }
+      )
+      expect(first.pause).toBe(true)
+      expect(localExecutor.execute).not.toHaveBeenCalled()
+
+      const second = await localHandler.handle(
+        {
+          kind: 'tool_call',
+          call: {
+            toolCallId: 'tc-activate-1',
+            toolName: 'activateSkill',
+            arguments: { name: 'repo-survey' }
+          }
+        },
+        {
+          ...baseCtx,
+          confirmedInteractionId: 'confirm-1',
+          confirmedToolCallId: 'tc-activate-1'
+        }
+      )
+      expect(second.pause).toBeUndefined()
+      expect(localExecutor.execute).toHaveBeenCalledTimes(1)
+      expect(skillManager.isActivationConsentRequired('t1', 'repo-survey')).toBe(false)
+
+      const third = await localHandler.handle(
+        {
+          kind: 'tool_call',
+          call: {
+            toolCallId: 'tc-activate-2',
+            toolName: 'activateSkill',
+            arguments: { name: 'repo-survey' }
+          }
+        },
+        { ...baseCtx }
+      )
+      expect(third.pause).toBeUndefined()
+      expect(localExecutor.execute).toHaveBeenCalledTimes(2)
+
+      const firstPersistedOutput = persistToolResultIfMissing.mock.calls[0]?.[3] as any
+      const secondPersistedOutput = persistToolResultIfMissing.mock.calls[1]?.[3] as any
+      expect(firstPersistedOutput?.alreadyActivated).toBe(false)
+      expect(secondPersistedOutput?.alreadyActivated).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

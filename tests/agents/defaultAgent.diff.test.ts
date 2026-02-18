@@ -4,6 +4,7 @@ import { ContextBuilder } from '../../src/application/context/contextBuilder.js'
 import type { AgentContext } from '../../src/agents/core/agent.js'
 import type { TaskView } from '../../src/application/services/taskService.js'
 import type { ToolRegistry, Tool } from '../../src/core/ports/tool.js'
+import type { SkillRegistry } from '../../src/core/ports/skill.js'
 import type { LLMClient } from '../../src/core/ports/llmClient.js'
 
 describe('DefaultSeedAgent Diff Generation', () => {
@@ -65,9 +66,17 @@ describe('DefaultSeedAgent Diff Generation', () => {
     stream: vi.fn()
   }
 
+  const mockSkills: SkillRegistry = {
+    registerOrReplace: vi.fn().mockReturnValue({ replaced: false }),
+    get: vi.fn(),
+    list: vi.fn().mockReturnValue([]),
+    listByNames: vi.fn().mockReturnValue([])
+  }
+
   const mockContext: AgentContext = {
     llm: mockLLM,
     tools: mockTools,
+    skills: mockSkills,
     baseDir: '/tmp',
     conversationHistory: [],
     persistMessage: vi.fn()

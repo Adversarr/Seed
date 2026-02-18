@@ -8,6 +8,7 @@ Primary security goals:
 - prevent unauthorized command/control access,
 - prevent workspace path escape,
 - keep high-risk actions user-confirmed,
+- keep skill instruction/resource disclosure explicit and task-scoped,
 - preserve auditability for tool execution.
 
 ## Trust Boundaries
@@ -50,8 +51,21 @@ Tool risk is evaluated per call using runtime policy:
 
 Enforced risky tools (currently `runCommand`) always require explicit confirmation flow through UIP before execution.
 Policy-aware tools (for example `editFile`) can be safe or risky depending on mode and target path scope.
+`activateSkill` is risky on first activation per task session, then safe for repeat activation in that same task.
 
 `ToolExecutor` and orchestration enforce this boundary; rejected risky calls are still audit-recorded.
+
+## Skill Activation Safety
+
+Skill discovery is limited to workspace-local `<workDir>/skills`.
+
+Before activation:
+- only metadata (`name`, `description`, `location`) is exposed in prompt context.
+
+On activation:
+- full instructions are injected only after explicit tool call,
+- resources are mounted into task-private scope (`private/<taskId>/.skills/<skillName>`),
+- visibility is constrained by per-agent skill allowlist.
 
 ## Resource/Abuse Controls
 

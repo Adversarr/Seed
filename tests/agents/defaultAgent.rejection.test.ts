@@ -4,6 +4,7 @@ import { ContextBuilder } from '../../src/application/context/contextBuilder.js'
 import type { AgentContext } from '../../src/agents/core/agent.js'
 import type { TaskView } from '../../src/application/services/taskService.js'
 import type { ToolRegistry, Tool } from '../../src/core/ports/tool.js'
+import type { SkillRegistry } from '../../src/core/ports/skill.js'
 import type { LLMClient, LLMMessage } from '../../src/core/ports/llmClient.js'
 
 describe('DefaultSeedAgent - Risk-Unaware Behavior', () => {
@@ -54,6 +55,13 @@ describe('DefaultSeedAgent - Risk-Unaware Behavior', () => {
     stream: vi.fn()
   }
 
+  const mockSkills: SkillRegistry = {
+    registerOrReplace: vi.fn().mockReturnValue({ replaced: false }),
+    get: vi.fn(),
+    list: vi.fn().mockReturnValue([]),
+    listByNames: vi.fn().mockReturnValue([])
+  }
+
   it('should skip pending tool calls that already have rejection results (injected by Runtime)', async () => {
     // Runtime injects rejection results before calling agent.run(),
     // so history already contains the tool result when agent sees it.
@@ -81,6 +89,7 @@ describe('DefaultSeedAgent - Risk-Unaware Behavior', () => {
     const mockContext: AgentContext = {
       llm: mockLLM,
       tools: mockTools,
+      skills: mockSkills,
       baseDir: '/tmp',
       conversationHistory: history,
       persistMessage
@@ -113,6 +122,7 @@ describe('DefaultSeedAgent - Risk-Unaware Behavior', () => {
     const mockContext: AgentContext = {
       llm: mockLLM,
       tools: mockTools,
+      skills: mockSkills,
       baseDir: '/tmp',
       conversationHistory: history,
       persistMessage

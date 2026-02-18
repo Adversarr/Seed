@@ -9,6 +9,7 @@ Core principles:
 - **Event sourcing for decisions**: task lifecycle and user interactions are persisted as domain events.
 - **Audit separation for execution**: tool-call execution data is persisted separately from domain events.
 - **Policy-aware risk control**: tool risk is evaluated per call; enforced risky actions still require explicit confirmation.
+- **Progressive skill activation**: skill metadata is visible in prompts; full skill instructions/resources load only on explicit activation.
 - **Single-writer local runtime**: one master process owns local persistence; other clients attach remotely.
 
 ## Layered Design
@@ -87,6 +88,18 @@ Current built-in agents registered at app startup:
 - `agent_seed_chat` (`MinimalAgent`) — chat-only advisory agent
 
 `RuntimeManager` exposes global/default profile override, global streaming toggle, and global tool risk mode.
+
+## Skill System (V1)
+
+Workspace skills are discovered during app composition from `<workDir>/skills`.
+
+Pipeline:
+1. loader parses `SKILL.md` metadata (`name`, `description`) and registers normalized skill definitions.
+2. runtime builds per-agent filtered skill views from `skillAllowlist`.
+3. base agents inject metadata-only skill catalog into system prompt.
+4. `activateSkill` tool performs explicit activation, consent-aware risk checks, and task-private resource mounting.
+
+Current scope is workspace-only (no user/global skill tiers).
 
 ## Task Group + Workspace Scopes
 

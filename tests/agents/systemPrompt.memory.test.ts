@@ -10,6 +10,8 @@ import type { AgentContext } from '../../src/agents/core/agent.js'
 import type { TaskView } from '../../src/application/services/taskService.js'
 import type { LLMClient } from '../../src/core/ports/llmClient.js'
 import type { ToolRegistry } from '../../src/core/ports/tool.js'
+import type { SkillRegistry } from '../../src/core/ports/skill.js'
+import type { SkillDefinition } from '../../src/core/entities/skill.js'
 import { DEFAULT_USER_ACTOR_ID } from '../../src/core/entities/actor.js'
 
 function createTask(overrides: Partial<TaskView> = {}): TaskView {
@@ -49,6 +51,17 @@ function createLLMClient() {
   return llm
 }
 
+function createSkillRegistry(skills: SkillDefinition[] = []): SkillRegistry {
+  return {
+    registerOrReplace: vi.fn().mockReturnValue({ replaced: false }),
+    get: vi.fn(),
+    list: vi.fn().mockReturnValue(skills),
+    listByNames: vi.fn().mockImplementation((names: readonly string[]) =>
+      skills.filter((skill) => names.includes(skill.name))
+    )
+  }
+}
+
 describe('DefaultSeedAgent system prompt memory', () => {
   test('injects AGENTS.md content and omits legacy project sections', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'seed-system-prompt-'))
@@ -63,6 +76,7 @@ describe('DefaultSeedAgent system prompt memory', () => {
     const context: AgentContext = {
       llm,
       tools: createToolRegistry(),
+      skills: createSkillRegistry(),
       baseDir: dir,
       conversationHistory,
       persistMessage: async (message) => {
@@ -80,6 +94,49 @@ describe('DefaultSeedAgent system prompt memory', () => {
     expect(conversationHistory[0]?.content).not.toContain('## Project Outline')
     expect(conversationHistory[0]?.content).not.toContain('## Project Brief')
     expect(conversationHistory[0]?.content).not.toContain('## Style Guide')
+
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('includes skill metadata catalog without injecting skill body before activation', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'seed-system-prompt-skills-'))
+    const store = new FsArtifactStore(dir)
+    const contextBuilder = new ContextBuilder(dir, store)
+    const agent = new DefaultSeedAgent({ contextBuilder })
+    const llm = createLLMClient()
+    const conversationHistory: any[] = []
+
+    const skillBodySnippet = 'Step 1: secret body instructions'
+    const skills: SkillDefinition[] = [
+      {
+        name: 'repo-survey',
+        description: 'Survey repository structure and summarize hotspots.',
+        location: 'skills/repo-survey',
+        skillFilePath: join(dir, 'skills', 'repo-survey', 'SKILL.md')
+      }
+    ]
+
+    const context: AgentContext = {
+      llm,
+      tools: createToolRegistry(),
+      skills: createSkillRegistry(skills),
+      baseDir: dir,
+      conversationHistory,
+      persistMessage: async (message) => {
+        conversationHistory.push(message)
+      }
+    }
+
+    for await (const _output of agent.run(createTask(), context)) {
+      // Consume output until completion.
+    }
+
+    const systemPrompt = String(conversationHistory[0]?.content ?? '')
+    expect(systemPrompt).toContain('## Available Skills')
+    expect(systemPrompt).toContain('repo-survey')
+    expect(systemPrompt).toContain('Survey repository structure and summarize hotspots.')
+    expect(systemPrompt).toContain('activateSkill')
+    expect(systemPrompt).not.toContain(skillBodySnippet)
 
     rmSync(dir, { recursive: true, force: true })
   })

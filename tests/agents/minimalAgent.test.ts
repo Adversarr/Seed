@@ -9,6 +9,7 @@ import type { AgentContext } from '../../src/agents/core/agent.js'
 import type { TaskView } from '../../src/application/services/taskService.js'
 import type { LLMClient, LLMResponse } from '../../src/core/ports/llmClient.js'
 import type { ToolRegistry } from '../../src/core/ports/tool.js'
+import type { SkillRegistry } from '../../src/core/ports/skill.js'
 import { DEFAULT_USER_ACTOR_ID } from '../../src/core/entities/actor.js'
 
 function createTask(overrides: Partial<TaskView> = {}): TaskView {
@@ -46,6 +47,15 @@ function createToolRegistry(): ToolRegistry {
   }
 }
 
+function createSkillRegistry(): SkillRegistry {
+  return {
+    registerOrReplace: vi.fn().mockReturnValue({ replaced: false }),
+    get: vi.fn(),
+    list: vi.fn().mockReturnValue([]),
+    listByNames: vi.fn().mockReturnValue([])
+  }
+}
+
 describe('MinimalAgent', () => {
   test('seeds system and user messages on first run', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'seed-'))
@@ -59,6 +69,7 @@ describe('MinimalAgent', () => {
     const context: AgentContext = {
       llm,
       tools: createToolRegistry(),
+      skills: createSkillRegistry(),
       baseDir: dir,
       conversationHistory,
       persistMessage: async (message) => {
@@ -98,6 +109,7 @@ describe('MinimalAgent', () => {
     const context: AgentContext = {
       llm,
       tools: createToolRegistry(),
+      skills: createSkillRegistry(),
       baseDir: dir,
       conversationHistory,
       persistMessage: async (message) => {

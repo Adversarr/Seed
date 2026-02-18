@@ -22,6 +22,12 @@ export * from './servers/ws/wsServer.js'
 export * from './tools/toolExecutor.js'
 export * from './tools/toolRegistry.js'
 
+// Skills
+export * from './skills/skillLoader.js'
+export * from './skills/skillRegistry.js'
+export * from './skills/filteredSkillRegistry.js'
+export * from './skills/skillManager.js'
+
 // LLM
 export * from './llm/openaiLLMClient.js'
 export * from './llm/fakeLLMClient.js'

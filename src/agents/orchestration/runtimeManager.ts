@@ -1,6 +1,7 @@
 import type { Subscription } from '../../core/ports/subscribable.js'
 import type { EventStore } from '../../core/ports/eventStore.js'
 import type { LLMClient, LLMProfile, LLMProfileCatalog } from '../../core/ports/llmClient.js'
+import type { SkillRegistry } from '../../core/ports/skill.js'
 import {
   DEFAULT_TOOL_RISK_MODE,
   TOOL_RISK_MODES,
@@ -14,6 +15,14 @@ import type { ConversationManager } from './conversationManager.js'
 import type { OutputHandler } from './outputHandler.js'
 import { AgentRuntime } from '../core/runtime.js'
 import { AsyncMutex } from '../../infrastructure/asyncMutex.js'
+import type { SkillManager } from '../../infrastructure/skills/skillManager.js'
+
+const EMPTY_SKILL_REGISTRY: SkillRegistry = {
+  registerOrReplace: () => ({ replaced: false }),
+  get: () => undefined,
+  list: () => [],
+  listByNames: () => [],
+}
 
 // ============================================================================
 // Runtime Manager — Multi-Agent Orchestrator
@@ -42,6 +51,8 @@ export class RuntimeManager {
   readonly #taskService: TaskService
   readonly #llm: LLMClient
   readonly #toolRegistry: ToolRegistry
+  readonly #skillRegistry: SkillRegistry
+  readonly #skillManager?: SkillManager
   readonly #baseDir: string
   readonly #conversationManager: ConversationManager
   readonly #outputHandler: OutputHandler
@@ -73,6 +84,8 @@ export class RuntimeManager {
     taskService: TaskService
     llm: LLMClient
     toolRegistry: ToolRegistry
+    skillRegistry?: SkillRegistry
+    skillManager?: SkillManager
     baseDir: string
     conversationManager: ConversationManager
     outputHandler: OutputHandler
@@ -81,6 +94,8 @@ export class RuntimeManager {
     this.#taskService = opts.taskService
     this.#llm = opts.llm
     this.#toolRegistry = opts.toolRegistry
+    this.#skillRegistry = opts.skillRegistry ?? EMPTY_SKILL_REGISTRY
+    this.#skillManager = opts.skillManager
     this.#baseDir = opts.baseDir
     this.#conversationManager = opts.conversationManager
     this.#outputHandler = opts.outputHandler
@@ -219,6 +234,9 @@ export class RuntimeManager {
     for (const rt of this.#runtimes.values()) {
       rt.onCancel()
     }
+    for (const taskId of this.#runtimes.keys()) {
+      this.#skillManager?.clearTaskSession(taskId)
+    }
     this.#runtimes.clear()
     this.#taskLocks.clear()
   }
@@ -281,6 +299,7 @@ export class RuntimeManager {
         rt.onCancel()
         this.#runtimes.delete(taskId)
       }
+      this.#skillManager?.clearTaskSession(taskId)
       this.#cleanupTaskLock(taskId)
       return
     }
@@ -288,6 +307,7 @@ export class RuntimeManager {
     // --- Terminal events: cleanup only ---
     if (event.type === 'TaskCompleted' || event.type === 'TaskFailed') {
       this.#runtimes.delete(taskId)
+      this.#skillManager?.clearTaskSession(taskId)
       this.#cleanupTaskLock(taskId)
       return
     }
@@ -428,6 +448,8 @@ export class RuntimeManager {
       agent,
       llm: this.#llm,
       toolRegistry: this.#toolRegistry,
+      skillRegistry: this.#skillRegistry,
+      skillManager: this.#skillManager,
       baseDir: this.#baseDir,
       conversationManager: this.#conversationManager,
       outputHandler: this.#outputHandler
@@ -448,10 +470,12 @@ export class RuntimeManager {
     const task = await this.#taskService.getTask(taskId)
     if (!task) {
       this.#runtimes.delete(taskId)
+      this.#skillManager?.clearTaskSession(taskId)
       return
     }
     if (task.status === 'done' || task.status === 'failed' || task.status === 'canceled') {
       this.#runtimes.delete(taskId)
+      this.#skillManager?.clearTaskSession(taskId)
     }
   }
 

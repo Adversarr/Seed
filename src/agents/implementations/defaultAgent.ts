@@ -23,7 +23,8 @@ export class DefaultSeedAgent extends BaseToolAgent {
   readonly displayName = 'Coordinator Agent'
   readonly description =
     'General execution agent that plans work, uses tools, and delegates subtasks when useful.'
-  readonly toolGroups: readonly ToolGroup[] = ['search', 'edit', 'exec', 'subtask']
+  readonly toolGroups: readonly ToolGroup[] = ['search', 'edit', 'exec', 'subtask', 'meta']
+  readonly skillAllowlist: readonly string[] = ['*']
   readonly defaultProfile: LLMProfile
 
   constructor(opts: {

@@ -66,7 +66,7 @@ export function resolveToolRiskMode(mode?: ToolRiskMode): ToolRiskMode {
 }
 
 /** Logical grouping for controlling per-agent tool access. */
-export type ToolGroup = 'search' | 'edit' | 'exec' | 'subtask'
+export type ToolGroup = 'search' | 'edit' | 'exec' | 'subtask' | 'meta'
 
 // ============================================================================
 // Workspace Path Resolution

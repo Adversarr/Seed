@@ -168,6 +168,22 @@ describe('toolFormatters.listSubtask', () => {
   })
 })
 
+describe('toolFormatters.activateSkill', () => {
+  it('formats activateSkill output', () => {
+    expect(toolFormatters.activateSkill({
+      success: true,
+      alreadyActivated: false,
+      skill: { name: 'repo-survey' },
+    })).toBe('Skill repo-survey activated')
+
+    expect(toolFormatters.activateSkill({
+      success: true,
+      alreadyActivated: true,
+      skill: { name: 'repo-survey' },
+    })).toBe('Skill repo-survey already active')
+  })
+})
+
 describe('toolFormatters.TodoUpdate', () => {
   it('formats all-complete output', () => {
     expect(toolFormatters.TodoUpdate('All todo complete')).toBe('All todo complete')
@@ -261,6 +277,11 @@ describe('formatToolInput', () => {
   it('formats listSubtask input', () => {
     expect(formatToolInput('listSubtask', {}))
       .toBe('List sub-agents')
+  })
+
+  it('formats activateSkill input', () => {
+    expect(formatToolInput('activateSkill', { name: 'repo-survey' }))
+      .toBe('Activate skill "repo-survey"')
   })
 
   it('formats TodoUpdate input summary', () => {

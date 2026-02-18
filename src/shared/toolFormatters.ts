@@ -129,6 +129,13 @@ export const toolFormatters: Record<string, (output: any) => string | null> = {
     }
     return null
   },
+  activateSkill: (output: any) => {
+    if (output && output.success && output.skill && typeof output.skill.name === 'string') {
+      const status = output.alreadyActivated ? 'already active' : 'activated'
+      return `Skill ${output.skill.name} ${status}`
+    }
+    return null
+  },
   TodoUpdate: (output: any) => {
     if (output === 'All todo complete') {
       return 'All todo complete'
@@ -221,6 +228,12 @@ export const toolInputFormatters: Record<string, (input: any) => string | null> 
   },
   listSubtask: () => {
     return 'List sub-agents'
+  },
+  activateSkill: (input: any) => {
+    if (input && typeof input.name === 'string') {
+      return `Activate skill "${input.name}"`
+    }
+    return null
   },
   TodoUpdate: (input: any) => {
     if (!input || !Array.isArray(input.todos)) return null

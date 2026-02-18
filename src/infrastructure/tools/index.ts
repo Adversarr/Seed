@@ -24,6 +24,7 @@ export { globTool } from './globTool.js'
 export { grepTool } from './grepTool.js'
 export { createWebSearchTool } from './webSearch.js'
 export { createWebFetchTool } from './webFetch.js'
+export { createActivateSkillTool, registerActivateSkillTool } from './activateSkill.js'
 export {
   createTodoUpdateTool,
   registerTodoUpdateTool
@@ -34,6 +35,7 @@ export {
   registerAgentGroupTools
 } from './agentGroupTools.js'
 export type { AgentGroupToolDeps } from './agentGroupTools.js'
+export type { ActivateSkillToolDeps } from './activateSkill.js'
 
 /**
  * Register all built-in tools in the given registry.

@@ -19,7 +19,8 @@ export class SearchAgent extends BaseToolAgent {
   readonly displayName = 'Research Agent'
   readonly description =
     'Read-only research agent that surveys workspace files and summarizes evidence-backed findings.'
-  readonly toolGroups: readonly ToolGroup[] = ['search']
+  readonly toolGroups: readonly ToolGroup[] = ['search', 'meta']
+  readonly skillAllowlist: readonly string[] = ['*']
   readonly defaultProfile: LLMProfile
 
   constructor(opts: {
