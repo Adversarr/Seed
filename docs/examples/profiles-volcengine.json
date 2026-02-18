@@ -1,45 +1,50 @@
 {
-  "defaultProfile": "fast",
-  "clientPolicies": {
-    "volc_default": {
-      "openaiCompat": {
-        "enableThinking": true
+  "llms": {
+    "defaultProfile": "fast",
+    "clientPolicies": {
+      "volc_default": {
+        "openaiCompat": {
+          "enableThinking": true
+        },
+        "provider": {
+          "volcengine": {
+            "thinkingType": "enabled",
+            "reasoningEffort": "medium"
+          }
+        }
       },
-      "provider": {
-        "volcengine": {
-          "thinkingType": "enabled",
-          "reasoningEffort": "medium"
+      "volc_web": {
+        "openaiCompat": {
+          "enableThinking": true
+        },
+        "provider": {
+          "volcengine": {
+            "thinkingType": "enabled",
+            "reasoningEffort": "high"
+          }
         }
       }
     },
-    "volc_web": {
-      "openaiCompat": {
-        "enableThinking": true
+    "profiles": {
+      "fast": {
+        "model": "doubao-seed-2-0-pro-260215",
+        "clientPolicy": "volc_web"
       },
-      "provider": {
-        "volcengine": {
-          "thinkingType": "enabled",
-          "reasoningEffort": "high"
-        }
+      "writer": {
+        "model": "doubao-seed-2-0-pro-260215",
+        "clientPolicy": "volc_web"
+      },
+      "reasoning": {
+        "model": "doubao-seed-2-0-pro-260215",
+        "clientPolicy": "volc_web"
+      },
+      "research_web": {
+        "model": "doubao-seed-2-0-pro-260215",
+        "clientPolicy": "volc_web"
       }
     }
   },
-  "profiles": {
-    "fast": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    },
-    "writer": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    },
-    "reasoning": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    },
-    "research_web": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    }
+  "mcp": {
+    "servers": {}
   }
 }

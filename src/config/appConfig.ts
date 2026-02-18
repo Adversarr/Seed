@@ -2,9 +2,10 @@ import { z } from 'zod'
 import type { LLMProfile, LLMProvider } from '../core/ports/llmClient.js'
 import type { TaskPriority } from '../core/entities/task.js'
 import {
-  parseLLMProfileCatalogConfig,
-  type LLMProfileCatalogConfig,
-} from './llmProfileCatalog.js'
+  parseWorkspaceProfileEnvelopeConfig,
+} from './profileCatalog.js'
+import type { LLMProfileCatalogConfig } from './llmProfileCatalog.js'
+import type { McpProfileCatalogConfig } from './mcpProfileCatalog.js'
 
 export type AppConfig = {
   telemetry: {
@@ -19,6 +20,7 @@ export type AppConfig = {
     baseURL: string | null
     profiles: LLMProfileCatalogConfig
   }
+  mcp: McpProfileCatalogConfig
   agent: {
     maxIterations: number
     maxTokens: number
@@ -71,7 +73,8 @@ export function loadAppConfig(
 ): AppConfig {
   const parsed = EnvSchema.parse(env)
   const llmProvider = parsed.SEED_LLM_PROVIDER as LLMProvider
-  const profileCatalog = parseLLMProfileCatalogConfig({
+
+  const profileEnvelope = parseWorkspaceProfileEnvelopeConfig({
     raw: parsed.SEED_LLM_PROFILES_JSON,
     provider: llmProvider,
     workspaceDir: opts?.workspaceDir,
@@ -88,13 +91,14 @@ export function loadAppConfig(
       provider: llmProvider,
       apiKey: parsed.SEED_LLM_API_KEY ?? null,
       baseURL: parsed.SEED_LLM_BASE_URL ?? null,
-      profiles: profileCatalog,
+      profiles: profileEnvelope.llms,
     },
+    mcp: profileEnvelope.mcp,
     agent: {
       maxIterations: parsed.SEED_AGENT_MAX_ITERATIONS,
       maxTokens: parsed.SEED_AGENT_MAX_TOKENS,
       // Agent defaults follow LLM profile catalog defaults.
-      defaultProfile: profileCatalog.defaultProfile,
+      defaultProfile: profileEnvelope.llms.defaultProfile,
     },
     timeouts: {
       interaction: parsed.SEED_TIMEOUT_INTERACTION,

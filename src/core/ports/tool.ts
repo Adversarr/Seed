@@ -31,18 +31,33 @@ export type ToolResult = z.infer<typeof ToolResultSchema>
 // Tool Definition (for LLM)
 // ============================================================================
 
-export type JsonSchemaProperty = {
-  type: string
-  description?: string
-  enum?: string[]
-  items?: JsonSchemaProperty
-  properties?: Record<string, JsonSchemaProperty>
+/**
+ * Generic JSON Schema payload passed to LLM tool-calling APIs.
+ *
+ * Built-in tools usually provide a simple `{ type: 'object', properties, required }`
+ * shape, while extension tools (for example MCP) may provide richer schema
+ * constructs (`oneOf`, nested refs, etc.).
+ */
+export type ToolParametersSchema = Record<string, unknown>
+
+/**
+ * Narrow helper shape used by local argument validation code paths.
+ *
+ * When a tool schema does not match this shape, runtime validation is skipped
+ * and delegated to the downstream tool implementation.
+ */
+export type SimpleToolParametersSchema = {
+  type: 'object'
+  properties: Record<string, SimpleJsonSchemaProperty>
   required?: string[]
 }
 
-export type ToolParametersSchema = {
-  type: 'object'
-  properties: Record<string, JsonSchemaProperty>
+export type SimpleJsonSchemaProperty = {
+  type: string
+  description?: string
+  enum?: string[]
+  items?: SimpleJsonSchemaProperty
+  properties?: Record<string, SimpleJsonSchemaProperty>
   required?: string[]
 }
 

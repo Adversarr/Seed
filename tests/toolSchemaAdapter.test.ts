@@ -162,4 +162,29 @@ describe('toolSchemaAdapter', () => {
 
     expect(isComplexToolParameters(schema)).toBe(true)
   })
+
+  it('zod strategy tolerates non-string enum values', async () => {
+    const { convertToolDefinitionsToAISDKTools } = await import('../src/infrastructure/tools/toolSchemaAdapter.js')
+
+    jsonSchemaMock.mockClear()
+
+    const tools: ToolDefinition[] = [
+      {
+        name: 'enum_fallback',
+        description: 'enum fallback',
+        parameters: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: [1, 2] as unknown as string[],
+            },
+          },
+        },
+      },
+    ]
+
+    expect(() => convertToolDefinitionsToAISDKTools(tools, 'zod')).not.toThrow()
+    expect(jsonSchemaMock).toHaveBeenCalledTimes(0)
+  })
 })

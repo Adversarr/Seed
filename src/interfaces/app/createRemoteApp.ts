@@ -316,6 +316,7 @@ export async function createRemoteApp(opts: CreateRemoteAppOptions): Promise<App
     telemetry: { emit: noop } as unknown as App['telemetry'],
     toolRegistry: { get: noop, list: () => [], listByGroups: () => [] } as unknown as App['toolRegistry'],
     toolExecutor: { execute: noopAsync } as unknown as App['toolExecutor'],
+    mcpToolExtension: null,
     llm: {
       provider: runtime.llm.provider,
       label: runtime.llm.provider,

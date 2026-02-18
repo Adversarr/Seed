@@ -1,6 +1,4 @@
 import { z } from 'zod'
-import { readFileSync } from 'node:fs'
-import { isAbsolute, resolve } from 'node:path'
 import type {
   LLMBuiltinProfile,
   LLMProfile,
@@ -160,84 +158,23 @@ function validateSemanticConstraints(
   }
 }
 
-function parseConfigInput(raw: string, sourceName: string): unknown {
-  try {
-    return JSON.parse(raw) as unknown
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    throw new Error(`${sourceName} is not valid JSON: ${reason}`)
-  }
-}
-
-function readProfileCatalogFromPath(configPath: string, sourceName: string): unknown {
-  let fileContent = ''
-  try {
-    fileContent = readFileSync(configPath, 'utf8')
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    throw new Error(`${sourceName} path is unreadable: ${configPath} (${reason})`)
-  }
-  return parseConfigInput(fileContent, `${sourceName} file (${configPath})`)
-}
-
-function readDefaultWorkspaceProfileCatalog(
-  provider: LLMProvider,
-  workspaceDir: string,
-): { input: unknown; sourceName: string } {
-  const defaultPath = resolve(workspaceDir, 'profiles.json')
-  let raw = ''
-  try {
-    raw = readFileSync(defaultPath, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return {
-        input: createDefaultLLMProfileCatalogConfig(provider),
-        sourceName: 'generated default profile catalog',
-      }
-    }
-    const reason = error instanceof Error ? error.message : String(error)
-    throw new Error(`default workspace profiles file path is unreadable: ${defaultPath} (${reason})`)
-  }
-
-  return {
-    input: parseConfigInput(raw, `default workspace profiles file (${defaultPath})`),
-    sourceName: `default workspace profiles file (${defaultPath})`,
-  }
-}
-
-export function parseLLMProfileCatalogConfig(opts: {
-  raw: string | undefined
+/**
+ * Validate an LLM profile catalog from arbitrary JSON-like input.
+ */
+export function parseLLMProfileCatalogConfigFromInput(opts: {
+  input: unknown
   provider: LLMProvider
-  workspaceDir?: string
+  sourceName: string
 }): LLMProfileCatalogConfig {
-  let input: unknown
-  let sourceName = 'SEED_LLM_PROFILES_JSON'
-  if (!opts.raw) {
-    const workspaceDir = opts.workspaceDir ?? process.cwd()
-    const defaultCatalog = readDefaultWorkspaceProfileCatalog(opts.provider, workspaceDir)
-    input = defaultCatalog.input
-    sourceName = defaultCatalog.sourceName
-  } else {
-    const trimmed = opts.raw.trim()
-    const looksLikeInlineJson = trimmed.startsWith('{') || trimmed.startsWith('[')
-    if (looksLikeInlineJson) {
-      input = parseConfigInput(trimmed, sourceName)
-    } else {
-      const baseDir = opts.workspaceDir ?? process.cwd()
-      const configPath = isAbsolute(trimmed) ? trimmed : resolve(baseDir, trimmed)
-      input = readProfileCatalogFromPath(configPath, sourceName)
-    }
-  }
-
-  const result = LLMProfileCatalogConfigSchema.safeParse(input)
+  const result = LLMProfileCatalogConfigSchema.safeParse(opts.input)
   if (!result.success) {
     const message = result.error.issues
       .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
       .join('; ')
-    throw new Error(`${sourceName} validation failed: ${message}`)
+    throw new Error(`${opts.sourceName} validation failed: ${message}`)
   }
 
-  validateSemanticConstraints(result.data, opts.provider, sourceName)
+  validateSemanticConstraints(result.data, opts.provider, opts.sourceName)
   return result.data
 }
 

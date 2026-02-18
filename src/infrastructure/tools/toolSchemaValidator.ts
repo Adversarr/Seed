@@ -1,14 +1,19 @@
 /**
  * Tool Argument Schema Validator
  *
- * Validates tool arguments against the tool's JSON Schema parameter definition.
- * Returns null if valid, or an error message string if invalid.
+ * Validates tool arguments against simple object-style schemas used by built-in
+ * tools. Rich JSON schemas (for example MCP-provided schemas with oneOf/refs)
+ * are passed through without local validation and delegated to the remote tool.
  */
 
-import type { ToolParametersSchema, JsonSchemaProperty } from '../../core/ports/tool.js'
+import type {
+  ToolParametersSchema,
+  SimpleToolParametersSchema,
+  SimpleJsonSchemaProperty,
+} from '../../core/ports/tool.js'
 
 /**
- * Validate tool arguments against the tool's JSON Schema.
+ * Validate tool arguments against the tool's JSON schema.
  *
  * @param args - The arguments to validate
  * @param schema - The tool's parameter schema
@@ -22,9 +27,15 @@ export function validateToolArgs(
     return 'Arguments must be an object'
   }
 
+  const simpleSchema = toSimpleToolParametersSchema(schema)
+  if (!simpleSchema) {
+    // Unknown/advanced schema shape: skip local validation.
+    return null
+  }
+
   // Check required fields
-  if (schema.required) {
-    for (const field of schema.required) {
+  if (simpleSchema.required) {
+    for (const field of simpleSchema.required) {
       if (!(field in args) || args[field] === undefined) {
         return `Missing required argument: '${field}'`
       }
@@ -33,7 +44,7 @@ export function validateToolArgs(
 
   // Check each provided argument against the schema
   for (const [key, value] of Object.entries(args)) {
-    const propSchema = schema.properties[key]
+    const propSchema = simpleSchema.properties[key]
     if (!propSchema) {
       // Extra properties are allowed (tools may ignore them)
       continue
@@ -46,7 +57,90 @@ export function validateToolArgs(
   return null
 }
 
-function validateProperty(name: string, value: unknown, schema: JsonSchemaProperty): string | null {
+function toSimpleToolParametersSchema(schema: ToolParametersSchema): SimpleToolParametersSchema | null {
+  if (!schema || typeof schema !== 'object') return null
+
+  const record = schema as Record<string, unknown>
+  if (record.type !== 'object') return null
+
+  const properties = record.properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    return null
+  }
+
+  const normalizedProperties: Record<string, SimpleJsonSchemaProperty> = {}
+  for (const [key, rawProperty] of Object.entries(properties)) {
+    const normalized = toSimpleJsonSchemaProperty(rawProperty)
+    if (!normalized) return null
+    normalizedProperties[key] = normalized
+  }
+
+  const rawRequired = record.required
+  if (rawRequired !== undefined && !Array.isArray(rawRequired)) {
+    return null
+  }
+
+  const required = Array.isArray(rawRequired)
+    ? rawRequired.filter((item): item is string => typeof item === 'string')
+    : undefined
+
+  return {
+    type: 'object',
+    properties: normalizedProperties,
+    ...(required ? { required } : {}),
+  }
+}
+
+function toSimpleJsonSchemaProperty(raw: unknown): SimpleJsonSchemaProperty | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null
+  }
+
+  const record = raw as Record<string, unknown>
+  if (typeof record.type !== 'string') {
+    return null
+  }
+
+  const property: SimpleJsonSchemaProperty = {
+    type: record.type,
+  }
+
+  if (typeof record.description === 'string') {
+    property.description = record.description
+  }
+
+  if (Array.isArray(record.enum)) {
+    property.enum = record.enum.filter((item): item is string => typeof item === 'string')
+  }
+
+  if (record.items !== undefined) {
+    const nestedItem = toSimpleJsonSchemaProperty(record.items)
+    if (!nestedItem) return null
+    property.items = nestedItem
+  }
+
+  if (record.properties !== undefined) {
+    if (!record.properties || typeof record.properties !== 'object' || Array.isArray(record.properties)) {
+      return null
+    }
+    const nestedProperties: Record<string, SimpleJsonSchemaProperty> = {}
+    for (const [nestedKey, nestedRaw] of Object.entries(record.properties)) {
+      const nestedProperty = toSimpleJsonSchemaProperty(nestedRaw)
+      if (!nestedProperty) return null
+      nestedProperties[nestedKey] = nestedProperty
+    }
+    property.properties = nestedProperties
+  }
+
+  if (record.required !== undefined) {
+    if (!Array.isArray(record.required)) return null
+    property.required = record.required.filter((item): item is string => typeof item === 'string')
+  }
+
+  return property
+}
+
+function validateProperty(name: string, value: unknown, schema: SimpleJsonSchemaProperty): string | null {
   // null/undefined check for required is handled above; optional undefined is ok
   if (value === undefined || value === null) return null
 

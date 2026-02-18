@@ -16,7 +16,7 @@ demo/
 ├── fake-llm-config.ts        # Deterministic response sequence used for scripted demos/tests
 ├── brief.md                  # Project brief for context
 ├── outline.md                # Goal and execution outline
-├── profiles.json             # Workspace profile catalog (auto-loaded by default)
+├── profiles.json             # Workspace profile catalog (strict { llms, mcp } envelope; auto-loaded by default)
 ├── skills/                   # Workspace-local skills discovered at startup
 │   ├── repo-survey/
 │   │   ├── SKILL.md

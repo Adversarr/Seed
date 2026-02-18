@@ -12,12 +12,13 @@ import { JsonlEventStore } from '../../infrastructure/persistence/jsonlEventStor
 import { FsArtifactStore } from '../../infrastructure/filesystem/fsArtifactStore.js'
 import { JsonlAuditLog } from '../../infrastructure/persistence/jsonlAuditLog.js'
 import { JsonlConversationStore } from '../../infrastructure/persistence/jsonlConversationStore.js'
-import { DefaultToolRegistry } from '../../infrastructure/tools/toolRegistry.js'
+import { ExtendedToolRegistry } from '../../infrastructure/tools/extendedToolRegistry.js'
 import { registerBuiltinTools } from '../../infrastructure/tools/index.js'
 import { registerAgentGroupTools } from '../../infrastructure/tools/agentGroupTools.js'
 import { registerTodoUpdateTool } from '../../infrastructure/tools/todoUpdate.js'
 import { registerActivateSkillTool } from '../../infrastructure/tools/activateSkill.js'
 import { DefaultToolExecutor } from '../../infrastructure/tools/toolExecutor.js'
+import { McpToolExtensionManager } from '../../infrastructure/tools/mcpClient.js'
 import { DefaultSkillRegistry } from '../../infrastructure/skills/skillRegistry.js'
 import { SkillManager } from '../../infrastructure/skills/skillManager.js'
 import { DefaultWorkspacePathResolver } from '../../infrastructure/workspace/workspacePathResolver.js'
@@ -72,6 +73,7 @@ export type App = {
   telemetry: TelemetrySink
   toolRegistry: ToolRegistry
   toolExecutor: ToolExecutor
+  mcpToolExtension: McpToolExtensionManager | null
   llm: LLMClient
   uiBus: UiBus
   
@@ -139,9 +141,9 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
   }
 
   // Tool Registry
-  const toolRegistry = opts.toolRegistry ?? new DefaultToolRegistry()
+  const toolRegistry = opts.toolRegistry ?? new ExtendedToolRegistry()
   if (!opts.toolRegistry) {
-    registerBuiltinTools(toolRegistry as DefaultToolRegistry, {
+    registerBuiltinTools(toolRegistry, {
       runCommand: {
         maxOutputLength: config.resources.maxOutputLength,
         defaultTimeout: config.timeouts.exec
@@ -151,6 +153,17 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
         profile: 'research_web',
       },
     })
+  }
+
+  let mcpToolExtension: McpToolExtensionManager | null = null
+  if (!opts.toolRegistry && toolRegistry instanceof ExtendedToolRegistry) {
+    mcpToolExtension = new McpToolExtensionManager({
+      config: config.mcp,
+      onToolsChanged: (namespace, tools) => {
+        toolRegistry.setDynamicTools(namespace, tools)
+      },
+    })
+    await mcpToolExtension.start()
   }
 
   // Tool Executor
@@ -275,6 +288,7 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
     telemetry,
     toolRegistry,
     toolExecutor,
+    mcpToolExtension,
     llm,
     uiBus,
     // Application Services

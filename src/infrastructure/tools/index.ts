@@ -24,6 +24,9 @@ export { globTool } from './globTool.js'
 export { grepTool } from './grepTool.js'
 export { createWebSearchTool } from './webSearch.js'
 export { createWebFetchTool } from './webFetch.js'
+export { ExtendedToolRegistry } from './extendedToolRegistry.js'
+export { McpToolExtensionManager } from './mcpClient.js'
+export { createMcpTool } from './mcpTool.js'
 export { createActivateSkillTool, registerActivateSkillTool } from './activateSkill.js'
 export {
   createTodoUpdateTool,

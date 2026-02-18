@@ -145,4 +145,15 @@ describe('validateToolArgs (B5)', () => {
   it('returns null when optional fields are omitted', () => {
     expect(validateToolArgs({ query: 'hello' }, schema)).toBeNull()
   })
+
+  it('skips local validation for advanced JSON schema shapes', () => {
+    const advancedSchema: ToolParametersSchema = {
+      oneOf: [
+        { type: 'object', properties: { path: { type: 'string' } } },
+        { type: 'object', properties: { id: { type: 'number' } } },
+      ],
+    }
+
+    expect(validateToolArgs({ unexpected: 1 }, advancedSchema)).toBeNull()
+  })
 })

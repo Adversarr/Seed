@@ -1,4 +1,4 @@
-# LLM Configuration
+# LLM and MCP Configuration
 
 ## Provider Model
 
@@ -20,14 +20,14 @@ Provider default base URLs:
 - `bailian` → `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `volcengine` → `https://ark.cn-beijing.volces.com/api/v3`
 
-## Canonical Profile Catalog
+## Canonical Workspace Profile Catalog
 
 Use one env var as source of truth:
 - `SEED_LLM_PROFILES_JSON`
 
 Default behavior when `SEED_LLM_PROFILES_JSON` is unset:
 - load `WORKDIR/profiles.json` if present,
-- otherwise fall back to generated provider defaults.
+- otherwise fall back to generated defaults.
 
 `SEED_LLM_PROFILES_JSON` supports two forms:
 - Inline JSON object string.
@@ -35,7 +35,36 @@ Default behavior when `SEED_LLM_PROFILES_JSON` is unset:
   - Absolute path, or
   - Relative path resolved against the selected workspace directory (`--workspace`).
 
-Schema:
+## Strict Envelope Format
+
+Profiles now use a strict top-level envelope:
+
+```json
+{
+  "llms": {
+    "defaultProfile": "fast",
+    "clientPolicies": {
+      "default": {
+        "openaiCompat": { "enableThinking": true }
+      }
+    },
+    "profiles": {
+      "fast": { "model": "gpt-4o-mini", "clientPolicy": "default" },
+      "writer": { "model": "gpt-4o", "clientPolicy": "default" },
+      "reasoning": { "model": "gpt-4o", "clientPolicy": "default" }
+    }
+  },
+  "mcp": {
+    "servers": {}
+  }
+}
+```
+
+Legacy top-level LLM fields (`defaultProfile`, `clientPolicies`, `profiles` directly at root)
+are rejected.
+
+## `llms` Schema
+
 - `defaultProfile: string`
 - `clientPolicies: Record<string, ClientPolicy>`
 - `profiles: Record<string, { model: string; clientPolicy: string }>`
@@ -47,7 +76,7 @@ Required built-in profile IDs:
 
 Custom profile IDs are allowed.
 
-### ClientPolicy schema
+### `ClientPolicy` schema
 
 - `openaiCompat?: {`
   - `enableThinking?: boolean`
@@ -64,38 +93,52 @@ Custom profile IDs are allowed.
 
 Provider-specific policy knobs are validated against the active provider and rejected when mismatched.
 
-Provider-specific example catalogs:
-- `docs/examples/profiles-bailian.json`
-- `docs/examples/profiles-volcengine.json`
+## `mcp` Schema
 
-## Example Profile Catalog
+`mcp.servers` is a map of MCP server definitions. Each server supports:
+
+- `enabled?: boolean` (default `true`)
+- `transport`:
+  - `stdio`: `{ type, command, args?, env?, cwd? }`
+  - `streamable_http`: `{ type, url, headers?, sessionId? }`
+  - `sse`: `{ type, url, headers? }`
+- `startupTimeoutMs?: number` (default `10000`)
+- `toolTimeoutMs?: number` (default `60000`)
+- `includeTools?: string[]`
+- `excludeTools?: string[]` (`includeTools` takes precedence)
+- `risk?: {`
+  - `default?: safe|risky` (default `risky`)
+  - `safeReadOnlyHint?: boolean` (default `false`)
+  - `safeTools?: string[]`
+- `}`
+
+### Example MCP server
 
 ```json
 {
-  "defaultProfile": "fast",
-  "clientPolicies": {
-    "balanced": {
-      "openaiCompat": {
-        "enableThinking": true
-      }
-    },
-    "web_research": {
-      "openaiCompat": {
-        "enableThinking": true
-      },
-      "provider": {
-        "volcengine": {
-          "thinkingType": "auto",
-          "reasoningEffort": "medium"
+  "mcp": {
+    "servers": {
+      "github": {
+        "enabled": true,
+        "transport": {
+          "type": "stdio",
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"],
+          "env": {
+            "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+          }
+        },
+        "startupTimeoutMs": 10000,
+        "toolTimeoutMs": 60000,
+        "includeTools": [],
+        "excludeTools": [],
+        "risk": {
+          "default": "risky",
+          "safeReadOnlyHint": false,
+          "safeTools": []
         }
       }
     }
-  },
-  "profiles": {
-    "fast": { "model": "gpt-4o-mini", "clientPolicy": "balanced" },
-    "writer": { "model": "gpt-4o", "clientPolicy": "balanced" },
-    "reasoning": { "model": "gpt-4o", "clientPolicy": "balanced" },
-    "research_web": { "model": "gpt-4o", "clientPolicy": "web_research" }
   }
 }
 ```
@@ -117,5 +160,10 @@ Provider-specific example catalogs:
 
 ## Validation
 
-All env parsing is validated through Zod in `src/config/appConfig.ts` and `src/config/llmProfileCatalog.ts`.
+All env parsing is validated through Zod in:
+- `src/config/appConfig.ts`
+- `src/config/profileCatalog.ts`
+- `src/config/llmProfileCatalog.ts`
+- `src/config/mcpProfileCatalog.ts`
+
 Invalid values fail fast at startup.
