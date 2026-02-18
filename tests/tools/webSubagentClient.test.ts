@@ -88,6 +88,31 @@ describe('webSubagentClient', () => {
     })
   })
 
+  test('uses chat completions endpoint when baseURL points to responses path', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'bailian search content' } }],
+      }), { status: 200 })
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    const llm = new BailianLLMClient({
+      apiKey: 'bailian-key',
+      baseURL: 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1',
+      profileCatalog: createProfileCatalog('qwen-web'),
+    })
+
+    const result = await executeWebSearchSubagent({
+      llm,
+      profile: 'research_web',
+      prompt: 'latest AI updates',
+    })
+
+    expect(result.status).toBe('success')
+    const [url] = fetchMock.mock.calls[0] as [string]
+    expect(url).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')
+  })
+
   test('adds qwen3-max search strategy in non-thinking native web search', async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(JSON.stringify({
@@ -143,7 +168,7 @@ describe('webSubagentClient', () => {
     expect(result.status).toBe('success')
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1/responses')
+    expect(url).toBe('https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses')
     const payload = JSON.parse(String(init.body))
     expect(payload).toEqual({
       model: 'qwen-web',
@@ -151,7 +176,6 @@ describe('webSubagentClient', () => {
       tools: [
         { type: 'web_search' },
         { type: 'web_extractor' },
-        { type: 'code_interpreter' },
       ],
       enable_thinking: true,
     })

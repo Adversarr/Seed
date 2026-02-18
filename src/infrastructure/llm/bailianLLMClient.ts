@@ -4,10 +4,36 @@ import type { ToolSchemaStrategy } from '../tools/toolSchemaAdapter.js'
 import { OpenAILLMClient } from './openaiLLMClient.js'
 import type { NativeWebRequest, NativeWebResult } from './webNative.js'
 
-const BAILIAN_DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+const BAILIAN_DEFAULT_CHAT_COMPLETIONS_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+const BAILIAN_DEFAULT_RESPONSES_BASE_URL = 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1'
 
 function normalizeBaseURL(value: string): string {
   return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+function resolveNativeWebBaseURLs(configuredBaseURL: string | null | undefined): {
+  chatCompletionsBaseURL: string
+  responsesBaseURL: string
+} {
+  const normalized = normalizeBaseURL(configuredBaseURL ?? BAILIAN_DEFAULT_CHAT_COMPLETIONS_BASE_URL)
+
+  // Bailian OpenAI-compatible endpoints are split across two default paths:
+  // - Chat Completions: /compatible-mode/v1
+  // - Responses:       /api/v2/apps/protocols/compatible-mode/v1
+  if (
+    normalized === BAILIAN_DEFAULT_CHAT_COMPLETIONS_BASE_URL
+    || normalized === BAILIAN_DEFAULT_RESPONSES_BASE_URL
+  ) {
+    return {
+      chatCompletionsBaseURL: BAILIAN_DEFAULT_CHAT_COMPLETIONS_BASE_URL,
+      responsesBaseURL: BAILIAN_DEFAULT_RESPONSES_BASE_URL,
+    }
+  }
+
+  return {
+    chatCompletionsBaseURL: normalized,
+    responsesBaseURL: normalized,
+  }
 }
 
 function parseUnknownText(value: unknown): string {
@@ -75,7 +101,8 @@ function toErrorMessage(status: number, body: string): string {
 }
 
 export class BailianLLMClient extends OpenAILLMClient {
-  readonly #baseURL: string
+  readonly #chatCompletionsBaseURL: string
+  readonly #responsesBaseURL: string
   readonly #apiKey: string
   readonly #profileCatalogConfig: LLMProfileCatalogConfig
 
@@ -100,7 +127,9 @@ export class BailianLLMClient extends OpenAILLMClient {
     }
 
     this.#apiKey = opts.apiKey
-    this.#baseURL = normalizeBaseURL(opts.baseURL ?? BAILIAN_DEFAULT_BASE_URL)
+    const baseURLs = resolveNativeWebBaseURLs(opts.baseURL)
+    this.#chatCompletionsBaseURL = baseURLs.chatCompletionsBaseURL
+    this.#responsesBaseURL = baseURLs.responsesBaseURL
     this.#profileCatalogConfig = opts.profileCatalog
   }
 
@@ -122,7 +151,7 @@ export class BailianLLMClient extends OpenAILLMClient {
       tools: [
         { type: 'web_search' },
         { type: 'web_extractor' },
-        { type: 'code_interpreter' },
+        // { type: 'code_interpreter' },
       ],
       enable_thinking: true,
     }, request.signal)
@@ -151,7 +180,7 @@ export class BailianLLMClient extends OpenAILLMClient {
   }
 
   async #postChatCompletion(payload: Record<string, unknown>, signal?: AbortSignal): Promise<NativeWebResult> {
-    const response = await fetch(`${this.#baseURL}/chat/completions`, {
+    const response = await fetch(`${this.#chatCompletionsBaseURL}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.#apiKey}`,
@@ -199,7 +228,7 @@ export class BailianLLMClient extends OpenAILLMClient {
   }
 
   async #postResponses(payload: Record<string, unknown>, signal?: AbortSignal): Promise<NativeWebResult> {
-    const response = await fetch(`${this.#baseURL}/responses`, {
+    const response = await fetch(`${this.#responsesBaseURL}/responses`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.#apiKey}`,

@@ -1,45 +1,26 @@
 {
   "defaultProfile": "fast",
   "clientPolicies": {
-    "volc_default": {
+    "bailian_default": {
       "openaiCompat": {
         "enableThinking": true
-      },
-      "provider": {
-        "volcengine": {
-          "thinkingType": "enabled",
-          "reasoningEffort": "medium"
-        }
       }
     },
-    "volc_web": {
+    "bailian_search": {
       "openaiCompat": {
         "enableThinking": true
       },
       "provider": {
-        "volcengine": {
-          "thinkingType": "enabled",
-          "reasoningEffort": "high"
+        "bailian": {
+          "thinkingBudget": 256
         }
       }
     }
   },
   "profiles": {
-    "fast": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    },
-    "writer": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    },
-    "reasoning": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    },
-    "research_web": {
-      "model": "doubao-seed-2-0-pro-260215",
-      "clientPolicy": "volc_web"
-    }
+    "fast": { "model": "qwen3.5-plus", "clientPolicy": "bailian_search" },
+    "writer": { "model": "qwen3.5-plus", "clientPolicy": "bailian_search" },
+    "reasoning": { "model": "qwen3.5-plus", "clientPolicy": "bailian_search" },
+    "research_web": { "model": "qwen3.5-plus", "clientPolicy": "bailian_search" }
   }
 }
