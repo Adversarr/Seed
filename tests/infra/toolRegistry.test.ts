@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { DefaultToolRegistry } from '../../src/infrastructure/tools/toolRegistry.js'
-import { FilteredToolRegistry, createFilteredRegistry } from '../../src/infrastructure/tools/filteredToolRegistry.js'
+import { FilteredToolRegistry } from '../../src/core/policies/filteredToolRegistry.js'
 import type { Tool, ToolGroup } from '../../src/core/ports/tool.js'
 
 function createTool(name: string, group: ToolGroup): Tool {
@@ -121,11 +121,11 @@ describe('FilteredToolRegistry', () => {
     expect(() => filtered.register(createTool('new_tool', 'search'))).toThrow('FilteredToolRegistry is read-only')
   })
 
-  test('createFilteredRegistry returns empty view for empty groups', () => {
+  test('returns empty view for empty groups', () => {
     const registry = new DefaultToolRegistry()
     registry.register(createTool('search_tool', 'search'))
 
-    const filtered = createFilteredRegistry(registry, [])
+    const filtered = new FilteredToolRegistry(registry, [])
 
     expect(filtered.list()).toEqual([])
   })

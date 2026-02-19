@@ -15,7 +15,7 @@ import { Subject } from 'rxjs'
 import type { Subscribable } from '../../core/ports/subscribable.js'
 import type { AuditLog, AuditLogEntry, StoredAuditEntry } from '../../core/ports/auditLog.js'
 import { AuditLogEntrySchema } from '../../core/ports/auditLog.js'
-import { AsyncMutex } from '../asyncMutex.js'
+import { AsyncMutex } from '../../shared/asyncMutex.js'
 
 // ============================================================================
 // Internal Types

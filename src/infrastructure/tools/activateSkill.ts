@@ -1,10 +1,10 @@
 import { nanoid } from 'nanoid'
 import type { Tool, ToolContext, ToolRegistry, ToolResult } from '../../core/ports/tool.js'
+import type { SkillSessionManager } from '../../core/ports/skill.js'
 import { sanitizeSkillName } from '../../core/entities/skill.js'
-import type { SkillManager } from '../skills/skillManager.js'
 
 export type ActivateSkillToolDeps = {
-  skillManager: SkillManager
+  skillManager: SkillSessionManager
 }
 
 export function createActivateSkillTool(deps: ActivateSkillToolDeps): Tool {

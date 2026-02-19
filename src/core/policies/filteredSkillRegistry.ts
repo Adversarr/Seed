@@ -1,9 +1,9 @@
-import type { SkillDefinition } from '../../core/entities/skill.js'
-import { sanitizeSkillName } from '../../core/entities/skill.js'
-import type { SkillRegistry } from '../../core/ports/skill.js'
+import type { SkillDefinition } from '../entities/skill.js'
+import { sanitizeSkillName } from '../entities/skill.js'
+import type { SkillRegistry } from '../ports/skill.js'
 
 /**
- * Infrastructure Layer - Filtered Skill Registry
+ * Core Policy - Filtered Skill Registry
  *
  * Read-only adapter used to restrict visible skills per agent.
  */
@@ -41,11 +41,4 @@ export class FilteredSkillRegistry implements SkillRegistry {
     const requested = new Set(names.map((name) => sanitizeSkillName(name)))
     return this.list().filter((skill) => requested.has(skill.name))
   }
-}
-
-export function createFilteredSkillRegistry(
-  inner: SkillRegistry,
-  allowlist: readonly string[]
-): SkillRegistry {
-  return new FilteredSkillRegistry(inner, allowlist)
 }

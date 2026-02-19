@@ -1,16 +1,10 @@
+import type { Tool, ToolRegistry, ToolDefinition, ToolGroup } from '../ports/tool.js'
+
 /**
- * Infrastructure Layer - Filtered Tool Registry
+ * Core Policy - Filtered Tool Registry
  *
- * A read-only adapter that restricts tool visibility by ToolGroup.
- * Used to scope per-agent tool access without mutating the real registry.
+ * Read-only adapter that restricts tool visibility by ToolGroup.
  */
-
-import type { Tool, ToolRegistry, ToolDefinition, ToolGroup } from '../../core/ports/tool.js'
-
-// ============================================================================
-// Filtered Tool Registry (per-agent adapter)
-// ============================================================================
-
 export class FilteredToolRegistry implements ToolRegistry {
   readonly #inner: ToolRegistry
   readonly #allowedGroups: ReadonlySet<ToolGroup>
@@ -31,12 +25,12 @@ export class FilteredToolRegistry implements ToolRegistry {
   }
 
   list(): Tool[] {
-    return this.#inner.list().filter((t) => this.#allowedGroups.has(t.group))
+    return this.#inner.list().filter((tool) => this.#allowedGroups.has(tool.group))
   }
 
   listByGroups(groups: readonly ToolGroup[]): Tool[] {
     const subSet = new Set(groups)
-    return this.list().filter((t) => subSet.has(t.group))
+    return this.list().filter((tool) => subSet.has(tool.group))
   }
 
   toOpenAIFormat(): Array<{ type: 'function'; function: ToolDefinition }> {
@@ -52,12 +46,4 @@ export class FilteredToolRegistry implements ToolRegistry {
       function: { name: tool.name, description: tool.description, parameters: tool.parameters }
     }))
   }
-}
-
-/**
- * Create a scoped view of a registry for the given tool groups.
- * If groups is empty, returns an empty registry (no tools visible).
- */
-export function createFilteredRegistry(inner: ToolRegistry, groups: readonly ToolGroup[]): ToolRegistry {
-  return new FilteredToolRegistry(inner, groups)
 }

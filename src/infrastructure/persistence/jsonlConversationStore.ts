@@ -16,7 +16,7 @@ import type {
   StoredConversationEntry
 } from '../../core/ports/conversationStore.js'
 import { ConversationEntrySchema } from '../../core/ports/conversationStore.js'
-import { AsyncMutex } from '../asyncMutex.js'
+import { AsyncMutex } from '../../shared/asyncMutex.js'
 
 // ============================================================================
 // Internal Types

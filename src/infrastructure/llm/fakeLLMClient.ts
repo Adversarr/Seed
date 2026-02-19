@@ -9,7 +9,7 @@ import type {
   LLMStreamOptions,
 } from '../../core/ports/llmClient.js'
 
-export type FakeLLMRule = {
+type FakeLLMRule = {
   whenIncludes: string
   returns: string | LLMResponse
 }

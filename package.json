@@ -15,6 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "check:core-types": "tsc -p tsconfig.core.json --noEmit",
     "check:core-export-usage": "node --import tsx ./scripts/check-core-export-usage.ts",
+    "check:layer-boundaries": "node --import tsx ./scripts/check-layer-boundaries.ts",
     "check:domain-clean": "npm run check:core-types && npm run check:core-export-usage",
     "start": "node dist/index.js",
     "test": "vitest run",

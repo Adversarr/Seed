@@ -1,4 +1,4 @@
-import type { SkillDefinition } from '../entities/skill.js'
+import type { SkillActivationResult, SkillDefinition } from '../entities/skill.js'
 
 /**
  * Domain Layer - Skill Registry Port
@@ -26,4 +26,20 @@ export interface SkillRegistry {
    * Used by filtered visibility adapters and tests.
    */
   listByNames(names: readonly string[]): SkillDefinition[]
+}
+
+/**
+ * Task-scoped skill session contract.
+ *
+ * Owns visibility and activation state for one runtime task session.
+ * Implementations may persist this in-memory (default) or externally.
+ */
+export interface SkillSessionManager {
+  setTaskVisibleSkills(taskId: string, visibleSkillNames: readonly string[]): void
+  clearTaskSession(taskId: string): void
+  listVisibleSkills(taskId: string): SkillDefinition[]
+  getVisibleSkill(taskId: string, name: string): SkillDefinition | undefined
+  isActivationConsentRequired(taskId: string, skillName: string): boolean
+  isActivated(taskId: string, skillName: string): boolean
+  activateSkill(taskId: string, skillName: string): Promise<SkillActivationResult>
 }

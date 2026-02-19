@@ -1,7 +1,7 @@
 import type { Subscription } from '../../core/ports/subscribable.js'
 import type { EventStore } from '../../core/ports/eventStore.js'
 import type { LLMClient, LLMProfile, LLMProfileCatalog } from '../../core/ports/llmClient.js'
-import type { SkillRegistry } from '../../core/ports/skill.js'
+import type { SkillRegistry, SkillSessionManager } from '../../core/ports/skill.js'
 import {
   DEFAULT_TOOL_RISK_MODE,
   TOOL_RISK_MODES,
@@ -14,8 +14,7 @@ import type { Agent } from '../core/agent.js'
 import type { ConversationManager } from './conversationManager.js'
 import type { OutputHandler } from './outputHandler.js'
 import { AgentRuntime } from '../core/runtime.js'
-import { AsyncMutex } from '../../infrastructure/asyncMutex.js'
-import type { SkillManager } from '../../infrastructure/skills/skillManager.js'
+import { AsyncMutex } from '../../shared/asyncMutex.js'
 
 const EMPTY_SKILL_REGISTRY: SkillRegistry = {
   registerOrReplace: () => ({ replaced: false }),
@@ -52,7 +51,7 @@ export class RuntimeManager {
   readonly #llm: LLMClient
   readonly #toolRegistry: ToolRegistry
   readonly #skillRegistry: SkillRegistry
-  readonly #skillManager?: SkillManager
+  readonly #skillManager?: SkillSessionManager
   readonly #baseDir: string
   readonly #conversationManager: ConversationManager
   readonly #outputHandler: OutputHandler
@@ -85,7 +84,7 @@ export class RuntimeManager {
     llm: LLMClient
     toolRegistry: ToolRegistry
     skillRegistry?: SkillRegistry
-    skillManager?: SkillManager
+    skillManager?: SkillSessionManager
     baseDir: string
     conversationManager: ConversationManager
     outputHandler: OutputHandler

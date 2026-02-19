@@ -19,7 +19,7 @@ import type { ServerMessage, Channel } from '../servers/ws/protocol.js'
 // Types
 // ============================================================================
 
-export interface WsClientOptions {
+interface WsClientOptions {
   port: number
   host?: string
   token: string
@@ -27,7 +27,7 @@ export interface WsClientOptions {
   autoReconnect?: boolean
 }
 
-export type WsConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+type WsConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
 // ============================================================================
 // Client

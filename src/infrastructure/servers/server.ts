@@ -29,7 +29,7 @@ import type { App } from '../../interfaces/app/createApp.js'
 /** Default port for the Seed dev server. Matches Vite proxy in web/vite.config.ts. */
 export const DEFAULT_PORT = 3120
 
-export interface ServerOptions {
+interface ServerOptions {
   port?: number
   host?: string
   authToken: string

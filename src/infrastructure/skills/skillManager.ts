@@ -2,7 +2,7 @@ import { basename, dirname, resolve } from 'node:path'
 import { cp, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import type { SkillActivationResult, SkillDefinition } from '../../core/entities/skill.js'
 import { sanitizeSkillName } from '../../core/entities/skill.js'
-import type { SkillRegistry } from '../../core/ports/skill.js'
+import type { SkillRegistry, SkillSessionManager } from '../../core/ports/skill.js'
 import { loadSkillsFromWorkspace, parseSkillMarkdown } from './skillLoader.js'
 
 type TaskSkillSession = {
@@ -11,7 +11,7 @@ type TaskSkillSession = {
   visible: Set<string> | null
 }
 
-export class SkillManager {
+export class SkillManager implements SkillSessionManager {
   readonly #baseDir: string
   readonly #registry: SkillRegistry
   readonly #sessions = new Map<string, TaskSkillSession>()

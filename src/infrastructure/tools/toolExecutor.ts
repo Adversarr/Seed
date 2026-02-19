@@ -177,14 +177,3 @@ export class DefaultToolExecutor implements ToolExecutor {
     return await finalize(result)
   }
 }
-
-// ============================================================================
-// Factory Function
-// ============================================================================
-
-export function createToolExecutor(opts: {
-  registry: ToolRegistry
-  auditLog: AuditLog
-}): ToolExecutor {
-  return new DefaultToolExecutor(opts)
-}

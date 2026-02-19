@@ -4,7 +4,7 @@ import { glob } from 'glob'
 import type { SkillDefinition } from '../../core/entities/skill.js'
 import { normalizeSkillMetadata } from '../../core/entities/skill.js'
 
-export type SkillLoadResult = {
+type SkillLoadResult = {
   skills: SkillDefinition[]
   warnings: string[]
 }
@@ -85,7 +85,7 @@ export async function loadSkillsFromWorkspace(baseDir: string): Promise<SkillLoa
   }
 }
 
-export type ParsedSkillMarkdown = {
+type ParsedSkillMarkdown = {
   name: string | null
   description: string | null
   body: string
@@ -121,7 +121,7 @@ export function parseSkillMarkdown(markdown: string): ParsedSkillMarkdown {
   }
 }
 
-export function splitFrontmatter(markdown: string): { frontmatter: string | null; body: string } {
+function splitFrontmatter(markdown: string): { frontmatter: string | null; body: string } {
   const normalized = markdown.replace(/\r\n/gu, '\n')
   const lines = normalized.split('\n')
 

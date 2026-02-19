@@ -6,6 +6,7 @@ import type { AuditLog } from '../../core/ports/auditLog.js'
 import type { ConversationStore } from '../../core/ports/conversationStore.js'
 import type { LLMClient } from '../../core/ports/llmClient.js'
 import type { UiBus } from '../../core/ports/uiBus.js'
+import type { SkillSessionManager } from '../../core/ports/skill.js'
 import type { Agent } from '../../agents/core/agent.js'
 import { RuntimeManager } from '../../agents/orchestration/runtimeManager.js'
 import { JsonlEventStore } from '../../infrastructure/persistence/jsonlEventStore.js'
@@ -171,11 +172,12 @@ export async function createApp(opts: CreateAppOptions): Promise<App> {
 
   // Skill Registry + Manager (workspace-local skills)
   const skillRegistry = new DefaultSkillRegistry()
-  const skillManager = new SkillManager({
+  const concreteSkillManager = new SkillManager({
     baseDir,
     registry: skillRegistry,
   })
-  const discoveredSkills = await skillManager.discoverWorkspaceSkills()
+  const skillManager: SkillSessionManager = concreteSkillManager
+  const discoveredSkills = await concreteSkillManager.discoverWorkspaceSkills()
   for (const warning of discoveredSkills.warnings) {
     console.warn(warning)
   }

@@ -7,15 +7,14 @@ import {
   type ToolGroup,
   type ToolRiskMode
 } from '../../core/ports/tool.js'
-import type { SkillRegistry } from '../../core/ports/skill.js'
+import type { SkillRegistry, SkillSessionManager } from '../../core/ports/skill.js'
 import type { DomainEvent, UserInteractionRespondedPayload } from '../../core/events/events.js'
 import type { TaskService, TaskView } from '../../application/services/taskService.js'
 import type { Agent, AgentContext } from './agent.js'
 import type { ConversationManager } from '../orchestration/conversationManager.js'
 import type { OutputHandler, OutputContext } from '../orchestration/outputHandler.js'
-import { FilteredToolRegistry } from '../../infrastructure/tools/filteredToolRegistry.js'
-import { FilteredSkillRegistry } from '../../infrastructure/skills/filteredSkillRegistry.js'
-import type { SkillManager } from '../../infrastructure/skills/skillManager.js'
+import { FilteredToolRegistry } from '../../core/policies/filteredToolRegistry.js'
+import { FilteredSkillRegistry } from '../../core/policies/filteredSkillRegistry.js'
 
 const EMPTY_SKILL_REGISTRY: SkillRegistry = {
   registerOrReplace: () => ({ replaced: false }),
@@ -59,7 +58,7 @@ export class AgentRuntime {
   readonly #llm: LLMClient
   readonly #toolRegistry: ToolRegistry
   readonly #skillRegistry: SkillRegistry
-  readonly #skillManager?: SkillManager
+  readonly #skillManager?: SkillSessionManager
   readonly #baseDir: string
   readonly #conversationManager: ConversationManager
   readonly #outputHandler: OutputHandler
@@ -94,7 +93,7 @@ export class AgentRuntime {
     llm: LLMClient
     toolRegistry: ToolRegistry
     skillRegistry?: SkillRegistry
-    skillManager?: SkillManager
+    skillManager?: SkillSessionManager
     baseDir: string
     conversationManager: ConversationManager
     outputHandler: OutputHandler

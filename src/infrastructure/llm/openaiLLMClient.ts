@@ -103,7 +103,7 @@ export function toToolCallRequests(toolCalls?: Array<{ toolCallId?: string; tool
   })) ?? []
 }
 
-export type OpenAICompatibleProvider = Exclude<LLMProvider, 'fake'>
+type OpenAICompatibleProvider = Exclude<LLMProvider, 'fake'>
 
 type ProviderAdapterBuildInput = {
   policy: ClientPolicy

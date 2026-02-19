@@ -20,7 +20,7 @@ import { Subject } from 'rxjs'
 import type { Subscribable } from '../../core/ports/subscribable.js'
 import { parseDomainEvent, type DomainEvent, type StoredEvent } from '../../core/events/events.js'
 import type { EventStore } from '../../core/ports/eventStore.js'
-import { AsyncMutex } from '../asyncMutex.js'
+import { AsyncMutex } from '../../shared/asyncMutex.js'
 
 // ============================================================================
 // Internal Types

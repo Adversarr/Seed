@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { SkillDefinition } from '../../src/core/entities/skill.js'
+import { FilteredSkillRegistry } from '../../src/core/policies/filteredSkillRegistry.js'
 import { DefaultSkillRegistry } from '../../src/infrastructure/skills/skillRegistry.js'
-import { FilteredSkillRegistry, createFilteredSkillRegistry } from '../../src/infrastructure/skills/filteredSkillRegistry.js'
 
 function createSkill(name: string): SkillDefinition {
   return {
@@ -68,7 +68,7 @@ describe('FilteredSkillRegistry', () => {
 
   test('is read-only', () => {
     const base = new DefaultSkillRegistry()
-    const filtered = createFilteredSkillRegistry(base, ['*'])
+    const filtered = new FilteredSkillRegistry(base, ['*'])
     expect(() => filtered.registerOrReplace(createSkill('new'))).toThrow('FilteredSkillRegistry is read-only')
   })
 })
